@@ -63,6 +63,7 @@ export default function ProjetDetail() {
   const [hFiltreEmp, setHFiltreEmp] = useState("");
   const [hTri, setHTri] = useState<"date_desc" | "date_asc" | "heures_desc" | "heures_asc" | "employe">("date_desc");
   const [hRecherche, setHRecherche] = useState("");
+  const [hPeriode, setHPeriode] = useState<string>(""); // "" = toutes, ou "YYYY-MM-DD|YYYY-MM-DD"
   const [fForm, setFForm] = useState({ numero: "", montant: "", date: today, description: "" });
   const [dForm, setDForm] = useState({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
 
@@ -276,32 +277,70 @@ export default function ProjetDetail() {
             </div>
 
             {/* Filtres / tri sur heures */}
-            {heures.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-3 flex flex-wrap gap-2 items-center">
-                <input type="search" placeholder="🔍 Recherche description" value={hRecherche} onChange={(e) => setHRecherche(e.target.value)} className="flex-1 min-w-40 px-3 py-1.5 border rounded text-sm" />
-                <select value={hFiltreEmp} onChange={(e) => setHFiltreEmp(e.target.value)} className="px-3 py-1.5 border rounded text-sm bg-white">
-                  <option value="">Tous les employés</option>
-                  {Array.from(new Set(heures.map((h: any) => h.employe).filter(Boolean))).map((e: any) => <option key={e} value={e}>{e}</option>)}
-                </select>
-                <select value={hTri} onChange={(e) => setHTri(e.target.value as any)} className="px-3 py-1.5 border rounded text-sm bg-white">
-                  <option value="date_desc">Date ↓ (récent)</option>
-                  <option value="date_asc">Date ↑ (ancien)</option>
-                  <option value="heures_desc">Plus d'heures</option>
-                  <option value="heures_asc">Moins d'heures</option>
-                  <option value="employe">Employé A→Z</option>
-                </select>
-                {(() => {
-                  const filtrees = heures.filter((h: any) => {
-                    if (hFiltreEmp && h.employe !== hFiltreEmp) return false;
-                    if (hRecherche && !(h.description || "").toLowerCase().includes(hRecherche.toLowerCase())) return false;
-                    return true;
-                  });
-                  const totalH = filtrees.reduce((s: number, h: any) => s + (h.heures || 0), 0);
-                  const totalC = filtrees.reduce((s: number, h: any) => s + (h.heures || 0) * (h.taux_horaire || 0), 0);
-                  return <span className="text-xs text-slate-600 ml-auto">{filtrees.length} entrée(s) · <strong>{totalH.toFixed(1)} h</strong> · <strong>{formatCAD(totalC)}</strong></span>;
-                })()}
-              </div>
-            )}
+            {heures.length > 0 && (() => {
+              // Calcul des périodes bi-hebdo (mêmes ancres que le module Paye : dimanche 2026-01-04)
+              const ancre = new Date("2026-01-04T12:00:00");
+              const periodeDe = (dateStr: string) => {
+                const d = new Date(dateStr + "T12:00:00");
+                const diffJ = Math.floor((d.getTime() - ancre.getTime()) / 86400000);
+                const num = Math.floor(diffJ / 14);
+                const deb = new Date(ancre); deb.setDate(ancre.getDate() + num * 14);
+                const fin = new Date(deb); fin.setDate(deb.getDate() + 13);
+                return { debut: deb.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10), num };
+              };
+              // Périodes uniques dans les heures saisies
+              const periodesMap = new Map<string, { debut: string; fin: string }>();
+              for (const h of heures) {
+                const p = periodeDe(h.date);
+                periodesMap.set(p.debut, { debut: p.debut, fin: p.fin });
+              }
+              const periodes = Array.from(periodesMap.values()).sort((a, b) => b.debut.localeCompare(a.debut));
+
+              const filtrees = heures.filter((h: any) => {
+                if (hFiltreEmp && h.employe !== hFiltreEmp) return false;
+                if (hRecherche && !(h.description || "").toLowerCase().includes(hRecherche.toLowerCase())) return false;
+                if (hPeriode) {
+                  const [d, f] = hPeriode.split("|");
+                  if (h.date < d || h.date > f) return false;
+                }
+                return true;
+              });
+              const totalH = filtrees.reduce((s: number, h: any) => s + (h.heures || 0), 0);
+              const totalC = filtrees.reduce((s: number, h: any) => s + (h.heures || 0) * (h.taux_horaire || 0), 0);
+
+              return (
+                <div className="bg-white rounded-lg shadow p-3 space-y-2">
+                  {/* Chips périodes bi-hebdo */}
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    <span className="text-xs font-semibold text-slate-600">📅 Période paye :</span>
+                    <button onClick={() => setHPeriode("")} className={`px-2.5 py-1 rounded text-xs font-semibold ${!hPeriode ? "bg-slate-900 text-white" : "bg-slate-100 hover:bg-slate-200"}`}>Tout</button>
+                    {periodes.map((p) => {
+                      const cle = `${p.debut}|${p.fin}`;
+                      const label = `${p.debut.slice(5)} → ${p.fin.slice(5)}`;
+                      return (
+                        <button key={cle} onClick={() => setHPeriode(cle)} className={`px-2.5 py-1 rounded text-xs font-semibold ${hPeriode === cle ? "bg-emerald-600 text-white" : "bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200"}`} title={`${p.debut} → ${p.fin}`}>{label}</button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <input type="search" placeholder="🔍 Recherche description" value={hRecherche} onChange={(e) => setHRecherche(e.target.value)} className="flex-1 min-w-40 px-3 py-1.5 border rounded text-sm" />
+                    <select value={hFiltreEmp} onChange={(e) => setHFiltreEmp(e.target.value)} className="px-3 py-1.5 border rounded text-sm bg-white">
+                      <option value="">Tous les employés</option>
+                      {Array.from(new Set(heures.map((h: any) => h.employe).filter(Boolean))).map((e: any) => <option key={e} value={e}>{e}</option>)}
+                    </select>
+                    <select value={hTri} onChange={(e) => setHTri(e.target.value as any)} className="px-3 py-1.5 border rounded text-sm bg-white">
+                      <option value="date_desc">Date ↓ (récent)</option>
+                      <option value="date_asc">Date ↑ (ancien)</option>
+                      <option value="heures_desc">Plus d'heures</option>
+                      <option value="heures_asc">Moins d'heures</option>
+                      <option value="employe">Employé A→Z</option>
+                    </select>
+                    <span className="text-xs text-slate-600 ml-auto">{filtrees.length} entrée(s) · <strong>{totalH.toFixed(1)} h</strong> · <strong>{formatCAD(totalC)}</strong></span>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
               {heures.length === 0 ? (
@@ -312,6 +351,10 @@ export default function ProjetDetail() {
                     let list = heures.filter((h: any) => {
                       if (hFiltreEmp && h.employe !== hFiltreEmp) return false;
                       if (hRecherche && !(h.description || "").toLowerCase().includes(hRecherche.toLowerCase())) return false;
+                      if (hPeriode) {
+                        const [d, f] = hPeriode.split("|");
+                        if (h.date < d || h.date > f) return false;
+                      }
                       return true;
                     });
                     list = [...list].sort((a: any, b: any) => {
