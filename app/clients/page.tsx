@@ -22,6 +22,7 @@ export default function ClientsPage() {
   const [creerOuvert, setCreerOuvert] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [recherche, setRecherche] = useState("");
+  const [vue, setVue] = useState<"clients" | "projets">("clients");
   const [nouveau, setNouveau] = useState({ nom: "", courriel: "", telephone: "", adresse: "", notes: "", statut: "prospect", source: "", tags: "" });
   const { toast } = useToast();
 
@@ -74,19 +75,92 @@ export default function ClientsPage() {
 
   const tachesEnRetard = taches.filter((t) => t.date_due && t.date_due < new Date().toISOString().slice(0, 10));
 
+  // Grouper projets par statut
+  const projetsParStatut = projets.reduce((acc: any, p: any) => {
+    const s = p.statut || "actif";
+    if (!acc[s]) acc[s] = [];
+    acc[s].push(p);
+    return acc;
+  }, {});
+  const STATUTS_PROJET: Record<string, { label: string; couleur: string; icone: string }> = {
+    actif: { label: "Actifs", couleur: "bg-emerald-100 text-emerald-900 border-emerald-300", icone: "🚧" },
+    en_pause: { label: "En pause", couleur: "bg-amber-100 text-amber-900 border-amber-300", icone: "⏸️" },
+    complete: { label: "Complétés", couleur: "bg-blue-100 text-blue-900 border-blue-300", icone: "✅" },
+    annule: { label: "Annulés", couleur: "bg-red-100 text-red-900 border-red-300", icone: "❌" },
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Navigation
         titre="👥 CRM"
-        soustitre={`${clients.length} contact(s) · ${taches.length} tâche(s) ouverte(s)`}
-        actions={
-          <button onClick={() => setCreerOuvert(true)} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold text-left">
-            ➕ Nouveau client
-          </button>
-        }
+        soustitre={`${clients.length} contact(s) · ${projets.length} projet(s) · ${taches.length} tâche(s)`}
       />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+        {/* Onglets vue (Clients / Projets) + bouton créer */}
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <div className="flex gap-1 bg-white rounded-lg shadow p-1">
+            <button onClick={() => setVue("clients")} className={`px-4 py-2 rounded text-sm font-semibold ${vue === "clients" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>👥 Clients ({clients.length})</button>
+            <button onClick={() => setVue("projets")} className={`px-4 py-2 rounded text-sm font-semibold ${vue === "projets" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>🏗️ Projets ({projets.length})</button>
+          </div>
+          {vue === "clients" && (
+            <button onClick={() => setCreerOuvert(true)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-bold shadow">
+              ➕ Nouveau client
+            </button>
+          )}
+          {vue === "projets" && (
+            <a href="/projets" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-bold shadow">
+              ➕ Nouveau projet
+            </a>
+          )}
+        </div>
+
+        {/* VUE PROJETS GROUPÉS PAR CATÉGORIE */}
+        {vue === "projets" && (
+          <div className="space-y-4">
+            {projets.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-12 text-center">
+                <div className="text-6xl mb-4">🏗️</div>
+                <h3 className="text-lg font-bold text-slate-700 mb-2">Aucun projet</h3>
+                <a href="/projets" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold">➕ Créer un projet</a>
+              </div>
+            ) : (
+              Object.entries(STATUTS_PROJET).map(([statut, info]) => {
+                const items = projetsParStatut[statut] || [];
+                if (items.length === 0) return null;
+                return (
+                  <section key={statut} className={`border-2 rounded-lg p-4 ${info.couleur}`}>
+                    <div className="flex justify-between items-center mb-3">
+                      <h2 className="font-bold text-lg">{info.icone} {info.label} ({items.length})</h2>
+                      <span className="text-sm">Total : <strong>{formatCAD(items.reduce((s: number, p: any) => s + (p.prix_contrat || p.budget_estime || 0), 0))}</strong></span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {items.map((p: any) => (
+                        <a key={p.id} href={`/projets/${p.id}`} className="bg-white rounded-lg p-3 hover:shadow-md transition block">
+                          <div className="font-bold text-slate-900 truncate">{p.nom}</div>
+                          <div className="text-xs text-slate-500 truncate">{p.client_nom || "—"}</div>
+                          {p.adresse_chantier && <div className="text-xs text-slate-600 truncate mt-1">📍 {p.adresse_chantier}</div>}
+                          <div className="flex justify-between items-center mt-2 text-xs">
+                            <span><strong>{formatCAD(p.prix_contrat || p.budget_estime || 0)}</strong></span>
+                            <span className={p.marge < 0 ? "text-red-600 font-bold" : "text-emerald-700 font-bold"}>{p.budget_estime > 0 ? `${p.marge_pct.toFixed(0)}%` : "—"}</span>
+                          </div>
+                          {p.budget_estime > 0 && (
+                            <div className="mt-1.5 h-1 bg-slate-200 rounded overflow-hidden">
+                              <div className={`h-full ${p.pct_budget_consomme > 100 ? "bg-red-500" : p.pct_budget_consomme > 90 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, p.pct_budget_consomme)}%` }} />
+                            </div>
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* VUE CLIENTS — version actuelle */}
+        {vue === "clients" && <>
         {/* KPIs CRM */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {Object.entries(STATUTS_CRM).map(([k, v]) => (
@@ -174,6 +248,7 @@ export default function ClientsPage() {
             })}
           </div>
         )}
+        </>}
       </main>
 
       {creerOuvert && (
