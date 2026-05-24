@@ -60,6 +60,9 @@ export default function ProjetDetail() {
   const today = new Date().toISOString().slice(0, 10);
   const [hForm, setHForm] = useState({ date: today, heures: "", description: "", employe: "", taux_horaire: "" });
   const [employes, setEmployes] = useState<any[]>([]);
+  const [hFiltreEmp, setHFiltreEmp] = useState("");
+  const [hTri, setHTri] = useState<"date_desc" | "date_asc" | "heures_desc" | "heures_asc" | "employe">("date_desc");
+  const [hRecherche, setHRecherche] = useState("");
   const [fForm, setFForm] = useState({ numero: "", montant: "", date: today, description: "" });
   const [dForm, setDForm] = useState({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
 
@@ -153,9 +156,36 @@ export default function ProjetDetail() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Navigation titre={`🏗️ ${projet.nom}`} soustitre={`${projet.client_nom || "Sans client"}${projet.adresse_chantier ? ` · ${projet.adresse_chantier}` : ""}`} />
+      <Navigation titre={`🏗️ ${projet.nom}`} soustitre={projet.client_nom || ""} />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+
+        {/* 📌 INFOS PROJET + CLIENT EN TÊTE */}
+        <section className="bg-gradient-to-br from-slate-100 to-white border-2 border-slate-200 rounded-lg p-4 md:p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Chantier */}
+            <div>
+              <div className="text-xs uppercase font-bold text-slate-500 mb-1">📍 Chantier</div>
+              <div className="text-lg font-bold text-slate-900">{projet.adresse_chantier || <span className="text-slate-400 italic font-normal">Aucune adresse</span>}</div>
+              {projet.adresse_chantier && (
+                <a href={`https://maps.google.com/?q=${encodeURIComponent(projet.adresse_chantier)}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">📍 Ouvrir dans Google Maps →</a>
+              )}
+              {projet.date_debut && <div className="text-xs text-slate-600 mt-2">📅 Démarré le {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</div>}
+              {projet.date_fin_prevue && <div className="text-xs text-slate-600">🏁 Fin prévue : {projet.date_fin_prevue}</div>}
+            </div>
+
+            {/* Client */}
+            <div className="border-t md:border-t-0 md:border-l border-slate-200 md:pl-4 pt-3 md:pt-0">
+              <div className="text-xs uppercase font-bold text-slate-500 mb-1">👤 Client</div>
+              {projet.client_id ? (
+                <a href={`/clients/${projet.client_id}`} className="text-lg font-bold text-slate-900 hover:underline">{projet.client_nom || "—"}</a>
+              ) : (
+                <div className="text-lg font-bold text-slate-900">{projet.client_nom || "Sans client"}</div>
+              )}
+              <ClientInfo client_id={projet.client_id} />
+            </div>
+          </div>
+        </section>
 
         {/* Statut + lien soumission */}
         <div className="bg-white rounded-lg shadow p-4 flex items-center justify-between flex-wrap gap-3">
@@ -245,12 +275,55 @@ export default function ProjetDetail() {
               </div>
             </div>
 
+            {/* Filtres / tri sur heures */}
+            {heures.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-3 flex flex-wrap gap-2 items-center">
+                <input type="search" placeholder="🔍 Recherche description" value={hRecherche} onChange={(e) => setHRecherche(e.target.value)} className="flex-1 min-w-40 px-3 py-1.5 border rounded text-sm" />
+                <select value={hFiltreEmp} onChange={(e) => setHFiltreEmp(e.target.value)} className="px-3 py-1.5 border rounded text-sm bg-white">
+                  <option value="">Tous les employés</option>
+                  {Array.from(new Set(heures.map((h: any) => h.employe).filter(Boolean))).map((e: any) => <option key={e} value={e}>{e}</option>)}
+                </select>
+                <select value={hTri} onChange={(e) => setHTri(e.target.value as any)} className="px-3 py-1.5 border rounded text-sm bg-white">
+                  <option value="date_desc">Date ↓ (récent)</option>
+                  <option value="date_asc">Date ↑ (ancien)</option>
+                  <option value="heures_desc">Plus d'heures</option>
+                  <option value="heures_asc">Moins d'heures</option>
+                  <option value="employe">Employé A→Z</option>
+                </select>
+                {(() => {
+                  const filtrees = heures.filter((h: any) => {
+                    if (hFiltreEmp && h.employe !== hFiltreEmp) return false;
+                    if (hRecherche && !(h.description || "").toLowerCase().includes(hRecherche.toLowerCase())) return false;
+                    return true;
+                  });
+                  const totalH = filtrees.reduce((s: number, h: any) => s + (h.heures || 0), 0);
+                  const totalC = filtrees.reduce((s: number, h: any) => s + (h.heures || 0) * (h.taux_horaire || 0), 0);
+                  return <span className="text-xs text-slate-600 ml-auto">{filtrees.length} entrée(s) · <strong>{totalH.toFixed(1)} h</strong> · <strong>{formatCAD(totalC)}</strong></span>;
+                })()}
+              </div>
+            )}
+
             <div className="bg-white rounded-lg shadow overflow-hidden">
               {heures.length === 0 ? (
                 <p className="p-6 text-center text-slate-500 text-sm">Aucune heure saisie</p>
               ) : (
                 <div className="divide-y">
-                  {heures.map((h) => (
+                  {(() => {
+                    let list = heures.filter((h: any) => {
+                      if (hFiltreEmp && h.employe !== hFiltreEmp) return false;
+                      if (hRecherche && !(h.description || "").toLowerCase().includes(hRecherche.toLowerCase())) return false;
+                      return true;
+                    });
+                    list = [...list].sort((a: any, b: any) => {
+                      if (hTri === "date_desc") return b.date.localeCompare(a.date);
+                      if (hTri === "date_asc") return a.date.localeCompare(b.date);
+                      if (hTri === "heures_desc") return (b.heures || 0) - (a.heures || 0);
+                      if (hTri === "heures_asc") return (a.heures || 0) - (b.heures || 0);
+                      if (hTri === "employe") return (a.employe || "").localeCompare(b.employe || "");
+                      return 0;
+                    });
+                    return list;
+                  })().map((h: any) => (
                     <div key={h.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 text-sm">
@@ -378,6 +451,24 @@ export default function ProjetDetail() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function ClientInfo({ client_id }: { client_id?: number | null }) {
+  const [c, setC] = useState<any>(null);
+  useEffect(() => {
+    if (!client_id) return;
+    fetch(`/api/clients?id=${client_id}`).then((r) => r.json()).then(setC).catch(() => {});
+  }, [client_id]);
+  if (!client_id) return <div className="text-xs text-slate-500 italic">Aucun client lié</div>;
+  if (!c) return <div className="text-xs text-slate-400">Chargement...</div>;
+  return (
+    <div className="text-sm space-y-0.5 mt-1">
+      {c.telephone && <div>📞 <a href={`tel:${c.telephone}`} className="text-blue-600 hover:underline">{c.telephone}</a></div>}
+      {c.courriel && <div>✉️ <a href={`mailto:${c.courriel}`} className="text-blue-600 hover:underline break-all">{c.courriel}</a></div>}
+      {c.adresse && <div className="text-xs text-slate-600">🏠 {c.adresse}</div>}
+      {c.statut && <span className={`inline-block text-[10px] mt-1 px-2 py-0.5 rounded font-semibold ${c.statut === "actif" ? "bg-emerald-100 text-emerald-900" : c.statut === "prospect" ? "bg-amber-100 text-amber-900" : "bg-slate-200"}`}>{c.statut}</span>}
     </div>
   );
 }
