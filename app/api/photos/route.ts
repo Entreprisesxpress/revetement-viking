@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerPhotosChantier, getPhotoChantier, ajouterPhotoChantier, supprimerPhotoChantier } from "@/lib/db";
+import { listerPhotosChantier, getPhotoChantier, ajouterPhotoChantier, supprimerPhotoChantier, getProjet } from "@/lib/db";
+import { driveEstConfigure, trouverOuCreerSousDossier, uploaderFichier } from "@/lib/drive";
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -16,7 +17,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "projet_id, date et photo_data requis" }, { status: 400 });
   }
   const id = await ajouterPhotoChantier(b);
-  return NextResponse.json({ ok: true, id });
+
+  // Push Drive en arrière-plan si configuré
+  if (driveEstConfigure()) {
+    (async () => {
+      try {
+        const projet = await getProjet(+b.projet_id);
+        const sousDossier = `${projet?.nom || "Projet " + b.projet_id} - Photos`;
+        const dossierId = await trouverOuCreerSousDossier(sousDossier);
+        const ext = b.photo_type?.includes("png") ? "png" : b.photo_type?.includes("pdf") ? "pdf" : b.photo_type?.startsWith("video/") ? "mp4" : "jpg";
+        const nom = `${b.date}_${b.description || "photo"}_${id}.${ext}`.replace(/[/\\]/g, "-");
+        await uploaderFichier({ nom, dataUrl: b.photo_data, dossierId, description: `Projet ${projet?.nom || ""} · ${b.date} · ${b.employes || ""}` });
+      } catch (e: any) {
+        console.warn("Drive sync failed:", e.message);
+      }
+    })();
+  }
+
+  return NextResponse.json({ ok: true, id, drive_sync: driveEstConfigure() });
 }
 
 export async function DELETE(req: NextRequest) {
