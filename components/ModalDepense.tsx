@@ -11,6 +11,7 @@ const CATEGORIES = ["matériaux", "outils", "location", "sous-traitant", "transp
 export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdInitial }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const [projets, setProjets] = useState<any[]>([]);
+  const [fournisseursConnus, setFournisseursConnus] = useState<string[]>([]);
   const [form, setForm] = useState({ projet_id: 0, date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
   const [recu, setRecu] = useState<{ data: string; type: string; nom: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -27,20 +28,28 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     if (!ouvert) return;
     fetch("/api/projets?statut=actif").then((r) => r.json()).then((d) => {
       setProjets(d);
-      if (d.length > 0 && !form.projet_id) setForm((f) => ({ ...f, projet_id: projetIdInitial || d[0].id }));
+      if (d.length > 0 && !form.projet_id) setForm((f) => ({ ...f, projet_id: projetIdInitial || 0 }));
     });
+    fetch("/api/depenses?fournisseurs=1").then((r) => r.json()).then((d) => {
+      if (Array.isArray(d)) setFournisseursConnus(d);
+    }).catch(() => {});
   }, [ouvert]);
 
   const projet = projets.find((p) => p.id === form.projet_id);
 
   const enregistrer = async () => {
-    if (!form.projet_id) { toast("Sélectionne un projet", "warning"); return; }
     if (!form.montant || +form.montant <= 0) { toast("Montant requis", "warning"); return; }
+    // Normaliser le fournisseur en cherchant un match case-insensitive parmi les connus
+    let fournisseurNormalise = form.fournisseur.trim();
+    if (fournisseurNormalise) {
+      const match = fournisseursConnus.find(f => f.toLowerCase() === fournisseurNormalise.toLowerCase());
+      if (match) fournisseurNormalise = match;
+    }
     setLoading(true);
     try {
       const r = await fetch("/api/depenses", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, montant: +form.montant, recu_data: recu?.data || null, recu_type: recu?.type || null }),
+        body: JSON.stringify({ ...form, fournisseur: fournisseurNormalise, projet_id: form.projet_id || null, montant: +form.montant, recu_data: recu?.data || null, recu_type: recu?.type || null }),
       });
       if ((await r.json()).ok) {
         toast(`✓ Dépense ${formatCAD(+form.montant)} ajoutée${recu ? " (reçu joint)" : ""}`, "success");
@@ -57,26 +66,22 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
       ouvert={ouvert}
       onClose={onClose}
       titre="💸 Ajouter une dépense"
-      soustitre="Imputée à un projet"
+      soustitre="Projet optionnel"
       couleurHeader="from-orange-600 to-amber-600"
       footer={
         <>
           <button onClick={onClose} className="px-4 py-3 bg-slate-200 hover:bg-slate-300 rounded-lg text-sm font-semibold">Annuler</button>
-          <button onClick={enregistrer} disabled={loading || projets.length === 0} className="px-5 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-bold disabled:opacity-50">
+          <button onClick={enregistrer} disabled={loading} className="px-5 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-bold disabled:opacity-50">
             {loading ? "⏳..." : "💾 Enregistrer"}
           </button>
         </>
       }
     >
-      {projets.length === 0 ? (
-        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-900">
-          ⚠️ Aucun projet actif. <a href="/projets" className="font-bold underline">Crée un projet</a> d'abord.
-        </div>
-      ) : (
-        <div className="space-y-3">
+      <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Projet *</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Projet (optionnel)</label>
             <select value={form.projet_id} onChange={(e) => setForm({ ...form, projet_id: +e.target.value })} className="w-full px-3 py-3 border rounded-lg text-sm bg-white">
+              <option value={0}>— Aucun (dépense générale, ex: outils)</option>
               {projets.map((p) => <option key={p.id} value={p.id}>{p.nom}{p.client_nom ? ` (${p.client_nom})` : ""}</option>)}
             </select>
             {projet && (
@@ -100,7 +105,17 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Fournisseur</label>
-            <input type="text" autoCapitalize="words" value={form.fournisseur} onChange={(e) => setForm({ ...form, fournisseur: e.target.value })} placeholder="Gentek, MAC, Maibec..." className="w-full px-3 py-3 border rounded-lg text-sm" />
+            <input type="text" autoCapitalize="words" list="fournisseurs-connus" value={form.fournisseur} onChange={(e) => setForm({ ...form, fournisseur: e.target.value })} placeholder="Gentek, MAC, Maibec..." className="w-full px-3 py-3 border rounded-lg text-sm" />
+            <datalist id="fournisseurs-connus">
+              {fournisseursConnus.map((f) => <option key={f} value={f} />)}
+            </datalist>
+            {form.fournisseur && fournisseursConnus.length > 0 && (() => {
+              const exact = fournisseursConnus.find(f => f.toLowerCase() === form.fournisseur.toLowerCase());
+              const similar = fournisseursConnus.find(f => f.toLowerCase().includes(form.fournisseur.toLowerCase()) || form.fournisseur.toLowerCase().includes(f.toLowerCase()));
+              if (exact && exact !== form.fournisseur) return <div className="text-[10px] text-amber-700 mt-1">⚠️ Existe déjà sous "{exact}" — sera normalisé</div>;
+              if (!exact && similar) return <div className="text-[10px] text-blue-700 mt-1">💡 Similaire : "{similar}" ?</div>;
+              return null;
+            })()}
           </div>
 
           <div>
@@ -151,7 +166,6 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
             )}
           </div>
         </div>
-      )}
     </BottomSheet>
   );
 }

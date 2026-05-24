@@ -73,8 +73,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
 
   const empsActifs = employes.filter((e) => empSelectionnes.has(e.id));
   const totalHeures = lignes.reduce((s, l) => s + (+l.heures || 0), 0);
-  // Coût total = heures × somme(taux × (1 + DAS)) pour chaque employé sélectionné
-  const coutEmployes = empsActifs.reduce((s, e) => s + e.taux_horaire * (1 + (e.das_pct || 0)), 0);
+  // Coût total affiché = heures × somme(taux de base) — DAS calculée en arrière-plan
+  const coutEmployes = empsActifs.reduce((s, e) => s + e.taux_horaire, 0);
   const totalCout = totalHeures * coutEmployes;
 
   const enregistrer = async () => {
@@ -97,13 +97,12 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
       // Une entrée par employé × ligne (chaque employé fait ces heures sur ce projet)
       const inserts: Promise<any>[] = [];
       for (const emp of empsActifs) {
-        const tauxAvecDAS = emp.taux_horaire * (1 + (emp.das_pct || 0));
         for (const l of valides) {
           inserts.push(fetch("/api/heures", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               projet_id: l.projet_id, date, heures: +l.heures,
-              description: l.description, employe: emp.nom, taux_horaire: tauxAvecDAS,
+              description: l.description, employe: emp.nom, taux_horaire: emp.taux_horaire,
             }),
           }));
         }
@@ -134,15 +133,6 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
     >
       <div className="mb-3">
         <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
-        <div className="flex gap-1 mb-2">
-          {[
-            { label: "Aujourd'hui", d: today },
-            { label: "Hier", d: new Date(Date.now() - 86400000).toISOString().slice(0, 10) },
-            { label: "Avant-hier", d: new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10) },
-          ].map((b) => (
-            <button key={b.label} type="button" onClick={() => setDate(b.d)} className={`flex-1 px-2 py-1.5 rounded text-xs font-semibold ${date === b.d ? "bg-emerald-600 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-700"}`}>{b.label}</button>
-          ))}
-        </div>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-3 py-3 border rounded-lg text-sm" />
       </div>
 
@@ -168,7 +158,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
                   <input type="checkbox" checked={selected} readOnly className="w-4 h-4" />
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{e.nom}</div>
-                    <div className="text-[10px] text-slate-500">{e.taux_horaire}$/h + {((e.das_pct || 0) * 100).toFixed(0)}% DAS</div>
+                    <div className="text-[10px] text-slate-500">{e.taux_horaire}$/h</div>
                   </div>
                 </div>
               </button>
@@ -239,7 +229,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
                 <div className="text-[10px] text-emerald-700">{empsActifs.map(e => e.nom).join(", ")}</div>
               </div>
               <div className="text-right">
-                <div className="text-xs text-emerald-700">Coût MO (DAS inclus)</div>
+                <div className="text-xs text-emerald-700">Coût MO</div>
                 <div className="text-xl font-bold text-emerald-900">{formatCAD(totalCout)}</div>
               </div>
             </div>

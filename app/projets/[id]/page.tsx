@@ -197,6 +197,10 @@ export default function ProjetDetail() {
           </div>
         </div>
 
+        {/* CONTRAT + FACTURE FINALE */}
+        <ContratFactureSection projet={projet} onUpdate={charger} />
+
+
         {/* Onglets */}
         <div className="flex gap-2 border-b">
           {(["heures", "factures", "depenses"] as const).map((o) => (
@@ -357,6 +361,80 @@ export default function ProjetDetail() {
         )}
       </main>
     </div>
+  );
+}
+
+function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [prix, setPrix] = useState(projet.prix_contrat ? String(projet.prix_contrat) : "");
+  const sauver = async () => {
+    await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: projet.id, prix_contrat: prix ? +prix : null }) });
+    setEdit(false);
+    onUpdate();
+  };
+  const uploadFacture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await fetch("/api/projets", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projet.id, facture_finale_data: reader.result, facture_finale_type: file.type }),
+      });
+      onUpdate();
+    };
+    reader.readAsDataURL(file);
+  };
+  return (
+    <section className="bg-white rounded-lg shadow p-4 md:p-5 space-y-3">
+      <div className="flex justify-between items-center">
+        <h2 className="font-bold">📄 Contrat & Facture finale</h2>
+        {!edit && <button onClick={() => setEdit(true)} className="text-xs text-emerald-700 hover:underline">✏️ Modifier</button>}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Prix total du contrat</div>
+          {edit ? (
+            <div className="flex gap-2">
+              <input type="number" value={prix} onChange={(e) => setPrix(e.target.value)} placeholder="Ex: 51738.75" className="flex-1 px-3 py-2 border rounded text-sm text-right" />
+              <button onClick={sauver} className="px-3 py-2 bg-emerald-600 text-white rounded text-sm font-bold">✓</button>
+              <button onClick={() => { setEdit(false); setPrix(projet.prix_contrat ? String(projet.prix_contrat) : ""); }} className="px-3 py-2 bg-slate-200 rounded text-sm">✕</button>
+            </div>
+          ) : (
+            <div className="text-2xl font-bold text-emerald-700">{projet.prix_contrat ? formatCAD(projet.prix_contrat) : <span className="text-slate-400 text-sm font-normal italic">Non défini</span>}</div>
+          )}
+        </div>
+        <div>
+          <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Facture finale</div>
+          {projet.facture_finale_data ? (
+            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded p-2">
+              {projet.facture_finale_type?.startsWith("image/") ? (
+                <img src={projet.facture_finale_data} alt="Facture" className="w-12 h-12 object-cover rounded" />
+              ) : (
+                <div className="w-12 h-12 bg-slate-200 rounded flex items-center justify-center text-2xl">📄</div>
+              )}
+              <button onClick={() => {
+                const w = window.open();
+                if (w) {
+                  if (projet.facture_finale_type?.startsWith("image/")) w.document.write(`<img src="${projet.facture_finale_data}" style="max-width:100%" />`);
+                  else w.location.href = projet.facture_finale_data;
+                }
+              }} className="flex-1 text-left text-sm text-emerald-700 hover:underline font-semibold">📎 Ouvrir la facture</button>
+              <label className="cursor-pointer text-xs text-blue-600 hover:underline">
+                Remplacer
+                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadFacture} />
+              </label>
+            </div>
+          ) : (
+            <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 rounded p-3 text-center transition flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
+              📎 Joindre PDF ou photo
+              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadFacture} />
+            </label>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

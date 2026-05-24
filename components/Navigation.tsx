@@ -15,11 +15,11 @@ const LINKS: NavLink[] = [
   { href: "/projets", label: "Projets", icon: "🏗️" },
   { href: "/clients", label: "CRM", icon: "👥" },
   { href: "/contrats", label: "Contrats", icon: "📝" },
-  { href: "/outils", label: "Outils", icon: "🔧" },
+  { href: "/finances", label: "Finances", icon: "💰" },
 ];
 const LINKS_SECONDAIRES: NavLink[] = [
   { href: "/soumissions", label: "Liste soum.", icon: "📋" },
-  { href: "/finances", label: "Finances", icon: "💰" },
+  { href: "/finances/paye", label: "Paye", icon: "💵" },
   { href: "/rapports", label: "Rapports", icon: "📈" },
   { href: "/a-propos", label: "À propos", icon: "ℹ️" },
 ];

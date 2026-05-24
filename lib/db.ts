@@ -51,6 +51,9 @@ export async function initDb() {
   await tryExec("ALTER TABLE clients ADD COLUMN tags TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_data TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
+  await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
+  await tryExec("ALTER TABLE projets ADD COLUMN facture_finale_data TEXT");
+  await tryExec("ALTER TABLE projets ADD COLUMN facture_finale_type TEXT");
   await execMany([
     `CREATE TABLE IF NOT EXISTS soumissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,6 +105,17 @@ export async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_inter_client ON interactions_client(client_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_taches_statut ON taches_client(statut, date_due)`,
     `CREATE INDEX IF NOT EXISTS idx_contrats_client ON contrats(client_id)`,
+    `CREATE TABLE IF NOT EXISTS paies_periodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, employe TEXT NOT NULL,
+      debut TEXT NOT NULL, fin TEXT NOT NULL,
+      heures_normales REAL DEFAULT 0, heures_sup REAL DEFAULT 0,
+      taux_horaire REAL, das_pct REAL DEFAULT 0.15,
+      montant_brut REAL, das_montant REAL, montant_net REAL,
+      paye INTEGER DEFAULT 0, date_paiement TEXT, note TEXT,
+      date_creation TEXT NOT NULL,
+      UNIQUE(employe, debut, fin)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_paies_emp ON paies_periodes(employe, debut DESC)`,
     `CREATE TABLE IF NOT EXISTS projets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER, nom TEXT NOT NULL, adresse_chantier TEXT, description TEXT,
@@ -436,6 +450,7 @@ export interface Projet {
   description?: string; statut?: 'actif' | 'complete' | 'en_pause' | 'annule';
   date_debut?: string; date_fin_prevue?: string; date_fin_reelle?: string;
   soumission_numero?: string; budget_estime?: number; heures_estimees?: number;
+  prix_contrat?: number; facture_finale_data?: string; facture_finale_type?: string;
   date_creation?: string;
 }
 export interface ProjetAvecTotaux extends Projet {
@@ -483,7 +498,7 @@ export async function ajouterProjet(p: Projet): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierProjet(id: number, p: Partial<Projet>) {
-  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'budget_estime', 'heures_estimees'];
+  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type'];
   const definis = champs.filter(k => (p as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');
@@ -587,17 +602,25 @@ export async function supprimerFactureProjet(id: number) {
 
 // === DÉPENSES ===
 export interface DepenseProjet {
-  id?: number; projet_id: number; date: string; montant: number;
+  id?: number; projet_id?: number | null; date: string; montant: number;
   fournisseur?: string; description?: string; categorie?: string;
   recu_data?: string; recu_type?: string;
 }
-export async function listerDepensesProjet(projet_id: number) {
+export async function listerDepensesProjet(projet_id: number | null) {
+  if (projet_id === null) return await all<DepenseProjet>("SELECT * FROM depenses_projet WHERE projet_id IS NULL ORDER BY date DESC");
   return await all<DepenseProjet>("SELECT * FROM depenses_projet WHERE projet_id = ? ORDER BY date DESC", [projet_id]);
+}
+export async function listerToutesDepenses() {
+  return await all<DepenseProjet>("SELECT * FROM depenses_projet ORDER BY date DESC LIMIT 500");
+}
+export async function fournisseursConnus(): Promise<string[]> {
+  const rows = await all<{ fournisseur: string }>("SELECT DISTINCT fournisseur FROM depenses_projet WHERE fournisseur IS NOT NULL AND fournisseur != '' ORDER BY fournisseur ASC");
+  return rows.map(r => r.fournisseur);
 }
 export async function ajouterDepenseProjet(d: DepenseProjet): Promise<number> {
   const r = await run(
     `INSERT INTO depenses_projet (projet_id, date, montant, fournisseur, description, categorie, recu_data, recu_type, date_saisie) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [d.projet_id, d.date, d.montant, d.fournisseur || null, d.description || null, d.categorie || null, d.recu_data || null, d.recu_type || null, new Date().toISOString()]
+    [d.projet_id || null, d.date, d.montant, d.fournisseur || null, d.description || null, d.categorie || null, d.recu_data || null, d.recu_type || null, new Date().toISOString()]
   );
   return r.lastInsertRowid;
 }
@@ -684,6 +707,128 @@ export async function modifierEmploye(id: number, e: Partial<Employe>) {
 }
 export async function supprimerEmploye(id: number) {
   await run("UPDATE employes SET actif = 0 WHERE id = ?", [id]);
+}
+
+// === PAYE / PÉRIODES BI-HEBDOMADAIRES ===
+// Conventions :
+// - Période = 14 jours, débutant un dimanche (jour 0)
+// - Heures normales : <= 40h/semaine (max 80h sur la période)
+// - Heures supplémentaires : > 40h/semaine (taux × 1.5)
+// - DAS : 15% retenu sur le brut
+
+export interface PaiePeriode {
+  id?: number; employe: string; debut: string; fin: string;
+  heures_normales: number; heures_sup: number;
+  taux_horaire: number; das_pct?: number;
+  montant_brut: number; das_montant: number; montant_net: number;
+  paye?: number; date_paiement?: string; note?: string;
+}
+
+/** Retourne le dimanche de la semaine d'une date YYYY-MM-DD */
+function dimancheDe(dateStr: string): Date {
+  const d = new Date(dateStr + "T12:00:00");
+  const jour = d.getDay(); // 0 = dimanche
+  d.setDate(d.getDate() - jour);
+  return d;
+}
+
+/** Calcule la période bi-hebdo (sam→ven × 2) qui contient une date.
+ *  Ancrée sur dimanches d'une année de référence (2026-01-04). */
+function periodeBiHebdo(dateStr: string): { debut: string; fin: string } {
+  const ancre = new Date("2026-01-04T12:00:00"); // dimanche de référence
+  const d = new Date(dateStr + "T12:00:00");
+  const diffJours = Math.floor((d.getTime() - ancre.getTime()) / 86400000);
+  const numeroPeriode = Math.floor(diffJours / 14);
+  const debut = new Date(ancre);
+  debut.setDate(ancre.getDate() + numeroPeriode * 14);
+  const fin = new Date(debut);
+  fin.setDate(debut.getDate() + 13);
+  return {
+    debut: debut.toISOString().slice(0, 10),
+    fin: fin.toISOString().slice(0, 10),
+  };
+}
+
+/** Calcule les heures normales/sup d'un ensemble d'heures pour une période bi-hebdo */
+function calculerHeuresPaye(heures: { date: string; heures: number }[], debut: string): { normales: number; sup: number } {
+  // Diviser en 2 semaines
+  const debutDate = new Date(debut + "T12:00:00");
+  const semaine1Fin = new Date(debutDate); semaine1Fin.setDate(debutDate.getDate() + 6);
+  const semaine2Debut = new Date(debutDate); semaine2Debut.setDate(debutDate.getDate() + 7);
+  let h1 = 0, h2 = 0;
+  for (const e of heures) {
+    const d = new Date(e.date + "T12:00:00");
+    if (d <= semaine1Fin) h1 += e.heures;
+    else if (d >= semaine2Debut) h2 += e.heures;
+  }
+  const normales = Math.min(40, h1) + Math.min(40, h2);
+  const sup = Math.max(0, h1 - 40) + Math.max(0, h2 - 40);
+  return { normales, sup };
+}
+
+/** Génère/met à jour les périodes de paye à partir des heures saisies.
+ *  Retourne la liste des périodes pour un employé donné (ou tous). */
+export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<PaiePeriode[]> {
+  await initDb();
+  // 1. Récupérer toutes les heures
+  const where = employe ? "WHERE employe = ?" : "WHERE employe IS NOT NULL";
+  const args = employe ? [employe] : [];
+  const heures = await all<{ employe: string; date: string; heures: number; taux_horaire: number }>(
+    `SELECT employe, date, heures, taux_horaire FROM heures_projet ${where}`, args
+  );
+  if (heures.length === 0) {
+    // Quand même retourner les périodes existantes
+    const exist = employe
+      ? await all<PaiePeriode>("SELECT * FROM paies_periodes WHERE employe = ? ORDER BY debut DESC LIMIT ?", [employe, limit])
+      : await all<PaiePeriode>("SELECT * FROM paies_periodes ORDER BY debut DESC LIMIT ?", [limit]);
+    return exist;
+  }
+
+  // 2. Grouper par (employe, période bi-hebdo)
+  const groupes = new Map<string, { employe: string; debut: string; fin: string; taux: number; heures: { date: string; heures: number }[] }>();
+  for (const h of heures) {
+    const p = periodeBiHebdo(h.date);
+    const key = `${h.employe}|${p.debut}`;
+    if (!groupes.has(key)) groupes.set(key, { employe: h.employe, debut: p.debut, fin: p.fin, taux: h.taux_horaire, heures: [] });
+    groupes.get(key)!.heures.push({ date: h.date, heures: h.heures });
+  }
+
+  // 3. Pour chaque groupe, calculer et upsert dans paies_periodes
+  for (const g of groupes.values()) {
+    const { normales, sup } = calculerHeuresPaye(g.heures, g.debut);
+    const brut = normales * g.taux + sup * g.taux * 1.5;
+    const dasMontant = brut * 0.15;
+    const net = brut - dasMontant;
+
+    const existant = await one<PaiePeriode>("SELECT * FROM paies_periodes WHERE employe = ? AND debut = ? AND fin = ?", [g.employe, g.debut, g.fin]);
+    if (existant) {
+      // Ne pas écraser si déjà payé
+      if (!existant.paye) {
+        await run(
+          `UPDATE paies_periodes SET heures_normales=?, heures_sup=?, taux_horaire=?, montant_brut=?, das_montant=?, montant_net=? WHERE id=?`,
+          [normales, sup, g.taux, brut, dasMontant, net, existant.id]
+        );
+      }
+    } else {
+      await run(
+        `INSERT INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [g.employe, g.debut, g.fin, normales, sup, g.taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
+      );
+    }
+  }
+
+  // 4. Retourner la liste
+  const list = employe
+    ? await all<PaiePeriode>("SELECT * FROM paies_periodes WHERE employe = ? ORDER BY debut DESC LIMIT ?", [employe, limit])
+    : await all<PaiePeriode>("SELECT * FROM paies_periodes ORDER BY debut DESC, employe ASC LIMIT ?", [limit * 5]);
+  return list;
+}
+
+export async function marquerPayePeriode(id: number, paye: boolean, date_paiement?: string, note?: string) {
+  await run(
+    `UPDATE paies_periodes SET paye = ?, date_paiement = ?, note = ? WHERE id = ?`,
+    [paye ? 1 : 0, paye ? (date_paiement || new Date().toISOString().slice(0, 10)) : null, note || null, id]
+  );
 }
 
 // === OUTILS ===
