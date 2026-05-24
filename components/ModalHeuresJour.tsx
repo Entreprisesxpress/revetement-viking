@@ -158,7 +158,6 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
                   <input type="checkbox" checked={selected} readOnly className="w-4 h-4" />
                   <div className="min-w-0">
                     <div className="font-semibold text-sm truncate">{e.nom}</div>
-                    <div className="text-[10px] text-slate-500">{e.taux_horaire}$/h</div>
                   </div>
                 </div>
               </button>
@@ -172,7 +171,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
               <input type="number" inputMode="decimal" placeholder="Taux $/h" value={nouvelEmp.taux_horaire} onChange={(e) => setNouvelEmp({ ...nouvelEmp, taux_horaire: e.target.value })} className="flex-1 px-3 py-2 border rounded text-sm text-right" />
               <button onClick={ajouterEmploye} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold">Ajouter</button>
             </div>
-            <p className="text-[10px] text-slate-600">+ 15% DAS appliqué automatiquement</p>
+            <p className="text-[10px] text-slate-600">Configurer les infos complètes dans l'onglet <a href="/employes" className="font-bold underline">Employés</a></p>
           </div>
         )}
       </div>

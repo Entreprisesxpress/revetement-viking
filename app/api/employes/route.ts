@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerEmployes, ajouterEmploye, modifierEmploye, supprimerEmploye } from "@/lib/db";
+import { listerEmployes, ajouterEmploye, modifierEmploye, supprimerEmploye, getEmploye } from "@/lib/db";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const id = req.nextUrl.searchParams.get("id");
+  if (id) return NextResponse.json(await getEmploye(+id));
   return NextResponse.json(await listerEmployes());
 }
 

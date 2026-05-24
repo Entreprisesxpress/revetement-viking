@@ -54,6 +54,20 @@ export async function initDb() {
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
   await tryExec("ALTER TABLE projets ADD COLUMN facture_finale_data TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN facture_finale_type TEXT");
+  // Migrations employés : RH complète
+  await tryExec("ALTER TABLE employes ADD COLUMN telephone TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN courriel TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN adresse TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN date_naissance TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN nas TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN date_embauche TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN poste TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN contact_urgence_nom TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN contact_urgence_lien TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN contact_urgence_tel TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN specimen_cheque_data TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN specimen_cheque_type TEXT");
+  await tryExec("ALTER TABLE employes ADD COLUMN notes TEXT");
   await execMany([
     `CREATE TABLE IF NOT EXISTS soumissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -690,6 +704,11 @@ export async function jobsSimilaires(parementPi2: number, typeMateriau?: string,
 // === EMPLOYÉS ===
 export interface Employe {
   id?: number; nom: string; taux_horaire: number; das_pct?: number; actif?: number;
+  telephone?: string; courriel?: string; adresse?: string;
+  date_naissance?: string; nas?: string; date_embauche?: string; poste?: string;
+  contact_urgence_nom?: string; contact_urgence_lien?: string; contact_urgence_tel?: string;
+  specimen_cheque_data?: string; specimen_cheque_type?: string;
+  notes?: string;
 }
 async function seedEmployes() {
   // Migration idempotente : Frédéric n'est plus un employé suivi
@@ -718,12 +737,18 @@ export async function ajouterEmploye(e: Employe): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierEmploye(id: number, e: Partial<Employe>) {
-  const champs = ['nom', 'taux_horaire', 'das_pct', 'actif'];
+  const champs = ['nom', 'taux_horaire', 'das_pct', 'actif',
+    'telephone', 'courriel', 'adresse', 'date_naissance', 'nas',
+    'date_embauche', 'poste', 'contact_urgence_nom', 'contact_urgence_lien',
+    'contact_urgence_tel', 'specimen_cheque_data', 'specimen_cheque_type', 'notes'];
   const definis = champs.filter(k => (e as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');
   const valeurs = definis.map(k => (e as any)[k]);
   await run(`UPDATE employes SET ${sets} WHERE id = ?`, [...valeurs, id]);
+}
+export async function getEmploye(id: number): Promise<Employe | null> {
+  return await one<Employe>("SELECT * FROM employes WHERE id = ?", [id]);
 }
 export async function supprimerEmploye(id: number) {
   await run("UPDATE employes SET actif = 0 WHERE id = ?", [id]);
