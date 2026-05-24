@@ -22,7 +22,6 @@ export default function Home() {
   const [projetsActifs, setProjetsActifs] = useState<any[]>([]);
   const [heuresSemaine, setHeuresSemaine] = useState<any[]>([]);
   const [relances, setRelances] = useState<any[]>([]);
-  const [tourOuvert, setTourOuvert] = useState(false);
   const [modalHeures, setModalHeures] = useState(false);
   const [modalDepense, setModalDepense] = useState(false);
   const { toast } = useToast();
@@ -40,12 +39,6 @@ export default function Home() {
     setRelances(r);
   };
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem("vk-tour-vu")) {
-      setTimeout(() => setTourOuvert(true), 800);
-    }
-  }, []);
-  const fermerTour = () => { setTourOuvert(false); localStorage.setItem("vk-tour-vu", "1"); };
 
   useEffect(() => { charger(); }, []);
 
@@ -215,26 +208,6 @@ export default function Home() {
       <ModalDepense ouvert={modalDepense} onClose={() => setModalDepense(false)} onSuccess={charger} />
       <FAB onSuccess={charger} />
 
-      {/* Tour guidé première visite */}
-      {tourOuvert && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-4" onClick={fermerTour}>
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
-            <div className="text-center">
-              <img src="/logo-viking.svg" alt="Viking" className="h-20 w-20 mx-auto drakkar-animate" />
-              <h2 className="text-xl font-bold mt-2">Bienvenue dans Revêtement Viking</h2>
-            </div>
-            <ul className="text-sm space-y-2 text-slate-700">
-              <li><strong>⚡ Actions rapides</strong> — saisis heures, dépenses, soumissions en haut de cette page.</li>
-              <li><strong>🏗️ Projets</strong> — chaque projet affiche budget, coût, marge en temps réel.</li>
-              <li><strong>👷 Heures multi-employés</strong> — coche plusieurs employés, mêmes heures pour tous.</li>
-              <li><strong>💰 Finances</strong> — vue annuelle avec graphique mensuel.</li>
-              <li><strong>📈 Rapports</strong> — export CSV pour ta comptable.</li>
-              <li><strong>🔍 Recherche</strong> — clients, projets, soumissions instantanés en haut.</li>
-            </ul>
-            <button onClick={fermerTour} className="w-full mt-3 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold">C'est parti !</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
