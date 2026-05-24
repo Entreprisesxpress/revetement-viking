@@ -530,6 +530,26 @@ export async function ajouterHeureProjet(h: HeureProjet): Promise<number> {
 export async function supprimerHeureProjet(id: number) {
   await run("DELETE FROM heures_projet WHERE id = ?", [id]);
 }
+export async function modifierHeureProjet(id: number, h: Partial<HeureProjet>) {
+  const champs = ['projet_id', 'date', 'heures', 'description', 'employe', 'taux_horaire'];
+  const definis = champs.filter(k => (h as any)[k] !== undefined);
+  if (!definis.length) return;
+  const sets = definis.map(k => `${k} = ?`).join(', ');
+  const valeurs = definis.map(k => (h as any)[k]);
+  await run(`UPDATE heures_projet SET ${sets} WHERE id = ?`, [...valeurs, id]);
+}
+export async function listerToutesHeures(filtres?: { employe?: string; projet_id?: number; depuis?: string; jusqu_a?: string }): Promise<any[]> {
+  const conds: string[] = []; const args: any[] = [];
+  if (filtres?.employe) { conds.push("h.employe = ?"); args.push(filtres.employe); }
+  if (filtres?.projet_id) { conds.push("h.projet_id = ?"); args.push(filtres.projet_id); }
+  if (filtres?.depuis) { conds.push("h.date >= ?"); args.push(filtres.depuis); }
+  if (filtres?.jusqu_a) { conds.push("h.date <= ?"); args.push(filtres.jusqu_a); }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  return await all<any>(
+    `SELECT h.*, p.nom as projet_nom FROM heures_projet h LEFT JOIN projets p ON p.id = h.projet_id ${where} ORDER BY h.date DESC, h.id DESC LIMIT 500`,
+    args
+  );
+}
 export async function heuresParProjetDate(projet_id: number): Promise<{ employe: string; date: string; heures: number; taux_horaire: number; description?: string }[]> {
   return await all<any>(
     `SELECT employe, date, heures, taux_horaire, description FROM heures_projet

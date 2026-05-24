@@ -161,7 +161,7 @@ export default function Home() {
           <section className="bg-white rounded-lg shadow p-4 md:p-5">
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-semibold text-slate-900">👷 Heures par employé · 7 derniers jours</h2>
-              <span className="text-xs text-slate-500">{heuresSemaine.reduce((s, e) => s + e.total_heures, 0).toFixed(1)} h cumulées</span>
+              <a href="/heures" className="text-xs text-emerald-700 hover:underline font-semibold">✏️ Voir / modifier →</a>
             </div>
             <div className="space-y-2">
               {heuresSemaine.map((e, i) => {

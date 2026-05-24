@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet } from "@/lib/db";
+import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet, modifierHeureProjet, listerToutesHeures } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
-  const projet_id = req.nextUrl.searchParams.get("projet_id");
-  if (!projet_id) return NextResponse.json({ error: "projet_id requis" }, { status: 400 });
-  return NextResponse.json(await listerHeuresProjet(+projet_id));
+  const sp = req.nextUrl.searchParams;
+  const projet_id = sp.get("projet_id");
+  if (projet_id) return NextResponse.json(await listerHeuresProjet(+projet_id));
+  // Liste globale avec filtres
+  const filtres: any = {};
+  if (sp.get("employe")) filtres.employe = sp.get("employe");
+  if (sp.get("depuis")) filtres.depuis = sp.get("depuis");
+  if (sp.get("jusqu_a")) filtres.jusqu_a = sp.get("jusqu_a");
+  return NextResponse.json(await listerToutesHeures(filtres));
 }
 
 export async function POST(req: NextRequest) {
@@ -14,6 +20,13 @@ export async function POST(req: NextRequest) {
   }
   const id = await ajouterHeureProjet(body);
   return NextResponse.json({ ok: true, id });
+}
+
+export async function PATCH(req: NextRequest) {
+  const body = await req.json();
+  if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  await modifierHeureProjet(+body.id, body);
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
