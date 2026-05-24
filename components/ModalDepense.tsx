@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
+import { compresserImage } from "@/lib/img";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
 const CATEGORIES = ["matériaux", "outils", "location", "sous-traitant", "transport", "permis", "essence", "autre"];
@@ -18,10 +19,14 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
   const { toast } = useToast();
 
   const traiterFichier = async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB. Réduis la taille.", "warning"); return; }
-    const reader = new FileReader();
-    reader.onload = () => setRecu({ data: reader.result as string, type: file.type, nom: file.name });
-    reader.readAsDataURL(file);
+    if (file.size > 20 * 1024 * 1024) { toast("Fichier > 20 MB", "warning"); return; }
+    try {
+      const data = await compresserImage(file);
+      const type = file.type === "application/pdf" ? file.type : "image/jpeg";
+      setRecu({ data, type, nom: file.name });
+    } catch (e: any) {
+      toast("Erreur : " + e.message, "error");
+    }
   };
 
   useEffect(() => {

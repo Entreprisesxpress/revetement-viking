@@ -252,9 +252,11 @@ export default function ProjetDetail() {
 
         {/* ONGLET PHOTOS */}
         {onglet === "photos" && (
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-white rounded-lg shadow p-4 space-y-3">
+            {/* Upload manuel */}
+            <PhotoUploader projet_id={id} onUpload={charger} />
             {photos.length === 0 ? (
-              <p className="text-center text-slate-500 text-sm py-12">Aucune photo. Les photos ajoutées lors de la saisie d'heures apparaîtront ici, groupées par jour.</p>
+              <p className="text-center text-slate-500 text-sm py-12">Aucune photo. Ajoute-en ci-dessus ou via la saisie d'heures.</p>
             ) : (
               <div className="space-y-4">
                 {Object.entries(
@@ -543,6 +545,72 @@ export default function ProjetDetail() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState({ total: 0, done: 0 });
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+  const [description, setDescription] = useState("");
+
+  const upload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const { compresserImage } = await import("@/lib/img");
+    setBusy(true);
+    setProgress({ total: files.length, done: 0 });
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (f.size > 20 * 1024 * 1024) continue;
+        const data = await compresserImage(f);
+        await fetch("/api/photos", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projet_id, date, description: description || f.name, photo_data: data, photo_type: "image/jpeg", employes: "Manuel" }),
+        });
+        setProgress({ total: files.length, done: i + 1 });
+      }
+      onUpload();
+      setDescription("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-emerald-50 to-sky-50 border-2 border-emerald-200 rounded-lg p-3">
+      <h3 className="font-bold text-sm text-emerald-900 mb-2">📸 Ajouter des photos au projet</h3>
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex-shrink-0">
+          <label className="block text-[10px] font-medium text-slate-600 mb-1">Date</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="px-2 py-1.5 border rounded text-xs" />
+        </div>
+        <div className="flex-1 min-w-32">
+          <label className="block text-[10px] font-medium text-slate-600 mb-1">Description (optionnel)</label>
+          <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: avant travaux, façade nord..." className="w-full px-2 py-1.5 border rounded text-xs" />
+        </div>
+        <div className="flex gap-1">
+          <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded text-xs font-bold">
+            📷 Caméra
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => upload(e.target.files)} disabled={busy} />
+          </label>
+          <label className="cursor-pointer bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded text-xs font-bold">
+            📁 Plusieurs
+            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => upload(e.target.files)} disabled={busy} />
+          </label>
+        </div>
+      </div>
+      {busy && (
+        <div className="mt-2">
+          <div className="text-xs text-slate-600 mb-1">⏳ Upload {progress.done}/{progress.total}...</div>
+          <div className="h-1.5 bg-slate-200 rounded overflow-hidden">
+            <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="text-[10px] text-slate-500 mt-2">📦 Compression auto : 5 MB → ~300 ko · upload 10× plus rapide · max 20 MB / photo</div>
     </div>
   );
 }

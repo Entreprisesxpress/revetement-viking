@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
+import { compresserImage } from "@/lib/img";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; }
 interface LigneJour { projet_id: number; heures: string; description: string; photos: { data: string; type: string; nom: string }[]; }
@@ -44,12 +45,13 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
   }, [ouvert]);
 
   const ajouterPhoto = async (ligneIdx: number, file: File) => {
-    if (file.size > 5 * 1024 * 1024) { toast("Photo > 5 MB", "warning"); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setLignes((prev) => prev.map((l, i) => i === ligneIdx ? { ...l, photos: [...l.photos, { data: reader.result as string, type: file.type, nom: file.name }] } : l));
-    };
-    reader.readAsDataURL(file);
+    if (file.size > 20 * 1024 * 1024) { toast("Photo > 20 MB", "warning"); return; }
+    try {
+      const data = await compresserImage(file);
+      setLignes((prev) => prev.map((l, i) => i === ligneIdx ? { ...l, photos: [...l.photos, { data, type: "image/jpeg", nom: file.name }] } : l));
+    } catch (e: any) {
+      toast("Erreur compression : " + e.message, "error");
+    }
   };
 
   const retirerPhoto = (ligneIdx: number, photoIdx: number) => {
