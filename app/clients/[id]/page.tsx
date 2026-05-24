@@ -169,15 +169,19 @@ export default function ClientDetail() {
 
           {/* Tâches */}
           <section className="bg-white rounded-lg shadow p-4">
-            <h3 className="font-bold mb-2">📌 Tâches</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold">📌 Tâches</h3>
+              <span className="text-xs text-slate-500">{taches.filter((t) => t.statut !== "complete").length} ouverte(s) · {taches.filter((t) => t.statut === "complete").length} fermée(s)</span>
+            </div>
             <div className="space-y-1 mb-3">
               {taches.length === 0 ? <p className="text-xs text-slate-500 italic">Aucune tâche</p> : taches.map((t) => (
-                <div key={t.id} className={`flex items-start gap-2 p-2 rounded ${t.statut === "complete" ? "bg-emerald-50 opacity-60" : "bg-slate-50"}`}>
-                  <button onClick={() => toggleTache(t)} className={`w-5 h-5 mt-0.5 rounded border-2 flex-shrink-0 ${t.statut === "complete" ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-400 hover:border-emerald-500"}`}>{t.statut === "complete" ? "✓" : ""}</button>
+                <div key={t.id} className={`flex items-start gap-2 p-2 rounded ${t.statut === "complete" ? "bg-emerald-50 opacity-70" : "bg-slate-50"}`}>
+                  <button onClick={() => toggleTache(t)} className={`w-7 h-7 mt-0.5 rounded border-2 flex-shrink-0 font-bold text-sm flex items-center justify-center ${t.statut === "complete" ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-400 hover:border-emerald-500 hover:bg-emerald-50"}`} title={t.statut === "complete" ? "Réouvrir la tâche" : "Marquer comme faite"}>{t.statut === "complete" ? "✓" : ""}</button>
                   <div className="flex-1 min-w-0">
-                    <div className={`text-sm ${t.statut === "complete" ? "line-through" : "font-semibold"}`}>{t.titre}</div>
-                    {t.date_due && <div className={`text-xs ${t.date_due < today && t.statut !== "complete" ? "text-red-700 font-bold" : "text-slate-500"}`}>📅 {t.date_due}</div>}
+                    <div className={`text-sm ${t.statut === "complete" ? "line-through text-slate-500" : "font-semibold"}`}>{t.titre}</div>
+                    {t.date_due && <div className={`text-xs ${t.date_due < today && t.statut !== "complete" ? "text-red-700 font-bold" : "text-slate-500"}`}>📅 {t.date_due}{t.statut === "complete" && t.date_completion ? ` · fait ${t.date_completion}` : ""}</div>}
                   </div>
+                  <button onClick={async () => { if (confirm("Supprimer cette tâche ?")) { await fetch(`/api/taches?id=${t.id}`, { method: "DELETE" }); charger(); } }} className="text-xs text-red-500 hover:bg-red-50 px-1 rounded opacity-50 hover:opacity-100" title="Supprimer">✕</button>
                 </div>
               ))}
             </div>

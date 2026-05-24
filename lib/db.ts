@@ -872,6 +872,37 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
   return list;
 }
 
+export async function supprimerPayePeriode(id: number) {
+  await run("DELETE FROM paies_periodes WHERE id = ?", [id]);
+}
+/** Supprime les périodes de paye qui ne correspondent plus à aucune heure saisie */
+export async function nettoyerPayePeriodesOrphelines(): Promise<number> {
+  await initDb();
+  // Récupérer tous les couples (employe, dates) qui ont encore des heures
+  const heuresExistantes = await all<{ employe: string; date: string }>(
+    "SELECT DISTINCT employe, date FROM heures_projet WHERE employe IS NOT NULL"
+  );
+  if (heuresExistantes.length === 0) {
+    const r = await run("DELETE FROM paies_periodes WHERE paye = 0", []);
+    return r.rowsAffected;
+  }
+  // Liste les périodes existantes
+  const periodes = await all<{ id: number; employe: string; debut: string; fin: string; paye: number }>("SELECT id, employe, debut, fin, paye FROM paies_periodes");
+  let deleted = 0;
+  for (const p of periodes) {
+    if (p.paye) continue; // jamais supprimer une paye marquée payée
+    // Vérifier s'il existe des heures pour cet employé dans cette période
+    const r = await one<{ n: number }>(
+      "SELECT COUNT(*) as n FROM heures_projet WHERE employe = ? AND date >= ? AND date <= ?",
+      [p.employe, p.debut, p.fin]
+    );
+    if ((r?.n || 0) === 0) {
+      await run("DELETE FROM paies_periodes WHERE id = ?", [p.id]);
+      deleted++;
+    }
+  }
+  return deleted;
+}
 export async function marquerPayePeriode(id: number, paye: boolean, date_paiement?: string, note?: string) {
   await run(
     `UPDATE paies_periodes SET paye = ?, date_paiement = ?, note = ? WHERE id = ?`,

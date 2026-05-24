@@ -38,6 +38,21 @@ export default function PayePage() {
     charger();
   };
 
+  const supprimer = async (p: any) => {
+    if (!confirm(`Supprimer la période de paye de ${p.employe} (${p.debut} → ${p.fin}) ?`)) return;
+    await fetch(`/api/paies?id=${p.id}`, { method: "DELETE" });
+    toast("Période supprimée", "info");
+    charger();
+  };
+
+  const nettoyerOrphelines = async () => {
+    if (!confirm("Supprimer les périodes de paye sans heures saisies ?")) return;
+    const r = await fetch("/api/paies?orphelines=1", { method: "DELETE" });
+    const d = await r.json();
+    toast(`${d.supprimees || 0} période(s) orpheline(s) supprimée(s)`, "success");
+    charger();
+  };
+
   const filtrees = periodes.filter((p) => {
     if (filtreStatut === "paye" && !p.paye) return false;
     if (filtreStatut === "a_payer" && p.paye) return false;
@@ -81,7 +96,8 @@ export default function PayePage() {
             <button onClick={() => setFiltreStatut("a_payer")} className={`px-3 py-2 rounded text-xs font-semibold ${filtreStatut === "a_payer" ? "bg-red-600 text-white" : "bg-red-100 text-red-900"}`}>À payer</button>
             <button onClick={() => setFiltreStatut("paye")} className={`px-3 py-2 rounded text-xs font-semibold ${filtreStatut === "paye" ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-900"}`}>Payés</button>
           </div>
-          <span className="ml-auto text-xs text-slate-500">{filtrees.length} période(s)</span>
+          <button onClick={nettoyerOrphelines} className="ml-auto px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded text-xs font-semibold" title="Supprimer les périodes sans heures">🧹 Nettoyer orphelines</button>
+          <span className="text-xs text-slate-500">{filtrees.length} période(s)</span>
         </div>
 
         {/* Liste périodes */}
@@ -107,12 +123,17 @@ export default function PayePage() {
                       Période : <strong>{p.debut}</strong> → <strong>{p.fin}</strong>
                     </div>
                   </div>
-                  <button
-                    onClick={() => togglePaye(p)}
-                    className={`px-4 py-2 rounded font-bold text-sm ${p.paye ? "bg-slate-200 hover:bg-slate-300 text-slate-700" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}
-                  >
-                    {p.paye ? "↩ Annuler" : "✓ Marquer payé"}
-                  </button>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => togglePaye(p)}
+                      className={`px-4 py-2 rounded font-bold text-sm ${p.paye ? "bg-slate-200 hover:bg-slate-300 text-slate-700" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}
+                    >
+                      {p.paye ? "↩ Annuler" : "✓ Marquer payé"}
+                    </button>
+                    {!p.paye && (
+                      <button onClick={() => supprimer(p)} className="px-2 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded text-sm" title="Supprimer">🗑</button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-3 text-sm">

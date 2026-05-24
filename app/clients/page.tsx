@@ -104,19 +104,25 @@ export default function ClientsPage() {
         {/* Tâches en cours */}
         {taches.length > 0 && (
           <section className="bg-white rounded-lg shadow p-4 md:p-5">
-            <h2 className="font-semibold mb-3">📌 Tâches ouvertes</h2>
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="font-semibold">📌 Tâches ouvertes ({taches.length})</h2>
+            </div>
             <div className="space-y-1">
-              {taches.slice(0, 5).map((t) => {
+              {taches.slice(0, 8).map((t) => {
                 const client = clients.find((c) => c.id === t.client_id);
                 const enRetard = t.date_due && t.date_due < new Date().toISOString().slice(0, 10);
                 return (
-                  <div key={t.id} className={`flex items-center gap-2 p-2 rounded ${enRetard ? "bg-red-50" : "bg-slate-50"}`}>
-                    <button onClick={async () => { await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, statut: "complete" }) }); charger(); }} className="w-5 h-5 rounded border-2 hover:bg-emerald-500 hover:border-emerald-500" />
+                  <div key={t.id} className={`flex items-center gap-2 p-2 rounded ${enRetard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
+                    <button
+                      onClick={async () => { await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, statut: "complete" }) }); toast("Tâche fermée ✓", "success"); charger(); }}
+                      className="w-7 h-7 rounded border-2 border-slate-400 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white font-bold text-sm flex items-center justify-center transition flex-shrink-0"
+                      title="Marquer comme faite"
+                    >✓</button>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">{t.titre}</div>
                       {client && <a href={`/clients/${t.client_id}`} className="text-xs text-blue-600 hover:underline">{client.nom}</a>}
                     </div>
-                    {t.date_due && <span className={`text-xs ${enRetard ? "text-red-700 font-bold" : "text-slate-600"}`}>{t.date_due}</span>}
+                    {t.date_due && <span className={`text-xs ${enRetard ? "text-red-700 font-bold" : "text-slate-600"} whitespace-nowrap`}>{enRetard ? "⚠️ " : ""}{t.date_due}</span>}
                   </div>
                 );
               })}
