@@ -22,6 +22,7 @@ const LINKS_SECONDAIRES: NavLink[] = [
   { href: "/soumissions", label: "Liste soum.", icon: "📋" },
   { href: "/heures", label: "Heures", icon: "⏱️" },
   { href: "/employes", label: "Employés", icon: "👷" },
+  { href: "/asana", label: "Sync Asana", icon: "🔄" },
   { href: "/rapports", label: "Rapports", icon: "📈" },
   { href: "/a-propos", label: "À propos", icon: "ℹ️" },
 ];

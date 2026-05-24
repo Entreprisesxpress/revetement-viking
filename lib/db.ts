@@ -49,6 +49,8 @@ export async function initDb() {
   await tryExec("ALTER TABLE clients ADD COLUMN statut TEXT DEFAULT 'prospect'");
   await tryExec("ALTER TABLE clients ADD COLUMN source TEXT");
   await tryExec("ALTER TABLE clients ADD COLUMN tags TEXT");
+  await tryExec("ALTER TABLE clients ADD COLUMN asana_gid TEXT");
+  await tryExec("ALTER TABLE clients ADD COLUMN asana_modifie_le TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_data TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
@@ -318,6 +320,7 @@ export interface ClientType {
   id?: number; nom: string; courriel?: string; telephone?: string;
   adresse?: string; notes?: string; date_creation?: string;
   statut?: string; source?: string; tags?: string;
+  asana_gid?: string; asana_modifie_le?: string;
 }
 export async function listerClients(): Promise<ClientType[]> {
   return await all<ClientType>("SELECT * FROM clients ORDER BY nom ASC");
@@ -333,7 +336,7 @@ export async function ajouterClient(c: ClientType): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierClient(id: number, c: Partial<ClientType>) {
-  const champs = ['nom', 'courriel', 'telephone', 'adresse', 'notes', 'statut', 'source', 'tags'];
+  const champs = ['nom', 'courriel', 'telephone', 'adresse', 'notes', 'statut', 'source', 'tags', 'asana_gid', 'asana_modifie_le'];
   const definis = champs.filter(k => (c as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');
