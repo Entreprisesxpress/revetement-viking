@@ -74,9 +74,26 @@ export default function PayePage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Navigation titre="💵 Paie" soustitre="Suivi bi-hebdomadaire · DAS 15% · heures sup ×1.5" />
+      <Navigation
+        titre="💵 Paie"
+        soustitre="Suivi bi-hebdomadaire · DAS 15% · heures sup ×1.5"
+        actions={
+          <a href="/employes" className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded text-sm font-semibold text-slate-700 text-left">
+            👷 Employés (salaires, infos)
+          </a>
+        }
+      />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+        {/* Section employés directe */}
+        <section className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-3 flex justify-between items-center flex-wrap gap-2">
+          <div className="text-sm">
+            <strong className="text-emerald-900">👷 {employes.length} employé(s)</strong>
+            <span className="text-slate-600 ml-2">— Pour modifier le salaire horaire, adresse, contact d'urgence, spécimen chèque, etc.</span>
+          </div>
+          <a href="/employes" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-bold">Gérer les employés →</a>
+        </section>
+
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KPI label="À payer" value={formatCAD(aPayerTotal)} couleur="text-red-700" />

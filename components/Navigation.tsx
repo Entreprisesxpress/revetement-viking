@@ -19,6 +19,7 @@ const LINKS: NavLink[] = [
 ];
 const LINKS_SECONDAIRES: NavLink[] = [
   { href: "/contrats", label: "Contrats", icon: "📝" },
+  { href: "/depenses", label: "Dépenses", icon: "💸" },
   { href: "/soumissions", label: "Liste soum.", icon: "📋" },
   { href: "/heures", label: "Heures", icon: "⏱️" },
   { href: "/employes", label: "Employés", icon: "👷" },
