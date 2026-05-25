@@ -5,6 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
+import { exporterCSV } from "@/lib/csv";
 
 const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
   prospect: { label: "Prospect", couleur: "bg-amber-100 text-amber-900" },
@@ -223,6 +224,19 @@ export default function ClientsPage() {
         <div className="flex gap-2 flex-wrap">
           <input type="search" placeholder="🔍 Rechercher (nom, courriel, téléphone, tag)..." value={recherche} onChange={(e) => setRecherche(e.target.value)} className="flex-1 min-w-48 px-3 py-2 border rounded text-sm" />
           {filtreStatut && <button onClick={() => setFiltreStatut("")} className="px-3 py-2 bg-slate-200 hover:bg-slate-300 rounded text-xs font-semibold">✕ Filtre {STATUTS_CRM[filtreStatut].label}</button>}
+          <button
+            onClick={() => {
+              const rows = clientsFiltres.map((c) => ({
+                nom: c.nom, telephone: c.telephone || "", courriel: c.courriel || "",
+                adresse: c.adresse || "", statut: c.statut || "", source: c.source || "",
+                tags: c.tags || "", notes: (c.notes || "").replace(/\n/g, " "),
+              }));
+              exporterCSV(`clients-${new Date().toISOString().slice(0, 10)}`, rows);
+              toast(`✓ ${rows.length} contact(s) exporté(s)`, "success");
+            }}
+            className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-xs font-semibold"
+            title="Exporter en CSV (compatible Excel / Numbers)"
+          >📊 Exporter CSV</button>
         </div>
 
         {clientsFiltres.length === 0 ? (
