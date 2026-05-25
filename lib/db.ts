@@ -85,6 +85,24 @@ export async function initDb() {
   )`);
   await tryExec("CREATE INDEX IF NOT EXISTS idx_journal_date ON journal_activite(date DESC)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_journal_type ON journal_activite(type)");
+
+  // === INDEXES PERF — toutes les sous-requêtes du dashboard ===
+  // PROJ_SQL fait 5 sous-SELECT par ligne projet, ces index passent O(n²) → O(n log n)
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_heures_projet ON heures_projet(projet_id, date DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_heures_date ON heures_projet(date DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_heures_employe ON heures_projet(employe, date DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_depenses_projet ON depenses_projet(projet_id, date DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_depenses_date ON depenses_projet(date DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_depenses_categorie ON depenses_projet(categorie)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_factures_projet ON factures_projet(projet_id, payee)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_factures_date ON factures_projet(date DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_projets_client ON projets(client_id)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_projets_statut ON projets(statut)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_statut ON clients(statut)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_nom ON clients(nom)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_courriel ON clients(courriel)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_tel ON clients(telephone)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_employes_actif ON employes(actif)");
   await tryExec(`CREATE TABLE IF NOT EXISTS oauth_tokens (
     id INTEGER PRIMARY KEY,
     provider TEXT UNIQUE NOT NULL,

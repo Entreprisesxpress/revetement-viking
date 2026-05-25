@@ -4,7 +4,11 @@ import { listerEmployes, ajouterEmploye, modifierEmploye, supprimerEmploye, getE
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (id) return NextResponse.json(await getEmploye(+id));
-  return NextResponse.json(await listerEmployes());
+  const data = await listerEmployes();
+  // Liste des employés change très rarement → cache CDN 60s avec SWR 5 min
+  return NextResponse.json(data, {
+    headers: { "Cache-Control": "private, max-age=30, s-maxage=60, stale-while-revalidate=300" },
+  });
 }
 
 export async function POST(req: NextRequest) {
