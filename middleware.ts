@@ -35,7 +35,14 @@ export async function middleware(req: NextRequest) {
   const cookie = req.cookies.get(COOKIE_NAME);
   const expectedToken = await signToken(password);
   const legacyValue = `${LEGACY_PREFIX}${password}`;
-  const valide = cookie && (cookie.value === expectedToken || cookie.value === legacyValue);
+  // Comparaison timing-safe pour éviter timing attacks sur le HMAC
+  const eq = (a: string, b: string) => {
+    if (a.length !== b.length) return false;
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return d === 0;
+  };
+  const valide = cookie && (eq(cookie.value, expectedToken) || eq(cookie.value, legacyValue));
 
   if (!valide) {
     const url = req.nextUrl.clone();

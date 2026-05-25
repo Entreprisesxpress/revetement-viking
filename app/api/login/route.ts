@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { journaliser } from "@/lib/audit";
+import { rateLimitDepasse, timingSafeEqual } from "@/lib/rateLimit";
 
 async function signToken(secret: string): Promise<string> {
   const enc = new TextEncoder();
@@ -22,7 +23,12 @@ export async function POST(req: NextRequest) {
   }
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
   const ua = req.headers.get("user-agent") || undefined;
-  if (password !== expected) {
+  // Rate limit : 5 échecs / 15 min / IP
+  if (await rateLimitDepasse("auth.login_echec", ip, 5, 15)) {
+    await journaliser("auth.login_echec", { description: "Bloqué (rate limit)", ip, user_agent: ua });
+    return NextResponse.json({ error: "Trop d'essais. Réessaie dans 15 minutes." }, { status: 429 });
+  }
+  if (!timingSafeEqual(password || "", expected)) {
     await journaliser("auth.login_echec", { description: "Mauvais mot de passe", ip, user_agent: ua });
     return NextResponse.json({ error: "Mot de passe incorrect" }, { status: 401 });
   }

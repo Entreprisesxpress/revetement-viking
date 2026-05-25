@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listerClients, getClient, ajouterClient, modifierClient, supprimerClient } from "@/lib/db";
 import { asanaEstConfigure, creerTacheAsana, modifierTacheAsana, supprimerTacheAsana, clientVersNotesAsana } from "@/lib/asana";
+import { journaliser } from "@/lib/audit";
+
+function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
@@ -27,12 +30,14 @@ export async function POST(req: NextRequest) {
       console.warn("Asana push failed:", e.message);
     }
   }
+  await journaliser("client.cree", { ref_type: "client", ref_id: id, description: body.nom, ip: ipDe(req) });
   return NextResponse.json({ ok: true, id });
 }
 
 export async function PATCH(req: NextRequest) {
   const body = await req.json();
   await modifierClient(body.id, body);
+  await journaliser("client.modifie", { ref_type: "client", ref_id: body.id, description: body.nom || `id ${body.id}`, ip: ipDe(req) });
   // Push MAJ vers Asana si client lié
   if (asanaEstConfigure() && body._skip_asana !== true) {
     try {
@@ -60,5 +65,6 @@ export async function DELETE(req: NextRequest) {
   if (asanaEstConfigure() && c?.asana_gid) {
     try { await supprimerTacheAsana(c.asana_gid); } catch (e: any) { console.warn("Asana delete failed:", e.message); }
   }
+  await journaliser("client.supprime", { ref_type: "client", ref_id: id, description: c?.nom || `id ${id}`, ip: ipDe(req) });
   return NextResponse.json({ ok: true });
 }

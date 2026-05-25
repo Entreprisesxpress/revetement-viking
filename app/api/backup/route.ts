@@ -48,10 +48,24 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET pour cron Vercel (header x-vercel-cron) ou test manuel
+// GET pour cron Vercel — protégé par Authorization: Bearer CRON_SECRET
 export async function GET(req: NextRequest) {
+  const auth = req.headers.get("authorization") || "";
+  const secret = process.env.CRON_SECRET;
+  if (secret && auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   try {
     const r = await effectuerBackup();
+    if (!r.ok) {
+      // Alerte : backup échoué — log dans Sentry-light pour visibilité
+      try {
+        await fetch(new URL("/api/log-erreur", req.url).toString(), {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: `Backup échoué: ${r.error}`, path: "/api/backup", userAgent: "cron-vercel" }),
+        });
+      } catch {}
+    }
     return NextResponse.json(r, { status: r.ok ? 200 : 500 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
