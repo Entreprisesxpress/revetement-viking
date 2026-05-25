@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { driveEstActif, testerConnexion, uploaderFichier, trouverOuCreerSousDossier, listerDossier, oauthClientConfigure } from "@/lib/drive";
+import { compterPhotosErreursDrive } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action");
@@ -14,7 +15,9 @@ export async function GET(req: NextRequest) {
       drive_actif: await driveEstActif(),
     });
   }
-  return NextResponse.json(await testerConnexion());
+  const r = await testerConnexion();
+  const erreurs_photos = await compterPhotosErreursDrive().catch(() => 0);
+  return NextResponse.json({ ...r, erreurs_photos });
 }
 
 export async function POST(req: NextRequest) {

@@ -70,6 +70,9 @@ export async function initDb() {
   await tryExec("ALTER TABLE employes ADD COLUMN specimen_cheque_data TEXT");
   await tryExec("ALTER TABLE employes ADD COLUMN specimen_cheque_type TEXT");
   await tryExec("ALTER TABLE employes ADD COLUMN notes TEXT");
+  // Drive sync status sur photos
+  await tryExec("ALTER TABLE photos_chantier ADD COLUMN drive_file_id TEXT");
+  await tryExec("ALTER TABLE photos_chantier ADD COLUMN drive_sync_error TEXT");
   await tryExec(`CREATE TABLE IF NOT EXISTS oauth_tokens (
     id INTEGER PRIMARY KEY,
     provider TEXT UNIQUE NOT NULL,
@@ -709,6 +712,13 @@ export async function ajouterPhotoChantier(p: PhotoChantier): Promise<number> {
 }
 export async function supprimerPhotoChantier(id: number) {
   await run("DELETE FROM photos_chantier WHERE id = ?", [id]);
+}
+export async function marquerDriveSync(id: number, drive_file_id: string | null, error: string | null) {
+  await run("UPDATE photos_chantier SET drive_file_id = ?, drive_sync_error = ? WHERE id = ?", [drive_file_id, error, id]);
+}
+export async function compterPhotosErreursDrive(): Promise<number> {
+  const r = await one<{ n: number }>("SELECT COUNT(*) AS n FROM photos_chantier WHERE drive_sync_error IS NOT NULL");
+  return r?.n || 0;
 }
 
 // === BIBLIOTHÈQUE ===

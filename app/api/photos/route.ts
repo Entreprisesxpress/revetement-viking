@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerPhotosChantier, getPhotoChantier, ajouterPhotoChantier, supprimerPhotoChantier, getProjet } from "@/lib/db";
+import { listerPhotosChantier, getPhotoChantier, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync } from "@/lib/db";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier } from "@/lib/drive";
 
 export async function GET(req: NextRequest) {
@@ -28,9 +28,11 @@ export async function POST(req: NextRequest) {
         const dossierId = await trouverOuCreerSousDossier(sousDossier);
         const ext = b.photo_type?.includes("png") ? "png" : b.photo_type?.includes("pdf") ? "pdf" : b.photo_type?.startsWith("video/") ? "mp4" : "jpg";
         const nom = `${b.date}_${b.description || "photo"}_${id}.${ext}`.replace(/[/\\]/g, "-");
-        await uploaderFichier({ nom, dataUrl: b.photo_data, dossierId, description: `Projet ${projet?.nom || ""} · ${b.date} · ${b.employes || ""}` });
+        const up = await uploaderFichier({ nom, dataUrl: b.photo_data, dossierId, description: `Projet ${projet?.nom || ""} · ${b.date} · ${b.employes || ""}` });
+        await marquerDriveSync(id, up.id, null);
       } catch (e: any) {
         console.warn("Drive sync failed:", e.message);
+        try { await marquerDriveSync(id, null, e.message?.slice(0, 500) || "erreur inconnue"); } catch {}
       }
     })();
   }

@@ -69,6 +69,11 @@ function SyncContent() {
               <div>✅ Dossier : <strong>{drive.folder}</strong></div>
               {drive.email && <div>📧 Compte : <code className="text-xs bg-white px-2 py-0.5 rounded">{drive.email}</code></div>}
               <p className="text-xs text-slate-700">Chaque photo ajoutée dans l'app est automatiquement copiée dans Drive. Sous-dossier par projet créé auto.</p>
+              {drive.erreurs_photos > 0 && (
+                <div className="bg-red-50 border border-red-300 rounded p-2 text-xs text-red-800">
+                  ⚠️ {drive.erreurs_photos} photo(s) n'ont pas pu être synchronisées dans Drive. Vérifie la connexion ou réessaye plus tard.
+                </div>
+              )}
               {drive.mode === "oauth_user" && (
                 <button onClick={deconnecterDrive} className="text-xs text-red-600 hover:underline">Déconnecter Drive</button>
               )}
