@@ -75,6 +75,13 @@ export default function RootLayout({
         <link rel="preconnect" href="https://api.open-meteo.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://geocoding-api.open-meteo.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://www.googleapis.com" />
+        {/* Prefetch des routes likely (réduit le délai sur clic vers ces pages) */}
+        <link rel="prefetch" href="/projets" />
+        <link rel="prefetch" href="/clients" />
+        <link rel="prefetch" href="/soumissions/nouveau" />
+        {/* Hints couleur thème pour la zone safe area iOS/Android */}
+        <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)" />
       </head>
       <body className="min-h-full flex flex-col">
         <a href="#contenu-principal" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:font-semibold">

@@ -79,7 +79,7 @@ export default function PageJournal() {
               </thead>
               <tbody>
                 {activites.map((a) => (
-                  <tr key={a.id} className="border-t hover:bg-slate-50">
+                  <tr key={a.id} className="border-t hover:bg-slate-50 vk-lazy-render">
                     <td className="p-2 text-xs text-slate-600 whitespace-nowrap">{new Date(a.date).toLocaleString("fr-CA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
                     <td className="p-2 whitespace-nowrap">
                       <span className="mr-1">{ICONES[a.type] || "•"}</span>

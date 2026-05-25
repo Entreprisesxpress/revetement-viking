@@ -16,6 +16,10 @@ export async function GET() {
       relances: relances.length,
       drive_erreurs: photosErr,
       taches_ouvertes: tachesOuvertes.length,
+    }, {
+      // Le badge poll toutes les 30s côté client : on garde 15s de cache CDN
+      // pour absorber les pics sans frapper Turso à chaque ouverture d'onglet.
+      headers: { "Cache-Control": "private, max-age=15, stale-while-revalidate=60" },
     });
   } catch {
     return NextResponse.json({ total: 0, relances: 0, drive_erreurs: 0, taches_ouvertes: 0 });

@@ -58,12 +58,18 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
     return () => clearTimeout(t);
   }, [rechercheQ]);
 
-  // Polling notifications (30s)
+  // Polling notifications (30s) — pause quand l'onglet est en arrière-plan
+  // (économie batterie mobile + requêtes Turso)
   useEffect(() => {
-    const charger = () => fetch("/api/notifications").then((r) => r.json()).then(setNotifs).catch(() => {});
+    const charger = () => {
+      if (document.visibilityState !== "visible") return;
+      fetch("/api/notifications").then((r) => r.json()).then(setNotifs).catch(() => {});
+    };
     charger();
     const id = setInterval(charger, 30000);
-    return () => clearInterval(id);
+    const onVis = () => { if (document.visibilityState === "visible") charger(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   // Ctrl/Cmd+K → focus recherche globale

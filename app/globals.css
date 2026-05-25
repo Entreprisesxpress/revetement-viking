@@ -216,3 +216,25 @@ select {
     color: #555;
   }
 }
+
+/* === PERF : content-visibility sur sections hors viewport === */
+/* Browser saute le rendu (layout/paint) des sections invisibles → scroll fluide
+ * sur listes longues (table soumissions, journal, photos). Class à appliquer
+ * sur les wrappers de cards/rows individuels. */
+.vk-lazy-render {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 200px;
+}
+
+/* === IMG : objet-cover par défaut pour éviter les sauts de layout === */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* === Focus visible amélioré === */
+:focus-visible {
+  outline: 2px solid #10b981;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
