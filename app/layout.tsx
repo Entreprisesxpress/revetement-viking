@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ToastsProvider } from "@/components/Toasts";
 import PWARegister from "@/components/PWARegister";
+import PanneauRaccourcis from "@/components/PanneauRaccourcis";
+import BarreChargementRoute from "@/components/BarreChargementRoute";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,7 +51,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <ToastsProvider>{children}</ToastsProvider>
+        <ToastsProvider>
+          <BarreChargementRoute />
+          {children}
+          <PanneauRaccourcis />
+        </ToastsProvider>
         <PWARegister />
       </body>
     </html>

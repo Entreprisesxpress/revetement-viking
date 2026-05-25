@@ -127,3 +127,49 @@ select {
 /* === Safe area iOS notch === */
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* === Print styles (Ctrl+P) === */
+@media print {
+  /* Cacher éléments d'interface non pertinents à l'impression */
+  header,
+  nav,
+  .vk-fab,
+  [data-no-print],
+  button:not(.vk-print-keep),
+  a[role="button"] {
+    display: none !important;
+  }
+  /* Reset couleurs/ombres pour impression économique */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .bg-slate-50,
+  .bg-emerald-50,
+  .bg-amber-50,
+  .bg-blue-50,
+  .bg-red-50 {
+    background: white !important;
+  }
+  /* Force pleine largeur */
+  main,
+  .max-w-3xl,
+  .max-w-7xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+  /* Éviter coupure laide dans cartes */
+  section, .rounded-lg, table {
+    page-break-inside: avoid;
+  }
+  /* Liens : afficher l'URL en exposant */
+  a[href^="http"]:after {
+    content: " (" attr(href) ")";
+    font-size: 0.75em;
+    color: #555;
+  }
+}
