@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 
+async function signToken(secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode("xpress-auth-v1"));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function POST(req: NextRequest) {
   const { password } = await req.json();
   const expected = process.env.APP_PASSWORD;
   if (!expected) {
-    // Pas de mot de passe configuré = login automatique
     return NextResponse.json({ ok: true });
   }
   if (password !== expected) {
     return NextResponse.json({ error: "Mot de passe incorrect" }, { status: 401 });
   }
   const res = NextResponse.json({ ok: true });
-  res.cookies.set("xpress_auth", `ok:${expected}`, {
+  res.cookies.set("xpress_auth", await signToken(expected), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 365 * 10, // 10 ans (quasi-infini)
+    maxAge: 60 * 60 * 24 * 365 * 10,
     path: "/",
   });
   return res;

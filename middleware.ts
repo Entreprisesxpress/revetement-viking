@@ -1,27 +1,37 @@
 // Authentification simple par mot de passe partagé
-// Utilise un cookie HTTP-only pour la session
-// Mot de passe configuré dans la variable env APP_PASSWORD
-
+// Le cookie contient un HMAC du password — pas le password lui-même
+// Utilise Web Crypto pour être compatible Edge Runtime
 import { NextResponse, type NextRequest } from "next/server";
 
 const COOKIE_NAME = "xpress_auth";
-const COOKIE_VALUE_PREFIX = "ok:";
+const LEGACY_PREFIX = "ok:"; // compat lors du déploiement
 
-export function middleware(req: NextRequest) {
+async function signToken(secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode("xpress-auth-v1"));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function middleware(req: NextRequest) {
   const password = process.env.APP_PASSWORD;
-  // Si pas de mot de passe configuré (dev local), on laisse passer
   if (!password) return NextResponse.next();
 
   const path = req.nextUrl.pathname;
-
-  // Routes publiques (login)
   if (path === "/login" || path.startsWith("/_next") || path.startsWith("/api/login") || path === "/favicon.ico") {
     return NextResponse.next();
   }
 
-  // Vérifier le cookie
   const cookie = req.cookies.get(COOKIE_NAME);
-  const valide = cookie && cookie.value === `${COOKIE_VALUE_PREFIX}${password}`;
+  const expectedToken = await signToken(password);
+  const legacyValue = `${LEGACY_PREFIX}${password}`;
+  const valide = cookie && (cookie.value === expectedToken || cookie.value === legacyValue);
 
   if (!valide) {
     const url = req.nextUrl.clone();

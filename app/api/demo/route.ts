@@ -46,6 +46,14 @@ export async function POST(req: NextRequest) {
   const action = req.nextUrl.searchParams.get("action");
 
   if (action === "reset") {
+    // Garde-fou : reset destructif uniquement si DEMO_RESET_ENABLED=1 et confirm=oui-supprimer-tout
+    if (process.env.DEMO_RESET_ENABLED !== "1") {
+      return NextResponse.json({ error: "Reset désactivé en production. Mettre DEMO_RESET_ENABLED=1 dans Vercel pour activer temporairement." }, { status: 403 });
+    }
+    const confirm = req.nextUrl.searchParams.get("confirm");
+    if (confirm !== "oui-supprimer-tout") {
+      return NextResponse.json({ error: "Manque ?confirm=oui-supprimer-tout pour confirmer." }, { status: 400 });
+    }
     const c = db();
     await c.execute("DELETE FROM soumissions");
     await c.execute("DELETE FROM bibliotheque_jobs");
