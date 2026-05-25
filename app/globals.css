@@ -16,6 +16,49 @@
 html {
   color-scheme: light;
   -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+/* === FLUIDITÉ : feedback tactile au clic (effet "press") === */
+button:not(:disabled):active,
+a:active,
+[role="button"]:not([aria-disabled="true"]):active {
+  transform: scale(0.97);
+  transition: transform 0.06s ease-out;
+}
+
+/* Transitions douces partout pour les changements de couleur/ombre */
+button, a, input, select, textarea, [role="button"] {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* === VIEW TRANSITIONS API (Chrome/Edge) === */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: fade-out 0.15s ease-out; }
+::view-transition-new(root) { animation: fade-in 0.2s ease-out; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* === RESPECT prefers-reduced-motion === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  html { scroll-behavior: auto; }
+  button:active, a:active { transform: none; }
+}
+
+/* === SCROLLBAR plus discrète sur desktop === */
+@media (pointer: fine) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.3); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.6); background-clip: content-box; }
 }
 html.vk-dark { color-scheme: dark; }
 html.vk-dark body { background: #0b1220; color: #e2e8f0; }
