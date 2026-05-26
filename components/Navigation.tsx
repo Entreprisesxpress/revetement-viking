@@ -252,24 +252,30 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
         )}
       </header>
 
-      {/* Bottom nav mobile - 4 icônes fixes en bas */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-slate-200 shadow-lg z-20 grid grid-cols-6">
+      {/* Bottom nav mobile — 1 colonne par lien (grid auto), padding safe-area iOS */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-slate-200 shadow-lg z-20 grid"
+        style={{
+          gridTemplateColumns: `repeat(${LINKS.length}, minmax(0, 1fr))`,
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
         {LINKS.map((l) => (
           <a
             key={l.href}
             href={l.href}
-            className={`flex flex-col items-center justify-center py-2 text-xs font-medium ${
+            className={`flex flex-col items-center justify-center py-2 px-0.5 text-xs font-medium ${
               pathname === l.href || (l.href !== "/" && pathname?.startsWith(l.href)) ? "text-emerald-600 bg-emerald-50" : "text-slate-600 hover:bg-slate-50"
             }`}
           >
             <span className="text-lg mb-0.5">{l.icon}</span>
-            <span className="text-[9px] leading-tight">{l.label}</span>
+            <span className="text-[9px] leading-tight truncate w-full text-center">{l.label}</span>
           </a>
         ))}
       </nav>
 
-      {/* Spacer pour ne pas que le contenu soit caché par la bottom nav mobile */}
-      <div className="md:hidden h-16" aria-hidden />
+      {/* Spacer pour ne pas que le contenu soit caché par la bottom nav mobile (inclut safe-area iOS) */}
+      <div className="md:hidden" aria-hidden style={{ height: "calc(4.5rem + env(safe-area-inset-bottom))" }} />
     </>
   );
 }
