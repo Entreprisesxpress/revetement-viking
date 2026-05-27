@@ -21,8 +21,20 @@ function lundiDe(date: Date): Date {
   d.setHours(0, 0, 0, 0);
   return d;
 }
-function fmtISO(d: Date): string { return d.toISOString().slice(0, 10); }
+function fmtISO(d: Date): string {
+  // Format local YYYY-MM-DD (pas toISOString qui décale en UTC)
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const j = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${j}`;
+}
 function fmtCourt(d: Date): string { return d.toLocaleDateString("fr-CA", { day: "numeric", month: "short" }); }
+/** Parse une date ISO YYYY-MM-DD comme MINUIT LOCAL (pas UTC).
+ * Évite que '2026-05-25' devienne '2026-05-24 20h' en heure de Montréal. */
+function dateISOLocal(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
 
 export default function HoraireePage() {
   const [vue, setVue] = useState<Vue>("semaine");
@@ -85,7 +97,7 @@ export default function HoraireePage() {
       g[emp] = Array.from({ length: 7 }, () => ({ total: 0, cout: 0, lignes: [] }));
     });
     heuresFiltrees.forEach((h) => {
-      const d = new Date(h.date);
+      const d = dateISOLocal(h.date);
       const lun = lundiDe(d);
       const idx = Math.floor((d.getTime() - lun.getTime()) / 86400000);
       if (idx >= 0 && idx < 7) {
@@ -175,7 +187,7 @@ export default function HoraireePage() {
 
   const exporter = () => {
     const rows = heuresTriees.map((h) => ({
-      date: h.date, jour: JOURS_LONG[(new Date(h.date).getDay() + 6) % 7],
+      date: h.date, jour: JOURS_LONG[(dateISOLocal(h.date).getDay() + 6) % 7],
       employe: h.employe || "", projet: h.projet_nom || "",
       heures: h.heures, taux_horaire: h.taux_horaire, cout: (h.heures || 0) * (h.taux_horaire || 0),
       description: h.description || "",
@@ -203,7 +215,7 @@ export default function HoraireePage() {
           <input
             type="date"
             value={debut}
-            onChange={(e) => { const d = new Date(e.target.value); if (!isNaN(d.getTime())) setSemaineDebut(lundiDe(d)); }}
+            onChange={(e) => { const d = dateISOLocal(e.target.value); if (!isNaN(d.getTime())) setSemaineDebut(lundiDe(d)); }}
             className="ml-auto px-2 py-1 border rounded text-sm"
             title="Aller à une semaine spécifique"
           />
@@ -334,7 +346,7 @@ export default function HoraireePage() {
                 <tbody>
                   {heuresTriees.map((h) => {
                     const selected = selection.has(h.id);
-                    const jour = JOURS_COURT[(new Date(h.date).getDay() + 6) % 7];
+                    const jour = JOURS_COURT[(dateISOLocal(h.date).getDay() + 6) % 7];
                     return (
                       <tr key={h.id} className={`border-t hover:bg-slate-50 vk-lazy-render ${selected ? "bg-blue-50" : ""}`}>
                         <td className="p-2">
@@ -379,7 +391,7 @@ export default function HoraireePage() {
             <div className="flex justify-between items-start mb-3">
               <div>
                 <h3 className="text-lg font-bold">{detailJour.employe}</h3>
-                <p className="text-sm text-slate-600">{new Date(detailJour.date).toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" })}</p>
+                <p className="text-sm text-slate-600">{dateISOLocal(detailJour.date).toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" })}</p>
               </div>
               <button onClick={() => setDetailJour(null)} className="text-2xl text-slate-400 hover:text-slate-700">×</button>
             </div>

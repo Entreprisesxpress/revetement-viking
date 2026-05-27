@@ -344,8 +344,19 @@ export default function ProjetDetail() {
               const JOURS_C = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
               const lundi = new Date(semaineDebutH);
               const dim = new Date(lundi); dim.setDate(lundi.getDate() + 6);
-              const debutISO = lundi.toISOString().slice(0, 10);
-              const finISO = dim.toISOString().slice(0, 10);
+              // ⚠️ utilisateur en heure locale Montréal — toISOString() décale en UTC.
+              // On formate manuellement YYYY-MM-DD à partir des composants locaux.
+              const fmtLocal = (d: Date) => {
+                const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), j = String(d.getDate()).padStart(2, "0");
+                return `${y}-${m}-${j}`;
+              };
+              const debutISO = fmtLocal(lundi);
+              const finISO = fmtLocal(dim);
+              // Parse 'YYYY-MM-DD' comme MINUIT LOCAL (sinon UTC midnight = jour précédent en EDT/EST)
+              const dateLocal = (iso: string) => {
+                const [y, m, j] = iso.split("-").map(Number);
+                return new Date(y, (m || 1) - 1, j || 1);
+              };
               const fmtCt = (d: Date) => d.toLocaleDateString("fr-CA", { day: "numeric", month: "short" });
 
               const reculer = () => { const d = new Date(semaineDebutH); d.setDate(d.getDate() - 7); setSemaineDebutH(d); };
@@ -361,7 +372,7 @@ export default function ProjetDetail() {
               const grille: Record<string, Array<{ total: number; cout: number; lignes: any[] }>> = {};
               employesPresents.forEach((e) => grille[e] = Array.from({ length: 7 }, () => ({ total: 0, cout: 0, lignes: [] })));
               heuresSemaine.forEach((h: any) => {
-                const d = new Date(h.date);
+                const d = dateLocal(h.date);
                 const idx = Math.floor((d.getTime() - lundi.getTime()) / 86400000);
                 if (idx >= 0 && idx < 7) {
                   const e = h.employe || "—";
@@ -394,7 +405,7 @@ export default function ProjetDetail() {
                     <button onClick={avancer} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded font-bold" aria-label="Semaine suivante">→</button>
                     <div className="font-bold ml-2">Du {fmtCt(lundi)} au {fmtCt(dim)}</div>
                     <input type="date" value={debutISO} onChange={(e) => {
-                      const d = new Date(e.target.value); if (isNaN(d.getTime())) return;
+                      const d = dateLocal(e.target.value); if (isNaN(d.getTime())) return;
                       const j = d.getDay(); const diff = j === 0 ? -6 : 1 - j;
                       d.setDate(d.getDate() + diff); d.setHours(0, 0, 0, 0); setSemaineDebutH(d);
                     }} className="px-2 py-1 border rounded text-sm" title="Aller à une semaine" />
@@ -423,7 +434,7 @@ export default function ProjetDetail() {
                             <th className="p-2 text-left sticky left-0 bg-slate-900 z-10 min-w-[120px]">Employé</th>
                             {JOURS_C.map((j, i) => {
                               const jd = new Date(lundi); jd.setDate(jd.getDate() + i);
-                              const auj = jd.toISOString().slice(0, 10) === new Date().toISOString().slice(0, 10);
+                              const auj = fmtLocal(jd) === fmtLocal(new Date());
                               return (
                                 <th key={j} className={`p-2 text-center min-w-[100px] ${auj ? "bg-emerald-700" : ""}`}>
                                   <div className="font-bold">{j}</div>
@@ -508,7 +519,7 @@ export default function ProjetDetail() {
                           <tbody>
                             {heuresSemaine.sort((a: any, b: any) => b.date.localeCompare(a.date)).map((h: any) => {
                               const sel = selectionH.has(h.id);
-                              const jourCt = JOURS_C[(new Date(h.date).getDay() + 6) % 7];
+                              const jourCt = JOURS_C[(dateLocal(h.date).getDay() + 6) % 7];
                               return (
                                 <tr key={h.id} className={`border-t hover:bg-slate-50 vk-lazy-render ${sel ? "bg-blue-50" : ""}`}>
                                   <td className="p-2"><input type="checkbox" checked={sel} onChange={() => toggleSel(h.id)} /></td>
