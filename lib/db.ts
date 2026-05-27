@@ -738,6 +738,17 @@ export async function ajouterDepenseProjet(d: DepenseProjet): Promise<number> {
 export async function supprimerDepenseProjet(id: number) {
   await run("DELETE FROM depenses_projet WHERE id = ?", [id]);
 }
+export async function modifierDepenseProjet(id: number, d: Partial<DepenseProjet>) {
+  const champs = ["projet_id", "date", "montant", "fournisseur", "description", "categorie"];
+  const sets: string[] = [];
+  const args: any[] = [];
+  for (const c of champs) {
+    if ((d as any)[c] !== undefined) { sets.push(`${c} = ?`); args.push((d as any)[c] || null); }
+  }
+  if (sets.length === 0) return;
+  args.push(id);
+  await run(`UPDATE depenses_projet SET ${sets.join(", ")} WHERE id = ?`, args);
+}
 
 // === PHOTOS CHANTIER ===
 export interface PhotoChantier {

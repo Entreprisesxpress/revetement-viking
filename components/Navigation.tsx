@@ -14,13 +14,13 @@ const LINKS: NavLink[] = [
   { href: "/soumissions/nouveau", label: "Soumission", icon: "➕" },
   { href: "/projets", label: "Projets", icon: "🏗️" },
   { href: "/heures", label: "Horaire", icon: "⏱️" },
+  { href: "/depenses", label: "Dépenses", icon: "💸" },
   { href: "/clients", label: "CRM", icon: "👥" },
   { href: "/finances/paye", label: "Paie", icon: "💵" },
   { href: "/finances", label: "Finances", icon: "💰" },
 ];
 const LINKS_SECONDAIRES: NavLink[] = [
   { href: "/contrats", label: "Contrats", icon: "📝" },
-  { href: "/depenses", label: "Dépenses", icon: "💸" },
   { href: "/soumissions", label: "Liste soum.", icon: "📋" },
   { href: "/employes", label: "Employés", icon: "👷" },
   { href: "/sync", label: "Synchros", icon: "🔄" },

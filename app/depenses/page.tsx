@@ -5,8 +5,17 @@ import Navigation from "@/components/Navigation";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
+import { exporterCSV } from "@/lib/csv";
 
 const CATEGORIES = ["", "matériaux", "outils", "location", "sous-traitant", "transport", "permis", "essence", "autre"];
+
+type TriCol = "date" | "fournisseur" | "categorie" | "projet" | "montant";
+type TriSens = "asc" | "desc";
+
+function fmtLocal(d: Date): string {
+  const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, "0"); const j = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${j}`;
+}
 
 export default function DepensesPage() {
   const [depenses, setDepenses] = useState<any[]>([]);
@@ -14,9 +23,13 @@ export default function DepensesPage() {
   const [recherche, setRecherche] = useState("");
   const [filtreCat, setFiltreCat] = useState("");
   const [filtreProj, setFiltreProj] = useState<string>("");
-  const today = new Date().toISOString().slice(0, 10);
-  const [depuis, setDepuis] = useState(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10));
+  const today = fmtLocal(new Date());
+  const [depuis, setDepuis] = useState(fmtLocal(new Date(Date.now() - 90 * 86400000)));
   const [jusqu, setJusqu] = useState(today);
+  const [triCol, setTriCol] = useState<TriCol>("date");
+  const [triSens, setTriSens] = useState<TriSens>("desc");
+  const [editing, setEditing] = useState<any>(null);
+  const [selection, setSelection] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
   const charger = async () => {
@@ -24,8 +37,9 @@ export default function DepensesPage() {
       fetch("/api/depenses?data=0").then((r) => r.json()),
       fetch("/api/projets").then((r) => r.json()),
     ]);
-    setDepenses(d);
-    setProjets(p);
+    setDepenses(Array.isArray(d) ? d : []);
+    setProjets(Array.isArray(p) ? p : []);
+    setSelection(new Set());
   };
 
   useEffect(() => { charger(); }, []);
@@ -33,7 +47,7 @@ export default function DepensesPage() {
   const projNom = (id: number | null) => projets.find((p) => p.id === id)?.nom || "—";
 
   const filtrees = useMemo(() => {
-    return depenses.filter((d) => {
+    let arr = depenses.filter((d) => {
       if (d.date < depuis || d.date > jusqu) return false;
       if (filtreCat && d.categorie !== filtreCat) return false;
       if (filtreProj === "aucun" && d.projet_id) return false;
@@ -45,18 +59,51 @@ export default function DepensesPage() {
       }
       return true;
     });
-  }, [depenses, recherche, filtreCat, filtreProj, depuis, jusqu]);
+    const mult = triSens === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      switch (triCol) {
+        case "date": return mult * (a.date || "").localeCompare(b.date || "");
+        case "fournisseur": return mult * (a.fournisseur || "").localeCompare(b.fournisseur || "");
+        case "categorie": return mult * (a.categorie || "").localeCompare(b.categorie || "");
+        case "projet": return mult * projNom(a.projet_id).localeCompare(projNom(b.projet_id));
+        case "montant": return mult * ((a.montant || 0) - (b.montant || 0));
+      }
+    });
+    return arr;
+  }, [depenses, recherche, filtreCat, filtreProj, depuis, jusqu, triCol, triSens, projets]);
+
+  const trier = (col: TriCol) => {
+    if (triCol === col) setTriSens(triSens === "asc" ? "desc" : "asc");
+    else { setTriCol(col); setTriSens(col === "montant" ? "desc" : "asc"); }
+  };
 
   const total = filtrees.reduce((s, d) => s + (d.montant || 0), 0);
   const totalAvecRecu = filtrees.filter((d) => (d as any).a_recu || d.recu_data).reduce((s, d) => s + d.montant, 0);
 
-  // Totaux par catégorie pour QB
   const parCat = filtrees.reduce((acc: any, d) => {
     const k = d.categorie || "autre";
     if (!acc[k]) acc[k] = 0;
     acc[k] += d.montant;
     return acc;
   }, {});
+
+  const toggleSel = (id: number) => {
+    const ns = new Set(selection);
+    ns.has(id) ? ns.delete(id) : ns.add(id);
+    setSelection(ns);
+  };
+  const toggleSelTout = () => {
+    if (selection.size === filtrees.length) setSelection(new Set());
+    else setSelection(new Set(filtrees.map((d) => d.id)));
+  };
+  const supprimerSel = async () => {
+    if (selection.size === 0) return;
+    if (!confirm(`Supprimer ${selection.size} dépense(s) sélectionnée(s) ? IRRÉVERSIBLE.`)) return;
+    await Promise.all(Array.from(selection).map((id) => fetch(`/api/depenses?id=${id}`, { method: "DELETE" })));
+    toast(`${selection.size} dépense(s) supprimée(s)`, "success");
+    setSelection(new Set());
+    charger();
+  };
 
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer cette dépense ?")) return;
@@ -65,20 +112,41 @@ export default function DepensesPage() {
     charger();
   };
 
+  const sauverEdit = async () => {
+    if (!editing) return;
+    const body = {
+      id: editing.id,
+      date: editing.date,
+      fournisseur: editing.fournisseur,
+      categorie: editing.categorie,
+      description: editing.description,
+      projet_id: editing.projet_id ? +editing.projet_id : null,
+      montant: +editing.montant,
+    };
+    const r = await fetch("/api/depenses", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if ((await r.json()).ok) {
+      toast("Dépense modifiée", "success");
+      setEditing(null);
+      charger();
+    } else { toast("Erreur modification", "error"); }
+  };
+
   const exportCSV = () => {
-    const csv = ["Date,Fournisseur,Catégorie,Description,Projet,Montant,Reçu"]
-      .concat(filtrees.map((d) => `"${d.date}","${(d.fournisseur || "").replace(/"/g, "'")}","${d.categorie || ""}","${(d.description || "").replace(/"/g, "'")}","${projNom(d.projet_id).replace(/"/g, "'")}",${d.montant.toFixed(2)},${(d as any).a_recu || d.recu_data ? "Oui" : "Non"}`))
-      .join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `depenses-${depuis}_${jusqu}.csv`;
-    a.click();
+    const rows = filtrees.map((d) => ({
+      date: d.date,
+      fournisseur: d.fournisseur || "",
+      categorie: d.categorie || "",
+      description: d.description || "",
+      projet: projNom(d.projet_id),
+      montant: d.montant.toFixed(2),
+      recu: (d as any).a_recu || d.recu_data ? "Oui" : "Non",
+    }));
+    exporterCSV(`depenses-${depuis}_${jusqu}`, rows);
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Navigation titre="💸 Dépenses" soustitre="Conciliation QuickBooks · Recherche · Export CSV" />
+      <Navigation titre="💸 Dépenses" soustitre={`${filtrees.length} entrée(s) · ${formatCAD(total)} · cliquer ✏️ pour modifier`} />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
         {/* KPIs */}
@@ -116,13 +184,25 @@ export default function DepensesPage() {
               </select>
             </div>
           </div>
-          <div className="flex gap-1 flex-wrap">
-            <button onClick={() => { setDepuis(new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)); setJusqu(today); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-semibold">7j</button>
-            <button onClick={() => { setDepuis(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)); setJusqu(today); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-semibold">30j</button>
+          <div className="flex gap-1 flex-wrap items-center">
+            <button onClick={() => { setDepuis(fmtLocal(new Date(Date.now() - 7 * 86400000))); setJusqu(today); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-semibold">7j</button>
+            <button onClick={() => { setDepuis(fmtLocal(new Date(Date.now() - 30 * 86400000))); setJusqu(today); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-semibold">30j</button>
             <button onClick={() => { setDepuis(`${new Date().getFullYear()}-01-01`); setJusqu(today); }} className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-semibold">Année</button>
+            <button onClick={() => { setRecherche(""); setFiltreCat(""); setFiltreProj(""); }} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded text-xs font-semibold">✕ Reset filtres</button>
             <button onClick={exportCSV} className="ml-auto px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold">📥 Export CSV (QuickBooks)</button>
           </div>
         </section>
+
+        {/* Sélection multiple — barre */}
+        {selection.size > 0 && (
+          <div className="bg-blue-50 border border-blue-300 rounded p-2 flex items-center justify-between sticky top-16 z-10">
+            <span className="text-sm font-semibold text-blue-900">{selection.size} dépense(s) sélectionnée(s)</span>
+            <div className="flex gap-2">
+              <button onClick={() => setSelection(new Set())} className="text-xs text-slate-600 hover:underline">Désélectionner</button>
+              <button onClick={supprimerSel} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-bold">🗑 Supprimer</button>
+            </div>
+          </div>
+        )}
 
         {/* Totaux par catégorie */}
         {Object.keys(parCat).length > 0 && (
@@ -145,50 +225,55 @@ export default function DepensesPage() {
             <div className="p-12 text-center text-slate-500 text-sm">Aucune dépense pour ces critères.</div>
           ) : (
             <table className="w-full text-sm min-w-max">
-              <thead className="bg-slate-100 text-left">
+              <thead className="bg-slate-100 text-left text-xs uppercase">
                 <tr>
-                  <th className="p-2">Date</th>
-                  <th className="p-2">Fournisseur</th>
-                  <th className="p-2">Catégorie</th>
+                  <th className="p-2 w-10">
+                    <input type="checkbox" checked={selection.size === filtrees.length && filtrees.length > 0} onChange={toggleSelTout} aria-label="Tout sélectionner" />
+                  </th>
+                  <ThTri label="Date" col="date" actuel={triCol} sens={triSens} onClick={trier} />
+                  <ThTri label="Fournisseur" col="fournisseur" actuel={triCol} sens={triSens} onClick={trier} />
+                  <ThTri label="Catégorie" col="categorie" actuel={triCol} sens={triSens} onClick={trier} />
                   <th className="p-2">Description</th>
-                  <th className="p-2">Projet</th>
-                  <th className="p-2 text-right">Montant</th>
+                  <ThTri label="Projet" col="projet" actuel={triCol} sens={triSens} onClick={trier} />
+                  <ThTri label="Montant" col="montant" actuel={triCol} sens={triSens} onClick={trier} align="right" />
                   <th className="p-2 text-center">Reçu</th>
-                  <th className="p-2"></th>
+                  <th className="p-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtrees.map((d) => (
-                  <tr key={d.id} className="border-t hover:bg-slate-50">
-                    <td className="p-2 whitespace-nowrap">{d.date}</td>
-                    <td className="p-2 font-semibold">{d.fournisseur || "—"}</td>
-                    <td className="p-2"><span className="text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded">{d.categorie || "—"}</span></td>
-                    <td className="p-2 text-xs text-slate-600 max-w-xs truncate">{d.description || ""}</td>
-                    <td className="p-2 text-xs">
-                      {d.projet_id ? <a href={`/projets/${d.projet_id}`} className="text-blue-600 hover:underline">{projNom(d.projet_id)}</a> : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="p-2 text-right font-bold text-orange-700 whitespace-nowrap">{formatCAD(d.montant)}</td>
-                    <td className="p-2 text-center">
-                      {(d as any).a_recu || d.recu_data ? (
-                        <a
-                          href={`/api/depenses/${d.id}/recu`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-emerald-700 hover:underline text-xs"
-                        >📎 Voir</a>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="p-2 text-right whitespace-nowrap">
-                      <button onClick={() => supprimer(d.id)} className="text-xs text-red-600 hover:underline">🗑</button>
-                    </td>
-                  </tr>
-                ))}
+                {filtrees.map((d) => {
+                  const sel = selection.has(d.id);
+                  return (
+                    <tr key={d.id} className={`border-t hover:bg-slate-50 vk-lazy-render ${sel ? "bg-blue-50" : ""}`}>
+                      <td className="p-2">
+                        <input type="checkbox" checked={sel} onChange={() => toggleSel(d.id)} />
+                      </td>
+                      <td className="p-2 whitespace-nowrap">{d.date}</td>
+                      <td className="p-2 font-semibold">{d.fournisseur || "—"}</td>
+                      <td className="p-2"><span className="text-xs bg-amber-100 text-amber-900 px-2 py-0.5 rounded">{d.categorie || "—"}</span></td>
+                      <td className="p-2 text-xs text-slate-600 max-w-xs truncate">{d.description || ""}</td>
+                      <td className="p-2 text-xs">
+                        {d.projet_id ? <a href={`/projets/${d.projet_id}`} className="text-blue-600 hover:underline">{projNom(d.projet_id)}</a> : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="p-2 text-right font-bold text-orange-700 whitespace-nowrap">{formatCAD(d.montant)}</td>
+                      <td className="p-2 text-center">
+                        {(d as any).a_recu || d.recu_data ? (
+                          <a href={`/api/depenses/${d.id}/recu`} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline text-xs">📎 Voir</a>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="p-2 text-right whitespace-nowrap">
+                        <button onClick={() => setEditing({ ...d })} className="text-xs text-emerald-700 hover:underline mr-2">✏️</button>
+                        <button onClick={() => supprimer(d.id)} className="text-xs text-red-600 hover:underline">🗑</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="bg-slate-100 font-bold">
                 <tr>
-                  <td className="p-2" colSpan={5}>TOTAL {filtrees.length} entrée(s)</td>
+                  <td className="p-2" colSpan={6}>TOTAL {filtrees.length} entrée(s)</td>
                   <td className="p-2 text-right text-orange-700">{formatCAD(total)}</td>
                   <td colSpan={2}></td>
                 </tr>
@@ -197,8 +282,62 @@ export default function DepensesPage() {
           )}
         </section>
       </main>
+
+      {/* MODAL ÉDITION */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setEditing(null)}>
+          <div className="bg-white rounded-t-2xl md:rounded-lg max-w-md w-full p-5 space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">Modifier la dépense</h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
+              <input type="date" value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Fournisseur</label>
+              <input type="text" value={editing.fournisseur || ""} onChange={(e) => setEditing({ ...editing, fournisseur: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Catégorie</label>
+                <select value={editing.categorie || ""} onChange={(e) => setEditing({ ...editing, categorie: e.target.value })} className="w-full px-3 py-2 border rounded text-sm bg-white">
+                  {CATEGORIES.map((c) => <option key={c} value={c}>{c || "—"}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Montant *</label>
+                <input type="number" step={0.01} min="0" value={editing.montant} onChange={(e) => setEditing({ ...editing, montant: e.target.value })} className="w-full px-3 py-2 border rounded text-sm text-right font-bold" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Projet</label>
+              <select value={editing.projet_id || ""} onChange={(e) => setEditing({ ...editing, projet_id: e.target.value })} className="w-full px-3 py-2 border rounded text-sm bg-white">
+                <option value="">— Aucun —</option>
+                {projets.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Description</label>
+              <input type="text" value={editing.description || ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded text-sm">Annuler</button>
+              <button onClick={sauverEdit} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold">Sauver</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <FAB onSuccess={charger} />
     </div>
+  );
+}
+
+function ThTri({ label, col, actuel, sens, onClick, align }: { label: string; col: TriCol; actuel: TriCol; sens: TriSens; onClick: (c: TriCol) => void; align?: "right" }) {
+  const actif = col === actuel;
+  return (
+    <th className={`p-2 cursor-pointer select-none hover:bg-slate-200 ${align === "right" ? "text-right" : ""}`} onClick={() => onClick(col)}>
+      {label} {actif && <span className="text-emerald-600">{sens === "asc" ? "▲" : "▼"}</span>}
+    </th>
   );
 }
 
