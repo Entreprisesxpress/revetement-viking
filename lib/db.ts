@@ -617,6 +617,9 @@ export async function ajouterHeureProjet(h: HeureProjet): Promise<number> {
 export async function supprimerHeureProjet(id: number) {
   await run("DELETE FROM heures_projet WHERE id = ?", [id]);
 }
+export async function getHeureProjet(id: number) {
+  return await one<any>("SELECT * FROM heures_projet WHERE id = ?", [id]);
+}
 export async function modifierHeureProjet(id: number, h: Partial<HeureProjet>) {
   const champs = ['projet_id', 'date', 'heures', 'description', 'employe', 'taux_horaire'];
   const definis = champs.filter(k => (h as any)[k] !== undefined);

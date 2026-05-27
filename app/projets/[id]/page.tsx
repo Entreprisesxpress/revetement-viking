@@ -544,7 +544,10 @@ export default function ProjetDetail() {
               );
             })()}
 
-            {/* Ancien filtres bi-hebdo conservé pour rétrocompat — masqué par défaut */}
+            {/* Code mort retiré (commit 9442fae+) :
+                ancien filtre bi-hebdo + ancien rendu liste qui utilisaient
+                `new Date(h.date)` (bug timezone). Tout est maintenant géré
+                par la vue grille/liste ci-dessus avec dateLocal(). */}
             {false && heures.length > 0 && (() => {
               // Calcul des périodes bi-hebdo (mêmes ancres que le module Paye : dimanche 2026-01-04)
               const ancre = new Date("2026-01-04T12:00:00");
