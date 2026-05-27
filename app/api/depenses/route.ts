@@ -31,9 +31,9 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
   await modifierDepenseProjet(+body.id, body);
-  await journaliser("depense.ajoutee", {
+  journaliser("depense.modifiee", {
     ref_type: "depense", ref_id: body.id,
-    description: `Modifié : ${body.fournisseur || "?"} · ${body.montant || "?"}$`,
+    description: `${body.fournisseur || "?"} · ${body.montant || "?"}$`,
     ip: ipDe(req),
   });
   return NextResponse.json({ ok: true });
@@ -43,5 +43,6 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
   await supprimerDepenseProjet(+id);
+  journaliser("depense.supprimee", { ref_type: "depense", ref_id: id, description: `Suppression #${id}`, ip: ipDe(req) });
   return NextResponse.json({ ok: true });
 }

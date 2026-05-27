@@ -58,9 +58,9 @@ export async function PATCH(req: NextRequest) {
   if (!avant) return NextResponse.json({ error: "entrée introuvable" }, { status: 404 });
   await modifierHeureProjet(+body.id, body);
   const apres = await getHeureProjet(+body.id);
-  journaliser("heures.ajoutees", {
+  journaliser("heures.modifiees", {
     ref_type: "heures", ref_id: body.id,
-    description: `MODIF · ${avant.employe || "?"} · ${avant.heures}h → ${apres?.heures}h sur ${apres?.date}`,
+    description: `${avant.employe || "?"} · ${avant.heures}h → ${apres?.heures}h sur ${apres?.date}`,
     avant: { date: avant.date, heures: avant.heures, employe: avant.employe, projet_id: avant.projet_id, taux_horaire: avant.taux_horaire, description: avant.description },
     apres: { date: apres?.date, heures: apres?.heures, employe: apres?.employe, projet_id: apres?.projet_id, taux_horaire: apres?.taux_horaire, description: apres?.description },
     ip: ipDe(req),
@@ -74,9 +74,9 @@ export async function DELETE(req: NextRequest) {
   // Snapshot avant suppression pour traçabilité paie/audit
   const avant = await getHeureProjet(+id);
   await supprimerHeureProjet(+id);
-  journaliser("heures.ajoutees", {
+  journaliser("heures.supprimees", {
     ref_type: "heures", ref_id: id,
-    description: `SUPPRESSION · ${avant?.employe || "?"} · ${avant?.heures}h sur ${avant?.date}`,
+    description: `${avant?.employe || "?"} · ${avant?.heures}h sur ${avant?.date}`,
     avant: avant ? { date: avant.date, heures: avant.heures, employe: avant.employe, projet_id: avant.projet_id, taux_horaire: avant.taux_horaire } : null,
     ip: ipDe(req),
   });
