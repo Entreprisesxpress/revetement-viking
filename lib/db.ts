@@ -54,6 +54,11 @@ export async function initDb() {
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_data TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
+  // Signature en ligne des soumissions par le client
+  await tryExec("ALTER TABLE soumissions ADD COLUMN signature_nom TEXT");
+  await tryExec("ALTER TABLE soumissions ADD COLUMN signature_date TEXT");
+  await tryExec("ALTER TABLE soumissions ADD COLUMN signature_ip TEXT");
+  await tryExec("ALTER TABLE soumissions ADD COLUMN vue_client_le TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN facture_finale_data TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN facture_finale_type TEXT");
   // Migrations employés : RH complète
@@ -300,6 +305,26 @@ export async function changerStatut(numero: string, statut: Statut) {
   } else {
     await run(`UPDATE soumissions SET statut=? WHERE numero=?`, [statut, numero]);
   }
+}
+
+/** Marque qu'un client a ouvert le lien public (1re fois seulement). */
+export async function marquerSoumissionVue(numero: string) {
+  await run(`UPDATE soumissions SET vue_client_le=COALESCE(vue_client_le, ?) WHERE numero=?`, [new Date().toISOString(), numero]);
+}
+
+/** Le client accepte la soumission en ligne (signature). */
+export async function signerSoumission(numero: string, nom: string, ip?: string): Promise<void> {
+  const now = new Date().toISOString();
+  await run(
+    `UPDATE soumissions SET statut='acceptee', date_acceptation=COALESCE(date_acceptation, ?), signature_nom=?, signature_date=?, signature_ip=? WHERE numero=?`,
+    [now, nom, now, ip || null, numero]
+  );
+}
+
+/** Le client refuse la soumission en ligne. */
+export async function refuserSoumission(numero: string, ip?: string): Promise<void> {
+  const now = new Date().toISOString();
+  await run(`UPDATE soumissions SET statut='refusee', date_refus=COALESCE(date_refus, ?), signature_ip=? WHERE numero=?`, [now, ip || null, numero]);
 }
 
 export async function enregistrerHeuresReelles(numero: string, heuresReelles: number) {

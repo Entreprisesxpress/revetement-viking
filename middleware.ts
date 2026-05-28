@@ -31,6 +31,10 @@ export async function middleware(req: NextRequest) {
   if (path === "/api/backup" && req.method === "GET") {
     return NextResponse.next();
   }
+  // Pages/API publiques de signature de soumission (sécurisées par token HMAC dans l'URL)
+  if (path.startsWith("/soumission/") || path === "/api/soumission-publique") {
+    return NextResponse.next();
+  }
 
   const cookie = req.cookies.get(COOKIE_NAME);
   const expectedToken = await signToken(password);

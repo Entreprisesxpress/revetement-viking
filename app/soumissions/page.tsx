@@ -27,6 +27,17 @@ export default function SoumissionsPage() {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
+  const copierLienClient = async (numero: string) => {
+    try {
+      const d = await fetch(`/api/lien-soumission?numero=${encodeURIComponent(numero)}`).then((r) => r.json());
+      if (!d.url) { toast("Erreur génération lien", "error"); return; }
+      await navigator.clipboard.writeText(d.url);
+      toast("✓ Lien client copié — colle-le dans un courriel ou texto", "success");
+    } catch {
+      toast("Impossible de copier le lien", "error");
+    }
+  };
+
   const convertirEnProjet = async (numero: string) => {
     if (!confirm("Convertir cette soumission en projet ?\n\nLe client sera créé automatiquement et le budget pré-rempli.")) return;
     const r = await fetch("/api/projets", {
@@ -140,6 +151,7 @@ export default function SoumissionsPage() {
                         {(s.statut === "acceptee" || s.statut === "facturee") && (
                           <button onClick={() => convertirEnProjet(s.numero)} className="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs mr-1" title="Créer un projet à partir de cette soumission">🏗️ Projet</button>
                         )}
+                        <button onClick={() => copierLienClient(s.numero)} className="text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded text-xs mr-1" title="Copier le lien de signature à envoyer au client">🔗 Lien client</button>
                         <a href={`/?modifier=${s.numero}`} className="text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded text-xs mr-1">Modifier</a>
                         <button onClick={() => supprimer(s.numero)} className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs">✕</button>
                       </td>

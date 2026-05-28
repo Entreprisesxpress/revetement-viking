@@ -1,0 +1,29 @@
+// Liens publics sécurisés pour partage de soumissions au client.
+// Le lien contient numero + token HMAC → seul quelqu'un avec le lien complet
+// peut voir la soumission (le numéro seul ne suffit pas).
+
+const SECRET_FALLBACK = "viking-lien-public-v1";
+
+async function hmac(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+}
+
+function secret(): string {
+  return process.env.APP_PASSWORD || process.env.LIEN_PUBLIC_SECRET || SECRET_FALLBACK;
+}
+
+export async function genererTokenSoumission(numero: string): Promise<string> {
+  return await hmac(secret(), `soumission:${numero}`);
+}
+
+export async function verifierTokenSoumission(numero: string, token: string): Promise<boolean> {
+  const attendu = await genererTokenSoumission(numero);
+  // Comparaison à temps constant simple
+  if (token.length !== attendu.length) return false;
+  let diff = 0;
+  for (let i = 0; i < attendu.length; i++) diff |= attendu.charCodeAt(i) ^ token.charCodeAt(i);
+  return diff === 0;
+}
