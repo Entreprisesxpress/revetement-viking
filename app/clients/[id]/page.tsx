@@ -138,6 +138,7 @@ export default function ClientDetail() {
                   <button onClick={() => setEdition(true)} className="text-xs text-emerald-700 hover:underline">✏️ Modifier</button>
                 </div>
                 <div className="text-sm space-y-1">
+                  <div>👤 <strong>{client.nom}</strong></div>
                   {client.telephone && <div>📞 <a href={`tel:${client.telephone}`} className="text-blue-600">{client.telephone}</a></div>}
                   {client.courriel && <div>✉️ <a href={`mailto:${client.courriel}`} className="text-blue-600 break-all">{client.courriel}</a></div>}
                   {client.adresse && <div>📍 {client.adresse}</div>}
