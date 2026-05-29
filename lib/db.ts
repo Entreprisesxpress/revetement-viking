@@ -895,9 +895,11 @@ export interface PhotoChantier {
   description?: string; date_saisie?: string; thumb_data?: string;
 }
 export async function listerPhotosChantier(projet_id?: number, options: { sansData?: boolean } = {}): Promise<any[]> {
-  // sansData : on exclut le blob plein-format mais on garde la vignette (légère) + flag
+  // sansData : on exclut le blob plein-format ET la vignette base64 (la grille charge
+  // les vignettes via /api/photos/[id]?thumb=1, donc thumb_data ici alourdit inutilement
+  // le JSON — ~30 ko × N photos). On ne garde que les métadonnées + flags.
   const cols = options.sansData
-    ? "id, projet_id, date, employes, photo_type, description, date_saisie, thumb_data, (thumb_data IS NOT NULL) as a_thumb"
+    ? "id, projet_id, date, employes, photo_type, description, date_saisie, (thumb_data IS NOT NULL) as a_thumb"
     : "*";
   if (projet_id) {
     return await all<any>(`SELECT ${cols} FROM photos_chantier WHERE projet_id = ? ORDER BY date DESC, id DESC`, [projet_id]);

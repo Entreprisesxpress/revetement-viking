@@ -10,7 +10,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const [projet, heures, depenses, photos] = await Promise.all([
       getProjet(pid),
       listerHeuresProjet(pid),
-      listerDepensesProjet(pid),
+      listerDepensesProjet(pid, { sansData: true }),
       listerPhotosChantier(pid, { sansData: true }),
     ]);
     if (!projet) return NextResponse.json({ error: "not found" }, { status: 404 });
