@@ -12,7 +12,13 @@ async function hmac(secret: string, message: string): Promise<string> {
 }
 
 function secret(): string {
-  return process.env.APP_PASSWORD || process.env.LIEN_PUBLIC_SECRET || SECRET_FALLBACK;
+  const s = process.env.APP_PASSWORD || process.env.LIEN_PUBLIC_SECRET;
+  if (s) return s;
+  // En production, refuser le fallback constant (sinon tokens devinables).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Secret manquant : configurer APP_PASSWORD ou LIEN_PUBLIC_SECRET pour signer les liens publics.");
+  }
+  return SECRET_FALLBACK; // dev local uniquement
 }
 
 export async function genererTokenSoumission(numero: string): Promise<string> {

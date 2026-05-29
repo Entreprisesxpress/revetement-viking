@@ -1,0 +1,84 @@
+// Authentification simple par mot de passe partagé
+// Le cookie contient un HMAC du password — pas le password lui-même
+// Utilise Web Crypto pour être compatible Edge Runtime
+import { NextResponse, type NextRequest } from "next/server";
+
+const COOKIE_NAME = "xpress_auth";
+const LEGACY_PREFIX = "ok:"; // compat lors du déploiement
+
+async function signToken(secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode("xpress-auth-v1"));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Applique les headers de sécurité à TOUTE réponse (publique, authentifiée, redirection). */
+function avecHeaders(res: NextResponse): NextResponse {
+  res.headers.set("X-Frame-Options", "SAMEORIGIN");
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.headers.set("Permissions-Policy", "geolocation=(self), microphone=(), camera=(self), payment=()");
+  res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  return res;
+}
+
+// Fichiers/dossiers publics qui ne doivent JAMAIS être bloqués par l'auth
+// (logo de la page login, manifest PWA, service worker, icônes).
+const FICHIERS_PUBLICS = new Set([
+  "/manifest.json", "/sw.js", "/favicon.ico", "/logo-viking.svg", "/robots.txt",
+]);
+function estAssetPublic(path: string): boolean {
+  if (FICHIERS_PUBLICS.has(path)) return true;
+  // Icônes générées (/icon, /apple-icon) + tout .png/.svg/.ico/.webmanifest à la racine
+  if (path === "/icon" || path === "/apple-icon") return true;
+  if (/^\/[^/]+\.(png|svg|ico|webmanifest|woff2?)$/.test(path)) return true;
+  return false;
+}
+
+export async function proxy(req: NextRequest) {
+  const password = process.env.APP_PASSWORD;
+  const path = req.nextUrl.pathname;
+
+  // Pas de mot de passe configuré (dev local) → on laisse passer mais avec headers
+  if (!password) return avecHeaders(NextResponse.next());
+
+  // Routes & assets publics (toujours avec headers de sécurité)
+  if (
+    path === "/login" ||
+    path.startsWith("/_next") ||
+    path.startsWith("/api/login") ||
+    estAssetPublic(path) ||
+    (path === "/api/backup" && req.method === "GET") ||      // cron Vercel (route exige CRON_SECRET)
+    path.startsWith("/soumission/") ||                        // signature publique (token HMAC)
+    path === "/api/soumission-publique"
+  ) {
+    return avecHeaders(NextResponse.next());
+  }
+
+  const cookie = req.cookies.get(COOKIE_NAME);
+  const expectedToken = await signToken(password);
+  const legacyValue = `${LEGACY_PREFIX}${password}`;
+  const eq = (a: string, b: string) => {
+    if (a.length !== b.length) return false;
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return d === 0;
+  };
+  const valide = cookie && (eq(cookie.value, expectedToken) || eq(cookie.value, legacyValue));
+
+  if (!valide) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("redirect", path);
+    return avecHeaders(NextResponse.redirect(url));
+  }
+
+  return avecHeaders(NextResponse.next());
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image).*)"],
+};

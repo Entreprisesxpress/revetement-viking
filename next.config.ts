@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
+  // (eslint config retirée : Next 16 ne l'accepte plus dans next.config — lint = étape séparée)
 
   // Compression gzip/brotli activée
   compress: true,
@@ -17,26 +17,20 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["@react-pdf/renderer"],
   },
 
-  // En-têtes globaux : cache long pour les statics (Next garantit hash → invalidation auto)
+  // En-têtes globaux.
+  // Note : on NE surcharge PAS /_next/static — Next applique déjà le cache
+  // immutable correct sur les assets hashés (un override custom peut entrer
+  // en conflit avec sa gestion).
   async headers() {
     return [
       {
         source: "/(.*)",
-        headers: [
-          { key: "X-DNS-Prefetch-Control", value: "on" },
-        ],
+        headers: [{ key: "X-DNS-Prefetch-Control", value: "on" }],
       },
       {
-        source: "/_next/static/(.*)",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
-      },
-      {
-        source: "/icon-:size(\\d+).png",
-        headers: [{ key: "Cache-Control", value: "public, max-age=2592000, immutable" }],
-      },
-      {
-        source: "/logo-viking.svg",
-        headers: [{ key: "Cache-Control", value: "public, max-age=2592000, immutable" }],
+        // Logo + manifest + icônes : cache 30 jours
+        source: "/:file(logo-viking.svg|manifest.json|icon-192.png|icon-512.png|icon-maskable.png)",
+        headers: [{ key: "Cache-Control", value: "public, max-age=2592000" }],
       },
     ];
   },

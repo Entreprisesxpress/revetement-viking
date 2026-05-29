@@ -52,7 +52,12 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization") || "";
   const secret = process.env.CRON_SECRET;
-  if (secret && auth !== `Bearer ${secret}`) {
+  // SÉCURITÉ : pas de fallback permissif. Si CRON_SECRET n'est pas configuré,
+  // la route est fermée (503). Si configuré, on exige le Bearer exact.
+  if (!secret) {
+    return NextResponse.json({ error: "CRON_SECRET non configuré — route désactivée" }, { status: 503 });
+  }
+  if (auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
