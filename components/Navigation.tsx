@@ -39,6 +39,8 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [notifs, setNotifs] = useState<{ user?: string; total: number; relances: number; drive_erreurs: number; taches_ouvertes: number; mentions: number; mes_relances: number; mentions_items: any[]; relances_items: any[] }>({ total: 0, relances: 0, drive_erreurs: 0, taches_ouvertes: 0, mentions: 0, mes_relances: 0, mentions_items: [], relances_items: [] });
   const [notifsOuvert, setNotifsOuvert] = useState(false);
+  const [profilOuvert, setProfilOuvert] = useState(false);
+  const [profil, setProfil] = useState<{ username?: string; nom_affichage?: string; photo_data?: string } | null>(null);
   const [actionsOuvertes, setActionsOuvertes] = useState(false);
   const [rechercheQ, setRechercheQ] = useState("");
   const [rechercheRes, setRechercheRes] = useState<any[]>([]);
@@ -54,6 +56,17 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
     }, 250);
     return () => clearTimeout(t);
   }, [rechercheQ]);
+
+  // Profil utilisateur (avatar + nom)
+  useEffect(() => {
+    fetch("/api/auth/profil").then((r) => r.ok ? r.json() : null).then((p) => p && setProfil(p)).catch(() => {});
+  }, []);
+
+  const deconnexion = async () => {
+    if (!confirm("Te déconnecter ?")) return;
+    await fetch("/api/login", { method: "DELETE" });
+    router.replace("/login");
+  };
 
   // Polling notifications (30s) — pause quand l'onglet est en arrière-plan
   // (économie batterie mobile + requêtes Turso)
@@ -236,6 +249,29 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                     {notifs.drive_erreurs > 0 && <div>☁️ Erreurs Drive : <strong>{notifs.drive_erreurs}</strong></div>}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Menu profil (avatar + dropdown) */}
+          <div className="relative">
+            <button onClick={() => setProfilOuvert(!profilOuvert)} className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-700 transition flex-shrink-0" title="Profil & paramètres" aria-label="Profil">
+              {profil?.photo_data ? (
+                <img src={profil.photo_data} alt="Profil" className="w-8 h-8 rounded-full object-cover border border-slate-500" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white text-sm font-bold">
+                  {(profil?.nom_affichage || profil?.username || "?").trim()[0]}
+                </div>
+              )}
+            </button>
+            {profilOuvert && (
+              <div className="absolute top-full right-0 mt-2 bg-white text-slate-900 rounded-lg shadow-xl border w-60 z-50">
+                <div className="p-3 border-b">
+                  <div className="font-bold text-sm">{profil?.nom_affichage || profil?.username || "Utilisateur"}</div>
+                  {profil?.username && profil?.nom_affichage && <div className="text-[10px] text-slate-500">@{profil.username}</div>}
+                </div>
+                <Link href="/parametres" onClick={() => setProfilOuvert(false)} className="block px-3 py-2 hover:bg-slate-100 text-sm">⚙️ Mon profil &amp; paramètres</Link>
+                <button onClick={() => { setProfilOuvert(false); deconnexion(); }} className="block w-full text-left px-3 py-2 hover:bg-red-50 text-sm text-red-700 border-t">🚪 Se déconnecter</button>
               </div>
             )}
           </div>

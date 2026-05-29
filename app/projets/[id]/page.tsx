@@ -232,6 +232,11 @@ ${VIKING_EMAIL}
             )}
             <button onClick={() => telechargerFeuilleTemps(projet)} className="text-xs px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded font-semibold">⏱️ Feuille de temps PDF</button>
             <a href={`/api/rapports?projet_id=${id}&format=csv`} className="text-xs px-3 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-semibold">📊 Export CSV</a>
+            <button
+              onClick={async () => { await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, reno_assistance: projet.reno_assistance ? 0 : 1 }) }); toast(projet.reno_assistance ? "Badge Reno assistance retiré" : "🛠️ Reno assistance ajouté", "success"); charger(); }}
+              className={`text-xs px-3 py-1 rounded font-semibold border ${projet.reno_assistance ? "bg-amber-100 text-amber-900 border-amber-300" : "bg-white text-slate-600 border-slate-200 hover:bg-amber-50"}`}
+              title="Active/désactive le badge Reno assistance"
+            >🛠️ {projet.reno_assistance ? "Reno assistance ✓" : "Reno assistance"}</button>
           </div>
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>

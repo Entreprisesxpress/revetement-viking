@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -101,6 +101,15 @@ async function doInitDb() {
     mentions TEXT, date_creation TEXT NOT NULL
   )`);
   await tryExec("CREATE INDEX IF NOT EXISTS idx_client_comm_cli ON client_commentaires(client_id, date_creation DESC)");
+  // Profil utilisateur (Gabriel/Francis) : infos modifiables côté UI
+  await tryExec(`CREATE TABLE IF NOT EXISTS utilisateur_profil (
+    username TEXT PRIMARY KEY,
+    nom_affichage TEXT, telephone TEXT, courriel TEXT, role TEXT,
+    photo_data TEXT, photo_type TEXT,
+    date_creation TEXT, date_modif TEXT
+  )`);
+  // Badge "Reno assistance" sur les projets (visible dans la liste + détail)
+  await tryExec("ALTER TABLE projets ADD COLUMN reno_assistance INTEGER DEFAULT 0");
   // Audit : qui a fait l'action ?
   await tryExec("ALTER TABLE journal_activite ADD COLUMN utilisateur TEXT");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_journal_user ON journal_activite(utilisateur)");
@@ -724,7 +733,7 @@ const PROJ_SQL = `SELECT p.id, p.numero, p.client_id, p.nom, p.adresse_chantier,
   p.date_debut, p.date_fin_prevue, p.date_fin_reelle, p.budget_estime, p.heures_estimees,
   p.prix_contrat, p.facture_finale_type, (p.facture_finale_data IS NOT NULL) as a_facture_finale,
   p.contrat_signe_type, (p.contrat_signe_data IS NOT NULL) as a_contrat_signe,
-  p.soumission_numero, p.date_creation,
+  p.reno_assistance, p.soumission_numero, p.date_creation,
   c.nom as client_nom, c.courriel as client_courriel,
   COALESCE((SELECT SUM(heures) FROM heures_projet WHERE projet_id = p.id), 0) as total_heures,
   COALESCE((SELECT SUM(heures * taux_horaire) FROM heures_projet WHERE projet_id = p.id), 0) as cout_main_oeuvre,
@@ -792,6 +801,29 @@ export async function ajouterCommentaireClient(c: { client_id: number; auteur: s
 }
 export async function supprimerCommentaireClient(id: number): Promise<void> {
   await run("DELETE FROM client_commentaires WHERE id = ?", [id]);
+}
+
+// === PROFIL UTILISATEUR ===
+export async function getProfilUtilisateur(username: string): Promise<any | null> {
+  return await one<any>("SELECT * FROM utilisateur_profil WHERE username = ?", [username]);
+}
+export async function majProfilUtilisateur(username: string, p: { nom_affichage?: string; telephone?: string; courriel?: string; role?: string; photo_data?: string; photo_type?: string }): Promise<void> {
+  const existant = await getProfilUtilisateur(username);
+  const champs = ['nom_affichage', 'telephone', 'courriel', 'role', 'photo_data', 'photo_type'];
+  if (existant) {
+    const sets: string[] = [], args: any[] = [];
+    for (const c of champs) if ((p as any)[c] !== undefined) { sets.push(`${c} = ?`); args.push((p as any)[c] || null); }
+    if (!sets.length) return;
+    sets.push("date_modif = ?"); args.push(new Date().toISOString());
+    args.push(username);
+    await run(`UPDATE utilisateur_profil SET ${sets.join(", ")} WHERE username = ?`, args);
+  } else {
+    const now = new Date().toISOString();
+    await run(
+      `INSERT INTO utilisateur_profil (username, nom_affichage, telephone, courriel, role, photo_data, photo_type, date_creation, date_modif) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [username, p.nom_affichage || null, p.telephone || null, p.courriel || null, p.role || null, p.photo_data || null, p.photo_type || null, now, now]
+    );
+  }
 }
 
 // === NOTIFICATIONS PIPELINE par utilisateur ===
@@ -927,7 +959,7 @@ export async function ajouterProjet(p: Projet): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierProjet(id: number, p: Partial<Projet>) {
-  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type', 'contrat_signe_data', 'contrat_signe_type'];
+  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type', 'contrat_signe_data', 'contrat_signe_type', 'reno_assistance'];
   const definis = champs.filter(k => (p as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');

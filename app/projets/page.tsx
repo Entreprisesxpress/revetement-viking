@@ -26,7 +26,7 @@ export default function ProjetsPage() {
   const [triAsc, setTriAsc] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creerOuvert, setCreerOuvert] = useState(false);
-  const [nouveau, setNouveau] = useState({ nom: "", client_nom: "", adresse_chantier: "", prix_contrat: "", description: "", date_fin_prevue: "", statut: "actif" });
+  const [nouveau, setNouveau] = useState({ nom: "", client_nom: "", adresse_chantier: "", prix_contrat: "", description: "", date_fin_prevue: "", statut: "actif", reno_assistance: false });
   const [facture, setFacture] = useState<{ data: string; type: string; nom: string } | null>(null);
   const { toast } = useToast();
 
@@ -51,6 +51,7 @@ export default function ProjetsPage() {
         budget_estime: prix,
         prix_contrat: prix,
         statut: nouveau.statut,
+        reno_assistance: nouveau.reno_assistance ? 1 : 0,
         date_debut: new Date().toISOString().slice(0, 10),
       }),
     });
@@ -65,7 +66,7 @@ export default function ProjetsPage() {
       }
       toast("Projet créé", "success");
       setCreerOuvert(false);
-      setNouveau({ nom: "", client_nom: "", adresse_chantier: "", prix_contrat: "", description: "", date_fin_prevue: "", statut: "actif" });
+      setNouveau({ nom: "", client_nom: "", adresse_chantier: "", prix_contrat: "", description: "", date_fin_prevue: "", statut: "actif", reno_assistance: false });
       setFacture(null);
       charger();
     }
@@ -174,7 +175,10 @@ export default function ProjetsPage() {
               <Link key={p.id} href={`/projets/${p.id}`} prefetch onMouseEnter={() => prefetchProjet(p.id)} onTouchStart={() => prefetchProjet(p.id)} className="bg-white rounded-lg shadow hover:shadow-lg transition p-4 space-y-2">
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0 flex-1">
-                    {p.numero && <div className="text-[10px] font-mono text-indigo-600 font-bold">{p.numero}</div>}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {p.numero && <span className="text-[10px] font-mono text-indigo-600 font-bold">{p.numero}</span>}
+                      {p.reno_assistance ? <span className="text-[9px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded-full font-bold border border-amber-300">🛠️ Reno assistance</span> : null}
+                    </div>
                     <div className="font-bold text-slate-900 truncate">{p.nom}</div>
                     <div className="text-xs text-slate-500 truncate">{p.client_nom || "Sans client"}</div>
                   </div>
@@ -237,6 +241,12 @@ export default function ProjetsPage() {
               </div>
             </div>
             <Input label="Description" value={nouveau.description} onChange={(v) => setNouveau({ ...nouveau, description: v })} />
+
+            <label className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded p-2 cursor-pointer">
+              <input type="checkbox" checked={nouveau.reno_assistance} onChange={(e) => setNouveau({ ...nouveau, reno_assistance: e.target.checked })} className="w-4 h-4" />
+              <span className="text-sm font-semibold text-amber-900">🛠️ Reno assistance</span>
+              <span className="text-[10px] text-amber-700">— dossier subvention/aide rénovation</span>
+            </label>
 
             {/* Facture finale optionnelle dès la création */}
             <div>
