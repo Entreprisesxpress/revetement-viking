@@ -113,6 +113,21 @@ export async function initDb() {
   await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_courriel ON clients(courriel)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_tel ON clients(telephone)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_employes_actif ON employes(actif)");
+  // Véhicules de la flotte
+  await tryExec(`CREATE TABLE IF NOT EXISTS vehicules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL, marque TEXT, modele TEXT, annee INTEGER,
+    plaque TEXT, vin TEXT, date_achat TEXT, notes TEXT, date_creation TEXT
+  )`);
+  // Assurances (auto, responsabilité, etc.) avec documents + dates de renouvellement
+  await tryExec(`CREATE TABLE IF NOT EXISTS assurances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT, compagnie TEXT, numero_police TEXT,
+    vehicule_id INTEGER, date_debut TEXT, date_renouvellement TEXT,
+    prime_annuelle REAL, document_data TEXT, document_type TEXT,
+    notes TEXT, date_creation TEXT
+  )`);
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_assurances_renouv ON assurances(date_renouvellement)");
   // Backfill numéros de projet manquants (anciens projets créés avant le numérotage)
   try {
     const sansNum = await all<{ id: number; date_creation: string }>("SELECT id, date_creation FROM projets WHERE numero IS NULL ORDER BY date_creation ASC, id ASC");
@@ -958,6 +973,53 @@ export async function getEmploye(id: number): Promise<Employe | null> {
 export async function supprimerEmploye(id: number) {
   await run("UPDATE employes SET actif = 0 WHERE id = ?", [id]);
 }
+
+// === VÉHICULES ===
+export interface Vehicule { id?: number; nom: string; marque?: string; modele?: string; annee?: number; plaque?: string; vin?: string; date_achat?: string; notes?: string; }
+export async function listerVehicules(): Promise<Vehicule[]> {
+  await initDb();
+  return await all<Vehicule>("SELECT * FROM vehicules ORDER BY nom ASC");
+}
+export async function ajouterVehicule(v: Vehicule): Promise<number> {
+  const r = await run(
+    `INSERT INTO vehicules (nom, marque, modele, annee, plaque, vin, date_achat, notes, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [v.nom, v.marque || null, v.modele || null, v.annee || null, v.plaque || null, v.vin || null, v.date_achat || null, v.notes || null, new Date().toISOString()]
+  );
+  return r.lastInsertRowid;
+}
+export async function modifierVehicule(id: number, v: Partial<Vehicule>) {
+  const champs = ['nom', 'marque', 'modele', 'annee', 'plaque', 'vin', 'date_achat', 'notes'];
+  const def = champs.filter(k => (v as any)[k] !== undefined);
+  if (!def.length) return;
+  await run(`UPDATE vehicules SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (v as any)[k] ?? null), id]);
+}
+export async function supprimerVehicule(id: number) { await run("DELETE FROM vehicules WHERE id = ?", [id]); }
+
+// === ASSURANCES ===
+export interface Assurance { id?: number; type?: string; compagnie?: string; numero_police?: string; vehicule_id?: number | null; date_debut?: string; date_renouvellement?: string; prime_annuelle?: number; document_data?: string; document_type?: string; notes?: string; }
+// Colonnes sans le blob document (perf) + flag a_document
+const ASSUR_COLS_LITES = "id, type, compagnie, numero_police, vehicule_id, date_debut, date_renouvellement, prime_annuelle, document_type, notes, date_creation, (document_data IS NOT NULL) as a_document";
+export async function listerAssurances(): Promise<any[]> {
+  await initDb();
+  return await all<any>(`SELECT ${ASSUR_COLS_LITES} FROM assurances ORDER BY date_renouvellement ASC`);
+}
+export async function getAssuranceDocument(id: number): Promise<{ document_data?: string; document_type?: string } | null> {
+  return await one<any>("SELECT document_data, document_type FROM assurances WHERE id = ?", [id]);
+}
+export async function ajouterAssurance(a: Assurance): Promise<number> {
+  const r = await run(
+    `INSERT INTO assurances (type, compagnie, numero_police, vehicule_id, date_debut, date_renouvellement, prime_annuelle, document_data, document_type, notes, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [a.type || null, a.compagnie || null, a.numero_police || null, a.vehicule_id || null, a.date_debut || null, a.date_renouvellement || null, a.prime_annuelle || null, a.document_data || null, a.document_type || null, a.notes || null, new Date().toISOString()]
+  );
+  return r.lastInsertRowid;
+}
+export async function modifierAssurance(id: number, a: Partial<Assurance>) {
+  const champs = ['type', 'compagnie', 'numero_police', 'vehicule_id', 'date_debut', 'date_renouvellement', 'prime_annuelle', 'document_data', 'document_type', 'notes'];
+  const def = champs.filter(k => (a as any)[k] !== undefined);
+  if (!def.length) return;
+  await run(`UPDATE assurances SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (a as any)[k] ?? null), id]);
+}
+export async function supprimerAssurance(id: number) { await run("DELETE FROM assurances WHERE id = ?", [id]); }
 
 // === PAYE / PÉRIODES BI-HEBDOMADAIRES ===
 // Conventions :
