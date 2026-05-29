@@ -15,6 +15,24 @@ async function signToken(secret: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+// CSP compatible Next.js 16 :
+// - 'unsafe-inline' requis : styles Tailwind injectés + scripts d'hydratation Next
+// - 'unsafe-eval' requis par certains chunks (react-pdf). Toléré : app privée mono-tenant.
+// - connect-src : APIs externes (météo Open-Meteo, Google APIs pour Drive)
+// - img-src data:/blob: pour aperçus base64 + binaires
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://*.googleapis.com https://www.googleapis.com",
+  "frame-ancestors 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
 /** Applique les headers de sécurité à TOUTE réponse (publique, authentifiée, redirection). */
 function avecHeaders(res: NextResponse): NextResponse {
   res.headers.set("X-Frame-Options", "SAMEORIGIN");
@@ -22,6 +40,7 @@ function avecHeaders(res: NextResponse): NextResponse {
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("Permissions-Policy", "geolocation=(self), microphone=(), camera=(self), payment=()");
   res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.headers.set("Content-Security-Policy", CSP);
   return res;
 }
 
