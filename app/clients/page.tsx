@@ -5,6 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
+import PipelineCRM from "@/components/PipelineCRM";
 import { exporterCSV } from "@/lib/csv";
 
 const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
@@ -23,7 +24,7 @@ export default function ClientsPage() {
   const [creerOuvert, setCreerOuvert] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [recherche, setRecherche] = useState("");
-  const [vue, setVue] = useState<"clients" | "projets">("clients");
+  const [vue, setVue] = useState<"clients" | "projets" | "pipeline">("clients");
   const [nouveau, setNouveau] = useState({ nom: "", courriel: "", telephone: "", adresse: "", notes: "", statut: "prospect", source: "", tags: "" });
   const { toast } = useToast();
 
@@ -115,8 +116,9 @@ export default function ClientsPage() {
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
         {/* Onglets vue (Clients / Projets) + bouton créer */}
         <div className="flex justify-between items-center flex-wrap gap-2">
-          <div className="flex gap-1 bg-white rounded-lg shadow p-1">
+          <div className="flex gap-1 bg-white rounded-lg shadow p-1 flex-wrap">
             <button onClick={() => setVue("clients")} className={`px-4 py-2 rounded text-sm font-semibold ${vue === "clients" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>👥 Clients ({clients.length})</button>
+            <button onClick={() => setVue("pipeline")} className={`px-4 py-2 rounded text-sm font-semibold ${vue === "pipeline" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>📊 Pipeline</button>
             <button onClick={() => setVue("projets")} className={`px-4 py-2 rounded text-sm font-semibold ${vue === "projets" ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>🏗️ Projets ({projets.length})</button>
           </div>
           {vue === "clients" && (
@@ -130,6 +132,9 @@ export default function ClientsPage() {
             </a>
           )}
         </div>
+
+        {/* VUE PIPELINE CRM */}
+        {vue === "pipeline" && <PipelineCRM clients={clients} onUpdate={charger} />}
 
         {/* VUE PROJETS GROUPÉS PAR CATÉGORIE */}
         {vue === "projets" && (

@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -70,6 +70,9 @@ async function doInitDb() {
   await tryExec("ALTER TABLE clients ADD COLUMN tags TEXT");
   await tryExec("ALTER TABLE clients ADD COLUMN asana_gid TEXT");
   await tryExec("ALTER TABLE clients ADD COLUMN asana_modifie_le TEXT");
+  // Pipeline CRM : étape du parcours commercial (info, RDV, mesures, soum, attente, accepté)
+  await tryExec("ALTER TABLE clients ADD COLUMN pipeline_stage TEXT");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_pipeline ON clients(pipeline_stage)");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_data TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
@@ -528,7 +531,7 @@ export async function ajouterClient(c: ClientType): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierClient(id: number, c: Partial<ClientType>) {
-  const champs = ['nom', 'courriel', 'telephone', 'adresse', 'notes', 'statut', 'source', 'tags', 'asana_gid', 'asana_modifie_le'];
+  const champs = ['nom', 'courriel', 'telephone', 'adresse', 'notes', 'statut', 'source', 'tags', 'asana_gid', 'asana_modifie_le', 'pipeline_stage'];
   const definis = champs.filter(k => (c as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');
