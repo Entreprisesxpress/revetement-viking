@@ -977,6 +977,10 @@ const calculerHeuresPaye = calculerHeuresPayeCalc;
  *  Retourne la liste des périodes pour un employé donné (ou tous). */
 export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<PaiePeriode[]> {
   await initDb();
+  // 0. Auto-nettoyage : supprime les périodes orphelines (ex. anciennes lignes
+  //    créées par un ancien calcul de période bugué qui ne correspondent plus
+  //    à aucune heure réelle). Ne touche jamais une période marquée payée.
+  await nettoyerPayePeriodesOrphelines().catch(() => {});
   // 1. Récupérer toutes les heures
   const where = employe ? "WHERE employe = ?" : "WHERE employe IS NOT NULL";
   const args = employe ? [employe] : [];
