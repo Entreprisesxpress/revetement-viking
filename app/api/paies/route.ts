@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerPaiePeriodes, marquerPayePeriode, supprimerPayePeriode, nettoyerPayePeriodesOrphelines } from "@/lib/db";
+import { listerPaiePeriodes, marquerPayePeriode, supprimerPayePeriode, nettoyerPayePeriodesOrphelines, definirBanqueAppliquee } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const employe = req.nextUrl.searchParams.get("employe") || undefined;
@@ -10,6 +10,11 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const b = await req.json();
   if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  // Choix utilisateur : combler la période avec des heures de la banque
+  if (b.banque_appliquee !== undefined) {
+    await definirBanqueAppliquee(+b.id, +b.banque_appliquee);
+    return NextResponse.json({ ok: true });
+  }
   await marquerPayePeriode(+b.id, !!b.paye, b.date_paiement, b.note);
   return NextResponse.json({ ok: true });
 }

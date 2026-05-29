@@ -61,6 +61,12 @@ export default function PayePage() {
     }
   };
 
+  const appliquerBanque = async (p: any, heures: number) => {
+    await fetch("/api/paies", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, banque_appliquee: heures }) });
+    toast(heures > 0 ? `🏦 ${heures.toFixed(1)} h tirées de la banque` : "Banque retirée de cette période", heures > 0 ? "success" : "info");
+    charger();
+  };
+
   const supprimer = async (p: any) => {
     if (!confirm(`Supprimer la période de paye de ${p.employe} (${p.debut} → ${p.fin}) ?`)) return;
     await fetch(`/api/paies?id=${p.id}`, { method: "DELETE" });
@@ -208,12 +214,38 @@ export default function PayePage() {
                   DAS retenue (15%) : <strong>{formatCAD(p.das_montant || 0)}</strong>
                   {(() => {
                     const trav = p.heures_travaillees ?? p.heures_normales ?? 0;
-                    const surplus = trav - (p.heures_normales || 0);
+                    const surplus = Math.max(0, trav - 80);
                     if (surplus > 0.01) return <span className="ml-3 text-indigo-700">🏦 {surplus.toFixed(1)} h accumulées en banque (payées plus tard)</span>;
-                    if (surplus < -0.01) return <span className="ml-3 text-indigo-700">🏦 {Math.abs(surplus).toFixed(1)} h tirées de la banque pour compléter la période</span>;
+                    const appliquee = p.banque_appliquee || 0;
+                    if (appliquee > 0.01) return <span className="ml-3 text-indigo-700">🏦 {appliquee.toFixed(1)} h tirées de la banque pour compléter la période</span>;
                     return null;
                   })()}
                 </div>
+
+                {/* Proposition de combler la période avec la banque (choix de l'utilisateur) */}
+                {!p.paye && (() => {
+                  const trav = p.heures_travaillees ?? p.heures_normales ?? 0;
+                  const manque = Math.max(0, 80 - trav);
+                  const dispo = p.banque_dispo || 0;
+                  const appliquee = p.banque_appliquee || 0;
+                  const suggestion = Math.min(manque, dispo);
+                  if (manque < 0.01) return null;            // période complète, rien à proposer
+                  if (appliquee > 0.01) {
+                    return (
+                      <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded p-2 flex items-center justify-between gap-2 flex-wrap text-xs">
+                        <span className="text-indigo-900">🏦 <strong>{appliquee.toFixed(1)} h</strong> de banque appliquées sur cette période ({manque.toFixed(1)} h manquantes pour 80 h).</span>
+                        <button onClick={() => appliquerBanque(p, 0)} className="px-3 py-1.5 bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-700 rounded font-semibold">↩ Annuler</button>
+                      </div>
+                    );
+                  }
+                  if (dispo < 0.01) return null;             // rien en banque à proposer
+                  return (
+                    <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded p-2 flex items-center justify-between gap-2 flex-wrap text-xs">
+                      <span className="text-indigo-900">🏦 Période sous 80 h ({manque.toFixed(1)} h manquantes). <strong>{dispo.toFixed(1)} h</strong> disponibles en banque.</span>
+                      <button onClick={() => appliquerBanque(p, suggestion)} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-semibold">🏦 Combler {suggestion.toFixed(1)} h depuis la banque</button>
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>

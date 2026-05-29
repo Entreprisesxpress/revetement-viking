@@ -39,7 +39,6 @@ const dateLisible = (iso: string) => {
 
 export function TalonPaiePDF({ talon }: { talon: TalonProps }) {
   const brutNormal = talon.heures_normales * talon.taux_horaire;
-  const brutSup = talon.heures_sup * talon.taux_horaire * 1.5;
   return (
     <Document>
       <Page size="LETTER" style={s.page}>
@@ -65,15 +64,9 @@ export function TalonPaiePDF({ talon }: { talon: TalonProps }) {
         {/* Gains */}
         <Text style={s.sectionTitre}>Gains</Text>
         <View style={s.row}>
-          <Text>Heures normales — {talon.heures_normales.toFixed(2)} h × {cad(talon.taux_horaire)}</Text>
+          <Text>Heures payées — {talon.heures_normales.toFixed(2)} h × {cad(talon.taux_horaire)}</Text>
           <Text style={s.val}>{cad(brutNormal)}</Text>
         </View>
-        {talon.heures_sup > 0 && (
-          <View style={s.row}>
-            <Text>Heures supplémentaires — {talon.heures_sup.toFixed(2)} h × {cad(talon.taux_horaire * 1.5)} (×1.5)</Text>
-            <Text style={s.val}>{cad(brutSup)}</Text>
-          </View>
-        )}
         <View style={s.row}>
           <Text style={s.val}>Salaire brut</Text>
           <Text style={s.val}>{cad(talon.montant_brut)}</Text>

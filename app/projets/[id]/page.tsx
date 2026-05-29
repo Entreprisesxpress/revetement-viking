@@ -27,24 +27,6 @@ async function telechargerFeuilleTemps(projet: any) {
   URL.revokeObjectURL(url);
 }
 
-function envoyerFactureEmail(projet: any, facture: any) {
-  const sujet = `Facture ${facture.numero || ""} - ${projet.nom}`;
-  const corps = `Bonjour ${projet.client_nom || ""},
-
-Voici la facture pour les travaux ${projet.nom}${projet.adresse_chantier ? ` au ${projet.adresse_chantier}` : ""}.
-
-Montant : ${facture.montant} $
-Date : ${facture.date}
-${facture.description ? "Description : " + facture.description + "\n" : ""}
-Merci de votre confiance.
-
-Cordialement,
-Revêtement Viking Inc.
-RBQ 5811-4299-01
-info@entreprisesxpress.ca`;
-  window.location.href = `mailto:?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
-}
-
 export default function ProjetDetail() {
   const params = useParams();
   const router = useRouter();
@@ -53,10 +35,9 @@ export default function ProjetDetail() {
 
   const [projet, setProjet] = useState<any>(null);
   const [heures, setHeures] = useState<any[]>([]);
-  const [factures, setFactures] = useState<any[]>([]);
   const [depenses, setDepenses] = useState<any[]>([]);
   const [photos, setPhotos] = useState<any[]>([]);
-  const [onglet, setOnglet] = useState<"heures" | "depenses" | "photos">("heures");
+  const [onglet, setOnglet] = useState<"heures" | "depenses" | "photos" | "description">("heures");
 
   // Forms
   const today = new Date().toISOString().slice(0, 10);
@@ -75,21 +56,18 @@ export default function ProjetDetail() {
   const [lightboxId, setLightboxId] = useState<number | null>(null);
   const [hRecherche, setHRecherche] = useState("");
   const [hPeriode, setHPeriode] = useState<string>(""); // "" = toutes, ou "YYYY-MM-DD|YYYY-MM-DD"
-  const [fForm, setFForm] = useState({ numero: "", montant: "", date: today, description: "" });
   const [dForm, setDForm] = useState({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
 
   const charger = async () => {
     const noStore = { cache: "no-store" as RequestCache };
-    const [p, h, f, d, ph] = await Promise.all([
+    const [p, h, d, ph] = await Promise.all([
       fetch(`/api/projets?id=${id}`, noStore).then((r) => r.json()),
       fetch(`/api/heures?projet_id=${id}`, noStore).then((r) => r.json()),
-      fetch(`/api/factures?projet_id=${id}`, noStore).then((r) => r.json()),
       fetch(`/api/depenses?projet_id=${id}`, noStore).then((r) => r.json()),
       fetch(`/api/photos?projet_id=${id}&data=0`, noStore).then((r) => r.json()).catch(() => []),
     ]);
     setProjet(p);
     setHeures(h);
-    setFactures(f);
     setDepenses(d);
     setPhotos(ph);
   };
@@ -114,19 +92,6 @@ export default function ProjetDetail() {
     }
   };
 
-  const ajouterFacture = async () => {
-    if (!fForm.montant) { toast("Montant requis", "warning"); return; }
-    const r = await fetch("/api/factures", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projet_id: id, numero: fForm.numero, montant: +fForm.montant, date: fForm.date, description: fForm.description }),
-    });
-    if ((await r.json()).ok) {
-      toast(`Facture ${formatCAD(+fForm.montant)} ajoutée`, "success");
-      setFForm({ numero: "", montant: "", date: today, description: "" });
-      charger();
-    }
-  };
-
   const ajouterDepense = async () => {
     if (!dForm.montant) { toast("Montant requis", "warning"); return; }
     const r = await fetch("/api/depenses", {
@@ -143,12 +108,6 @@ export default function ProjetDetail() {
   const supprimer = async (type: string, ligneId: number) => {
     if (!confirm("Supprimer cette entrée ?")) return;
     await fetch(`/api/${type}?id=${ligneId}`, { method: "DELETE" });
-    charger();
-  };
-
-  const marquerPayee = async (factureId: number) => {
-    await fetch("/api/factures", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "marquer_payee", id: factureId }) });
-    toast("Facture marquée payée", "success");
     charger();
   };
 
@@ -321,9 +280,9 @@ ${VIKING_EMAIL}
 
         {/* Onglets */}
         <div className="flex gap-2 border-b overflow-x-auto">
-          {(["heures", "depenses", "photos"] as const).map((o) => (
+          {(["heures", "depenses", "photos", "description"] as const).map((o) => (
             <button key={o} onClick={() => setOnglet(o)} className={`px-4 py-2 text-sm font-semibold border-b-2 transition whitespace-nowrap ${onglet === o ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
-              {o === "heures" ? `⏱️ Heures (${heures.length})` : o === "depenses" ? `💸 Dépenses (${depenses.length})` : `📸 Photos (${photos.length})`}
+              {o === "heures" ? `⏱️ Heures (${heures.length})` : o === "depenses" ? `💸 Dépenses (${depenses.length})` : o === "photos" ? `📸 Photos (${photos.length})` : `📝 Description`}
             </button>
           ))}
         </div>
@@ -378,6 +337,16 @@ ${VIKING_EMAIL}
               </div>
             )}
           </div>
+        )}
+
+        {/* ONGLET DESCRIPTION */}
+        {onglet === "description" && (
+          <DescriptionTab
+            projet={projet}
+            photos={photos}
+            onUpdate={charger}
+            onOpenPhoto={setLightboxId}
+          />
         )}
 
         {/* ONGLET HEURES */}
@@ -733,52 +702,6 @@ ${VIKING_EMAIL}
           </div>
         )}
 
-        {/* ONGLET FACTURES */}
-        {onglet === "factures" && (
-          <div className="space-y-3">
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold mb-3">🧾 Ajouter une facture</h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                <Field label="N° facture" value={fForm.numero} onChange={(v) => setFForm({ ...fForm, numero: v })} placeholder="auto" />
-                <FieldDate label="Date" value={fForm.date} onChange={(v) => setFForm({ ...fForm, date: v })} />
-                <FieldNum label="Montant *" value={fForm.montant} onChange={(v) => setFForm({ ...fForm, montant: v })} />
-                <div className="md:col-span-2 flex items-end gap-2">
-                  <div className="flex-1"><Field label="Description" value={fForm.description} onChange={(v) => setFForm({ ...fForm, description: v })} placeholder="Ex: acompte 30%" /></div>
-                  <button onClick={ajouterFacture} className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-semibold whitespace-nowrap">＋ Ajouter</button>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              {factures.length === 0 ? (
-                <p className="p-6 text-center text-slate-500 text-sm">Aucune facture</p>
-              ) : (
-                <div className="divide-y">
-                  {factures.map((f) => (
-                    <div key={f.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 text-sm flex-wrap">
-                          <span className="font-mono text-xs text-slate-500">{f.numero || `#${f.id}`}</span>
-                          <span className="font-semibold">{new Date(f.date).toLocaleDateString("fr-CA")}</span>
-                          {f.payee ? <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">✓ Payée {f.date_paiement ? `(${new Date(f.date_paiement).toLocaleDateString("fr-CA")})` : ""}</span> : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">À payer</span>}
-                        </div>
-                        {f.description && <div className="text-xs text-slate-600 mt-0.5 truncate">{f.description}</div>}
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <div className="font-bold text-blue-700">{formatCAD(f.montant)}</div>
-                        <div className="flex gap-1">
-                          <button onClick={() => envoyerFactureEmail(projet, f)} className="text-xs text-blue-600 hover:underline">✉️ Envoyer</button>
-                          {!f.payee && <button onClick={() => marquerPayee(f.id)} className="text-xs text-emerald-600 hover:underline">Payée</button>}
-                          <button onClick={() => supprimer("factures", f.id)} className="text-xs text-red-600 hover:underline">✕</button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* ONGLET DÉPENSES */}
         {onglet === "depenses" && (
@@ -852,6 +775,58 @@ ${VIKING_EMAIL}
           />
         );
       })()}
+    </div>
+  );
+}
+
+function DescriptionTab({ projet, photos, onUpdate, onOpenPhoto }: { projet: any; photos: any[]; onUpdate: () => void; onOpenPhoto: (id: number) => void }) {
+  const [texte, setTexte] = useState(projet.description || "");
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+  useEffect(() => { setTexte(projet.description || ""); }, [projet.id]);
+  const sauver = async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: projet.id, description: texte }) });
+      toast("Description enregistrée", "success");
+      onUpdate();
+    } finally { setBusy(false); }
+  };
+  const modifie = texte !== (projet.description || "");
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-lg shadow p-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">📝 Description du projet</h3>
+          <button onClick={sauver} disabled={!modifie || busy} className={`px-4 py-2 rounded text-sm font-bold ${modifie && !busy ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}>
+            {busy ? "…" : "💾 Enregistrer"}
+          </button>
+        </div>
+        <textarea
+          value={texte}
+          onChange={(e) => setTexte(e.target.value)}
+          rows={6}
+          placeholder="Détails du projet : portée des travaux, type de revêtement, particularités du chantier, notes…"
+          className="w-full px-3 py-2 border rounded text-sm"
+        />
+        {modifie && <div className="text-xs text-amber-600">Modifications non enregistrées</div>}
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-4 space-y-3">
+        <PhotoUploader projet_id={projet.id} onUpload={onUpdate} />
+        {photos.length === 0 ? (
+          <p className="text-center text-slate-500 text-sm py-8">Aucune photo. Ajoute-en ci-dessus.</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {photos.map((p: any) => (
+              <button key={p.id} type="button" onClick={() => onOpenPhoto(p.id)} className="block w-full">
+                <img src={`/api/photos/${p.id}?thumb=1`} alt={p.description || ""} loading="lazy" decoding="async" className="w-full aspect-square object-cover rounded border hover:opacity-90" />
+                {p.description && <div className="text-[10px] text-slate-600 truncate mt-1 text-left">{p.description}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -957,7 +932,6 @@ function ClientInfo({ client_id }: { client_id?: number | null }) {
 function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: () => void }) {
   const [edit, setEdit] = useState(false);
   const [prix, setPrix] = useState(projet.prix_contrat ? String(projet.prix_contrat) : "");
-  const [factureOuverte, setFactureOuverte] = useState(false);
   const [contratOuvert, setContratOuvert] = useState(false);
   const sauver = async () => {
     const valeur = prix ? +prix : null;
@@ -968,20 +942,6 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     });
     setEdit(false);
     onUpdate();
-  };
-  const uploadFacture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await fetch("/api/projets", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: projet.id, facture_finale_data: reader.result, facture_finale_type: file.type }),
-      });
-      onUpdate();
-    };
-    reader.readAsDataURL(file);
   };
   const uploadContrat = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1000,10 +960,10 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   return (
     <section className="bg-white rounded-lg shadow p-4 md:p-5 space-y-3">
       <div className="flex justify-between items-center">
-        <h2 className="font-bold">📄 Contrat & Facture</h2>
+        <h2 className="font-bold">📄 Contrat</h2>
         {!edit && <button onClick={() => setEdit(true)} className="text-xs text-emerald-700 hover:underline">✏️ Modifier</button>}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Prix total du contrat</div>
           {edit ? (
@@ -1016,28 +976,6 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
             <div className="text-2xl font-bold text-emerald-700">{projet.prix_contrat ? formatCAD(projet.prix_contrat) : <span className="text-slate-400 text-sm font-normal italic">Non défini</span>}</div>
           )}
         </div>
-        <div>
-          <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Facture finale</div>
-          {projet.a_facture_finale || projet.facture_finale_data ? (
-            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded p-2">
-              <div className="w-12 h-12 bg-slate-200 rounded flex items-center justify-center text-2xl">{projet.facture_finale_type?.startsWith("image/") ? "🖼️" : "📄"}</div>
-              <button
-                onClick={() => setFactureOuverte(true)}
-                className="flex-1 text-left text-sm text-emerald-700 hover:underline font-semibold"
-              >📎 Ouvrir la facture</button>
-              <label className="cursor-pointer text-xs text-blue-600 hover:underline">
-                Remplacer
-                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadFacture} />
-              </label>
-            </div>
-          ) : (
-            <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 rounded p-3 text-center transition flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
-              📎 Joindre PDF ou photo
-              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadFacture} />
-            </label>
-          )}
-        </div>
-
         {/* Contrat signé */}
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Contrat signé</div>
@@ -1062,26 +1000,6 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
           )}
         </div>
       </div>
-
-      {/* Visualiseur facture plein écran avec bouton retour */}
-      {factureOuverte && (
-        <div className="fixed inset-0 z-[80] bg-black/95 flex flex-col">
-          <div className="flex items-center justify-between p-3 text-white safe-top">
-            <button onClick={() => setFactureOuverte(false)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 font-semibold text-sm">← Retour</button>
-            <span className="text-sm opacity-80">Facture — {projet.nom}</span>
-            <a href={`/api/projets/${projet.id}/facture`} target="_blank" rel="noreferrer" download className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm">⬇</a>
-          </div>
-          <div className="flex-1 bg-white">
-            {projet.facture_finale_type?.startsWith("image/") ? (
-              <div className="w-full h-full flex items-center justify-center bg-black" onClick={() => setFactureOuverte(false)}>
-                <img src={`/api/projets/${projet.id}/facture`} alt="Facture" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
-              </div>
-            ) : (
-              <iframe src={`/api/projets/${projet.id}/facture#view=FitH&toolbar=1`} title="Facture" className="w-full h-full border-0" />
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Visualiseur contrat signé plein écran avec bouton retour */}
       {contratOuvert && (

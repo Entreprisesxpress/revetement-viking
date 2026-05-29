@@ -131,6 +131,9 @@ export async function initDb() {
   // Banque d'heures : heures réellement travaillées + solde de banque après la période
   await tryExec("ALTER TABLE paies_periodes ADD COLUMN heures_travaillees REAL");
   await tryExec("ALTER TABLE paies_periodes ADD COLUMN banque_solde REAL DEFAULT 0");
+  // Banque dispo avant la période (proposable) + heures effectivement tirées (choisi par l'utilisateur)
+  await tryExec("ALTER TABLE paies_periodes ADD COLUMN banque_dispo REAL DEFAULT 0");
+  await tryExec("ALTER TABLE paies_periodes ADD COLUMN banque_appliquee REAL DEFAULT 0");
   // Backfill numéros de projet manquants (anciens projets créés avant le numérotage)
   try {
     const sansNum = await all<{ id: number; date_creation: string }>("SELECT id, date_creation FROM projets WHERE numero IS NULL ORDER BY date_creation ASC, id ASC");
@@ -1086,35 +1089,45 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
   }
   for (const [, liste] of parEmploye) {
     (liste as any[]).sort((a, b) => a.debut.localeCompare(b.debut));
-    let banque = 0;
+    let banque = 0; // solde courant de la banque (heures accumulées non payées)
     for (const g of liste as any[]) {
       const travaillees = g.heures.reduce((s: number, e: any) => s + (e.heures || 0), 0);
-      let payees: number;
-      if (travaillees >= SEUIL) {
-        payees = SEUIL;
-        banque += travaillees - SEUIL;           // surplus accumulé (pas payé maintenant)
-      } else {
-        const tirage = Math.min(SEUIL - travaillees, banque);
-        payees = travaillees + tirage;            // on complète avec la banque
-        banque -= tirage;
+      const base = Math.min(travaillees, SEUIL);          // heures payées d'office (max 80)
+      const surplus = Math.max(0, travaillees - SEUIL);   // surplus → accumulé en banque
+      const dispoAvant = banque;                          // banque disponible AVANT cette période
+
+      const existant = await one<any>("SELECT * FROM paies_periodes WHERE employe = ? AND debut = ? AND fin = ?", [g.employe, g.debut, g.fin]);
+
+      // Heures tirées de la banque pour combler cette période — CHOISI par l'utilisateur (banque_appliquee).
+      // Jamais automatique : on propose seulement. Plafonné au manque (80 - travaillees) et à la dispo.
+      let appliquee = 0;
+      if (existant?.paye) {
+        appliquee = Math.min(existant.banque_appliquee || 0, dispoAvant);
+      } else if (travaillees < SEUIL) {
+        appliquee = Math.min(existant?.banque_appliquee || 0, SEUIL - travaillees, dispoAvant);
       }
-      // Taux normal sur les heures payées — AUCUNE prime ×1.5
+      const payees = base + appliquee;
+      banque = dispoAvant + surplus - appliquee;          // solde résultant
+
+      // Taux normal sur les heures payées — AUCUNE prime ×1.5, l'overtime $ n'existe pas
       const brut = payees * g.taux;
       const dasMontant = brut * 0.15;
       const net = brut - dasMontant;
 
-      const existant = await one<PaiePeriode>("SELECT * FROM paies_periodes WHERE employe = ? AND debut = ? AND fin = ?", [g.employe, g.debut, g.fin]);
       if (existant) {
         if (!existant.paye) {
           await run(
-            `UPDATE paies_periodes SET heures_normales=?, heures_sup=0, heures_travaillees=?, banque_solde=?, taux_horaire=?, montant_brut=?, das_montant=?, montant_net=? WHERE id=?`,
-            [payees, travaillees, banque, g.taux, brut, dasMontant, net, existant.id]
+            `UPDATE paies_periodes SET heures_normales=?, heures_sup=0, heures_travaillees=?, banque_dispo=?, banque_appliquee=?, banque_solde=?, taux_horaire=?, montant_brut=?, das_montant=?, montant_net=? WHERE id=?`,
+            [payees, travaillees, dispoAvant, appliquee, banque, g.taux, brut, dasMontant, net, existant.id]
           );
+        } else {
+          // Période payée : on ne touche pas la paie, mais on rafraîchit les champs d'affichage de la banque.
+          await run(`UPDATE paies_periodes SET banque_dispo=?, banque_solde=? WHERE id=?`, [dispoAvant, banque, existant.id]);
         }
       } else {
         await run(
-          `INSERT INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-          [g.employe, g.debut, g.fin, payees, travaillees, banque, g.taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
+          `INSERT INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_dispo, banque_appliquee, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          [g.employe, g.debut, g.fin, payees, travaillees, dispoAvant, banque, g.taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
         );
       }
     }
@@ -1129,6 +1142,11 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
 
 export async function supprimerPayePeriode(id: number) {
   await run("DELETE FROM paies_periodes WHERE id = ?", [id]);
+}
+/** Définit le nombre d'heures tirées de la banque pour combler une période (choix utilisateur).
+ *  Le recalcul (montants, solde) se fait au prochain listerPaiePeriodes. */
+export async function definirBanqueAppliquee(id: number, heures: number) {
+  await run("UPDATE paies_periodes SET banque_appliquee = ? WHERE id = ? AND paye = 0", [Math.max(0, heures || 0), id]);
 }
 /** Supprime les périodes de paye qui ne correspondent plus à aucune heure saisie */
 export async function nettoyerPayePeriodesOrphelines(): Promise<number> {
