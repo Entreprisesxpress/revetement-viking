@@ -794,6 +794,42 @@ export async function supprimerCommentaireClient(id: number): Promise<void> {
   await run("DELETE FROM client_commentaires WHERE id = ?", [id]);
 }
 
+// === NOTIFICATIONS PIPELINE par utilisateur ===
+export async function mentionsRecentes(user: string, depuisJours = 7): Promise<any[]> {
+  const seuil = new Date(Date.now() - depuisJours * 86400000).toISOString();
+  return await all<any>(
+    `SELECT c.id, c.client_id, c.auteur, c.texte, c.mentions, c.date_creation,
+            cl.nom as client_nom
+     FROM client_commentaires c
+     LEFT JOIN clients cl ON cl.id = c.client_id
+     WHERE c.date_creation >= ? AND c.mentions LIKE ?
+     ORDER BY c.date_creation DESC LIMIT 50`,
+    [seuil, `%${user}%`]
+  );
+}
+export async function relancesPourUser(user: string): Promise<any[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  return await all<any>(
+    `SELECT id, nom, adresse, telephone, courriel, pipeline_stage, date_relance
+     FROM clients
+     WHERE date_relance IS NOT NULL AND date_relance != '' AND date_relance <= ?
+       AND (assignee = ? OR assignee IS NULL OR assignee = '')
+     ORDER BY date_relance ASC`,
+    [today, user]
+  );
+}
+/** Compteurs par client (sous-tâches, commentaires, fichiers) pour les badges du pipeline */
+export async function statsPipelineParClient(): Promise<Record<number, { taches_total: number; taches_done: number; commentaires: number; fichiers: number }>> {
+  const t = await all<any>("SELECT client_id, COUNT(*) as n, SUM(complete) as done FROM client_taches GROUP BY client_id");
+  const co = await all<any>("SELECT client_id, COUNT(*) as n FROM client_commentaires GROUP BY client_id");
+  const f = await all<any>("SELECT client_id, COUNT(*) as n FROM client_fichiers GROUP BY client_id");
+  const out: Record<number, any> = {};
+  for (const r of t) out[r.client_id] = { ...(out[r.client_id] || {}), taches_total: Number(r.n) || 0, taches_done: Number(r.done) || 0 };
+  for (const r of co) out[r.client_id] = { ...(out[r.client_id] || {}), commentaires: Number(r.n) || 0 };
+  for (const r of f) out[r.client_id] = { ...(out[r.client_id] || {}), fichiers: Number(r.n) || 0 };
+  return out;
+}
+
 // === RELANCES — clients dont la date de relance est due ===
 export async function relancesDues(): Promise<{ id: number; nom: string; courriel?: string; telephone?: string; adresse?: string; pipeline_stage?: string; assignee?: string; date_relance: string }[]> {
   const today = new Date().toISOString().slice(0, 10);

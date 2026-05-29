@@ -33,10 +33,14 @@ export default function PipelineCRM({ clients, onUpdate }: Props) {
   const [drawerClient, setDrawerClient] = useState<any>(null);
   const [filtreAssignee, setFiltreAssignee] = useState<string>("");
   const [projets, setProjets] = useState<any[]>([]);
+  const [stats, setStats] = useState<Record<number, { taches_total?: number; taches_done?: number; commentaires?: number; fichiers?: number }>>({});
   const { toast } = useToast();
+
+  const rechargerStats = () => fetch("/api/clients/pipeline-stats", { cache: "no-store" }).then((r) => r.json()).then(setStats).catch(() => {});
 
   useEffect(() => {
     fetch("/api/projets").then((r) => r.json()).then((p: any[]) => Array.isArray(p) && setProjets(p)).catch(() => {});
+    rechargerStats();
   }, []);
 
   // Capteurs : souris (avec petit délai pour ne pas confondre clic et drag) + touch + clavier
@@ -135,6 +139,7 @@ export default function PipelineCRM({ clients, onUpdate }: Props) {
             <Colonne
               key={s.key}
               stage={s}
+              stats={stats}
               clients={parStage.get(s.key) || []}
               ajoutOuvert={ajoutOuvert === s.key}
               onOuvrirAjout={() => { setAjoutOuvert(s.key); setNouveau({ nom: "", telephone: "", courriel: "" }); }}
@@ -150,6 +155,7 @@ export default function PipelineCRM({ clients, onUpdate }: Props) {
         {(parStage.get(AUCUN_KEY) || []).length > 0 && (
           <Colonne
             stage={{ key: AUCUN_KEY, label: "À classer (clients sans étape)", couleur: "bg-white border-slate-300 border-dashed", emoji: "📥" } as any}
+            stats={stats}
             clients={parStage.get(AUCUN_KEY) || []}
             ajoutOuvert={false} onOuvrirAjout={() => {}} onFermerAjout={() => {}} nouveau={nouveau} setNouveau={setNouveau} onAjouter={() => {}}
             cacherAjout
@@ -168,7 +174,7 @@ export default function PipelineCRM({ clients, onUpdate }: Props) {
             client={drawerClient}
             projets={projets}
             onClose={() => setDrawerClient(null)}
-            onUpdate={() => { onUpdate(); fetch(`/api/clients?id=${drawerClient.id}`, { cache: "no-store" }).then((r) => r.json()).then((c) => setDrawerClient(c)).catch(() => {}); }}
+            onUpdate={() => { onUpdate(); rechargerStats(); fetch(`/api/clients?id=${drawerClient.id}`, { cache: "no-store" }).then((r) => r.json()).then((c) => setDrawerClient(c)).catch(() => {}); }}
           />
         </Suspense>
       )}
@@ -176,9 +182,10 @@ export default function PipelineCRM({ clients, onUpdate }: Props) {
   );
 }
 
-function Colonne({ stage, clients, ajoutOuvert, onOuvrirAjout, onFermerAjout, nouveau, setNouveau, onAjouter, cacherAjout, onOuvrirDetail }: {
+function Colonne({ stage, clients, stats, ajoutOuvert, onOuvrirAjout, onFermerAjout, nouveau, setNouveau, onAjouter, cacherAjout, onOuvrirDetail }: {
   stage: { key: string; label: string; couleur: string; emoji: string };
   clients: any[];
+  stats?: Record<number, any>;
   ajoutOuvert: boolean; onOuvrirAjout: () => void; onFermerAjout: () => void;
   nouveau: { nom: string; telephone: string; courriel: string };
   setNouveau: (v: any) => void;
@@ -197,7 +204,7 @@ function Colonne({ stage, clients, ajoutOuvert, onOuvrirAjout, onFermerAjout, no
         {clients.length === 0 ? (
           <div className="text-xs italic text-slate-500 px-2 py-3 text-center">Glisse un client ici.</div>
         ) : clients.map((c) => (
-          <CarteDraggable key={c.id} client={c} onOuvrir={() => onOuvrirDetail(c)} />
+          <CarteDraggable key={c.id} client={c} stats={stats?.[c.id]} onOuvrir={() => onOuvrirDetail(c)} />
         ))}
         {!cacherAjout && (
           ajoutOuvert ? (
@@ -219,7 +226,7 @@ function Colonne({ stage, clients, ajoutOuvert, onOuvrirAjout, onFermerAjout, no
   );
 }
 
-function CarteDraggable({ client, onOuvrir }: { client: any; onOuvrir: () => void }) {
+function CarteDraggable({ client, stats, onOuvrir }: { client: any; stats?: any; onOuvrir: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `c-${client.id}` });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
   return (
@@ -230,7 +237,7 @@ function CarteDraggable({ client, onOuvrir }: { client: any; onOuvrir: () => voi
       {...attributes}
       {...listeners}
     >
-      <CarteContenu client={client} onOuvrir={onOuvrir} />
+      <CarteContenu client={client} stats={stats} onOuvrir={onOuvrir} />
     </div>
   );
 }
@@ -243,9 +250,13 @@ function CarteAffichage({ client, ombre }: { client: any; ombre?: boolean }) {
   );
 }
 
-function CarteContenu({ client, onOuvrir }: { client: any; onOuvrir?: () => void }) {
+function CarteContenu({ client, stats, onOuvrir }: { client: any; stats?: any; onOuvrir?: () => void }) {
   const tagsList = client.tags ? String(client.tags).split(",").map((t: string) => t.trim()).filter(Boolean).slice(0, 3) : [];
   const enRetard = client.date_relance && client.date_relance < new Date().toISOString().slice(0, 10);
+  const nbT = stats?.taches_total || 0;
+  const nbTD = stats?.taches_done || 0;
+  const nbC = stats?.commentaires || 0;
+  const nbF = stats?.fichiers || 0;
   return (
     <>
       <div className="flex justify-between items-start gap-1">
@@ -261,11 +272,14 @@ function CarteContenu({ client, onOuvrir }: { client: any; onOuvrir?: () => void
         {client.telephone && client.adresse && <span> · </span>}
         {client.adresse && <span className="truncate">📍 {client.adresse}</span>}
       </div>
-      {(client.date_relance || tagsList.length > 0) && (
+      {(client.date_relance || tagsList.length > 0 || nbT + nbC + nbF > 0) && (
         <div className="flex flex-wrap items-center gap-1 mt-1">
           {client.date_relance && (
             <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${enRetard ? "bg-red-100 text-red-900" : "bg-amber-50 text-amber-800"}`}>⏰ {client.date_relance.slice(5)}</span>
           )}
+          {nbT > 0 && <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${nbTD === nbT ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-700"}`}>✅ {nbTD}/{nbT}</span>}
+          {nbC > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-800 font-semibold">💬 {nbC}</span>}
+          {nbF > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-800 font-semibold">📎 {nbF}</span>}
           {tagsList.map((t: string) => <span key={t} className="text-[9px] bg-indigo-100 text-indigo-900 px-1.5 py-0.5 rounded-full">#{t}</span>)}
         </div>
       )}

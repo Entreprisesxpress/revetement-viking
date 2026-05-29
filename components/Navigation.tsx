@@ -37,7 +37,8 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   const pathname = usePathname();
   const router = useRouter();
   const [menuOuvert, setMenuOuvert] = useState(false);
-  const [notifs, setNotifs] = useState<{ total: number; relances: number; drive_erreurs: number; taches_ouvertes: number }>({ total: 0, relances: 0, drive_erreurs: 0, taches_ouvertes: 0 });
+  const [notifs, setNotifs] = useState<{ user?: string; total: number; relances: number; drive_erreurs: number; taches_ouvertes: number; mentions: number; mes_relances: number; mentions_items: any[]; relances_items: any[] }>({ total: 0, relances: 0, drive_erreurs: 0, taches_ouvertes: 0, mentions: 0, mes_relances: 0, mentions_items: [], relances_items: [] });
+  const [notifsOuvert, setNotifsOuvert] = useState(false);
   const [actionsOuvertes, setActionsOuvertes] = useState(false);
   const [rechercheQ, setRechercheQ] = useState("");
   const [rechercheRes, setRechercheRes] = useState<any[]>([]);
@@ -172,6 +173,69 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                     {r.sous && <div className="text-xs text-slate-500 truncate">{r.sous}</div>}
                   </Link>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* Cloche de notifications + dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setNotifsOuvert(!notifsOuvert)}
+              className="p-2 rounded hover:bg-slate-700 transition flex-shrink-0 text-lg relative"
+              title="Notifications"
+              aria-label={`Notifications (${notifs.total})`}
+            >
+              🔔
+              {notifs.total > 0 && (
+                <span className="absolute top-0.5 right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1 leading-none">
+                  {notifs.total > 9 ? "9+" : notifs.total}
+                </span>
+              )}
+            </button>
+            {notifsOuvert && (
+              <div className="absolute top-full right-0 mt-2 bg-white text-slate-900 rounded-lg shadow-xl border w-80 max-w-[90vw] max-h-[70vh] overflow-y-auto z-50">
+                <div className="p-3 border-b bg-slate-50">
+                  <div className="font-bold text-sm">🔔 Notifications {notifs.user && <span className="font-normal text-slate-500">— {notifs.user}</span>}</div>
+                  <div className="text-[10px] text-slate-500">@mentions + relances dues + tâches</div>
+                </div>
+                {/* @Mentions */}
+                {notifs.mentions_items.length > 0 && (
+                  <div className="p-2">
+                    <div className="text-[10px] font-bold uppercase text-emerald-700 px-2 py-1">💬 Mentions reçues ({notifs.mentions})</div>
+                    {notifs.mentions_items.map((m: any) => (
+                      <a key={m.id} href={`/clients`} className="block px-3 py-2 hover:bg-emerald-50 rounded text-sm border-l-2 border-emerald-400 mb-1">
+                        <div className="flex justify-between"><strong className="truncate">@{m.auteur || "—"} → {m.client_nom || "?"}</strong><span className="text-[10px] text-slate-500">{new Date(m.date_creation).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })}</span></div>
+                        <div className="text-xs text-slate-600 line-clamp-2">{m.texte}</div>
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {/* Relances dues à moi */}
+                {notifs.relances_items.length > 0 && (
+                  <div className="p-2 border-t">
+                    <div className="text-[10px] font-bold uppercase text-amber-700 px-2 py-1">⏰ Mes relances dues ({notifs.mes_relances})</div>
+                    {notifs.relances_items.map((c: any) => {
+                      const retard = c.date_relance < new Date().toISOString().slice(0, 10);
+                      return (
+                        <a key={c.id} href={`/clients`} className={`block px-3 py-2 hover:bg-amber-50 rounded text-sm border-l-2 mb-1 ${retard ? "border-red-500" : "border-amber-400"}`}>
+                          <div className="flex justify-between"><strong className="truncate">{c.nom}</strong><span className={`text-[10px] ${retard ? "text-red-700 font-bold" : "text-amber-700"}`}>{c.date_relance.slice(5)}</span></div>
+                          <div className="text-xs text-slate-500 truncate">{c.adresse || ""}{c.telephone ? ` · ${c.telephone}` : ""}</div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+                {notifs.mentions_items.length === 0 && notifs.relances_items.length === 0 && (
+                  <div className="p-6 text-center text-sm text-slate-500">🎉 Rien à signaler.</div>
+                )}
+                {/* Compteurs autres */}
+                {(notifs.relances > 0 || notifs.taches_ouvertes > 0 || notifs.drive_erreurs > 0) && (
+                  <div className="p-2 border-t text-xs text-slate-600 space-y-1">
+                    {notifs.relances > 0 && <div>📋 Soumissions à relancer : <strong>{notifs.relances}</strong></div>}
+                    {notifs.taches_ouvertes > 0 && <div>✅ Tâches ouvertes : <strong>{notifs.taches_ouvertes}</strong></div>}
+                    {notifs.drive_erreurs > 0 && <div>☁️ Erreurs Drive : <strong>{notifs.drive_erreurs}</strong></div>}
+                  </div>
+                )}
               </div>
             )}
           </div>
