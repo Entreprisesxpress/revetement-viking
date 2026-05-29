@@ -552,8 +552,8 @@ info@entreprisesxpress.ca`;
         }
       />
 
-      <main className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 md:py-6 grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-6 pb-24">
+        <div className="lg:col-span-2 space-y-4 md:space-y-6 min-w-0">
 
           {/* HOVER */}
           <section className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-lg p-5">
@@ -893,7 +893,7 @@ info@entreprisesxpress.ca`;
         </div>
 
         {/* SOMMAIRE */}
-        <aside className="lg:sticky lg:top-24 lg:self-start space-y-4">
+        <aside className="lg:sticky lg:top-24 lg:self-start space-y-4 min-w-0">
           <section className="bg-white rounded-lg shadow p-5">
             <h2 className="text-lg font-semibold mb-3">Sommaire</h2>
             <div className="space-y-2 text-sm">

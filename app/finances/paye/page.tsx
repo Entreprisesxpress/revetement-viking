@@ -105,7 +105,7 @@ export default function PayePage() {
     <div className="min-h-screen bg-slate-50">
       <Navigation
         titre="💵 Paie"
-        soustitre="Suivi bi-hebdomadaire · DAS 15% · banque d'heures (max 80 h/période)"
+        soustitre="Suivi bi-hebdomadaire · banque d'heures (max 80 h/période)"
       />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
@@ -118,11 +118,10 @@ export default function PayePage() {
           <a href="/employes" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-bold">Gérer les employés →</a>
         </section>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* KPIs (DAS gardée pour les calculs internes de marge, pas affichée ici) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <KPI label="À payer" value={formatCAD(aPayerTotal)} couleur="text-red-700" />
           <KPI label="Total filtré (brut)" value={formatCAD(totaux.brut)} />
-          <KPI label="DAS retenue" value={formatCAD(totaux.das)} couleur="text-amber-700" />
           <KPI label="Total net" value={formatCAD(totaux.net)} couleur="text-emerald-700" />
         </div>
 
@@ -200,19 +199,18 @@ export default function PayePage() {
                     <div className="font-bold text-blue-900">{formatCAD(p.montant_brut || 0)}</div>
                   </div>
                   <div className="bg-emerald-50 p-2 rounded">
-                    <div className="text-[10px] text-emerald-700 uppercase">Net (après DAS)</div>
+                    <div className="text-[10px] text-emerald-700 uppercase">Net</div>
                     <div className="font-bold text-emerald-900">{formatCAD(p.montant_net || 0)}</div>
                   </div>
                 </div>
 
                 <div className="mt-2 text-xs text-slate-500">
-                  DAS retenue (15%) : <strong>{formatCAD(p.das_montant || 0)}</strong>
                   {(() => {
                     const trav = p.heures_travaillees ?? p.heures_normales ?? 0;
                     const surplus = Math.max(0, trav - 80);
-                    if (surplus > 0.01) return <span className="ml-3 text-indigo-700">🏦 {surplus.toFixed(1)} h accumulées en banque (payées plus tard)</span>;
+                    if (surplus > 0.01) return <span className="text-indigo-700">🏦 {surplus.toFixed(1)} h accumulées en banque (payées plus tard)</span>;
                     const appliquee = p.banque_appliquee || 0;
-                    if (appliquee > 0.01) return <span className="ml-3 text-indigo-700">🏦 {appliquee.toFixed(1)} h tirées de la banque pour compléter la période</span>;
+                    if (appliquee > 0.01) return <span className="text-indigo-700">🏦 {appliquee.toFixed(1)} h tirées de la banque pour compléter la période</span>;
                     return null;
                   })()}
                 </div>
