@@ -152,9 +152,11 @@ export default function ProjetDetail() {
     charger();
   };
 
-  const envoyerDemandeReview = (courriel: string) => {
+  const envoyerDemandeReview = (courriel: string, nomClient?: string) => {
+    const VIKING_EMAIL = "revetementviking@gmail.com";
+    const prenom = (nomClient || "").trim().split(/\s+/)[0]; // premier mot du nom client
     const sujet = "Travaux complétés — Revêtement Viking Inc.";
-    const corps = `Bonjour,
+    const corps = `Bonjour${prenom ? " " + prenom : ""},
 
 Les travaux sont maintenant complets.
 
@@ -169,8 +171,10 @@ Au plaisir de refaire affaire avec vous dans le futur.
 Cordialement,
 
 Revêtement Viking Inc.
+${VIKING_EMAIL}
 (438) 493-2041`;
-    window.location.href = `mailto:${courriel}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+    // from/reply-to vers le courriel Viking (le client peut répondre directement)
+    window.location.href = `mailto:${courriel}?from=${encodeURIComponent(VIKING_EMAIL)}&reply-to=${encodeURIComponent(VIKING_EMAIL)}&subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
   };
 
   const changerStatut = async (nouveauStatut: string) => {
@@ -181,7 +185,7 @@ Revêtement Viking Inc.
       const courriel = projet?.client_courriel;
       if (courriel) {
         if (confirm(`Projet complété ✅\n\nEnvoyer un courriel de demande d'avis Google à ${courriel} ?`)) {
-          envoyerDemandeReview(courriel);
+          envoyerDemandeReview(courriel, projet?.client_nom);
         }
       } else {
         toast("Projet complété. Aucun courriel client enregistré pour la demande d'avis.", "info");
