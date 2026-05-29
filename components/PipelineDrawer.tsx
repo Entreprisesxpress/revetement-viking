@@ -400,13 +400,32 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
         </header>
 
         <div className="p-4 space-y-4">
-          {/* Coordonnées */}
+          {/* Coordonnées + raccourcis appel/SMS/mail */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="Nom" value={form.nom} onChange={(v) => setForm({ ...form, nom: v })} />
             <Field label="Adresse" value={form.adresse} onChange={(v) => setForm({ ...form, adresse: v })} />
             <Field label="Téléphone" value={form.telephone} onChange={(v) => setForm({ ...form, telephone: v })} />
             <Field label="Courriel" value={form.courriel} onChange={(v) => setForm({ ...form, courriel: v })} />
           </section>
+          {(form.telephone || form.courriel) && (
+            <div className="flex gap-2 flex-wrap">
+              {form.telephone && (
+                <>
+                  <a href={`tel:${form.telephone}`} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold">📞 Appeler</a>
+                  <a
+                    href={`sms:${form.telephone}?body=${encodeURIComponent(`Bonjour ${form.nom.split(/\s+/)[0]}, c'est ${moiUtilisateur || "Francis"} de Revêtement Viking. `)}`}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold"
+                  >💬 SMS</a>
+                </>
+              )}
+              {form.courriel && (
+                <a href={`mailto:${form.courriel}`} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded text-xs font-bold">✉️ Mail</a>
+              )}
+              {form.adresse && (
+                <a href={`https://maps.google.com/?q=${encodeURIComponent(form.adresse)}`} target="_blank" rel="noreferrer" className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-white rounded text-xs font-bold">🗺️ Itinéraire</a>
+              )}
+            </div>
+          )}
 
           {/* Pipeline / assignee / relance / projet */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">

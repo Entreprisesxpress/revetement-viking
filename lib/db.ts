@@ -864,6 +864,24 @@ export async function supprimerFichierClient(id: number): Promise<void> {
   await run("DELETE FROM client_fichiers WHERE id = ?", [id]);
 }
 
+/** Catégorie la plus utilisée par fournisseur (auto-suggestion). */
+export async function categoriesParFournisseur(): Promise<Record<string, string>> {
+  const rows = await all<any>(
+    `SELECT fournisseur, categorie, COUNT(*) as n
+     FROM depenses_projet
+     WHERE fournisseur IS NOT NULL AND fournisseur != '' AND categorie IS NOT NULL AND categorie != ''
+     GROUP BY fournisseur, categorie
+     ORDER BY n DESC`
+  );
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const f = String(r.fournisseur || "").toLowerCase().trim();
+    if (!f || out[f]) continue; // garde le plus fréquent
+    out[f] = r.categorie;
+  }
+  return out;
+}
+
 // === SOUS-TÂCHES (checklist d'une carte pipeline) ===
 export async function listerTachesClient(client_id: number): Promise<any[]> {
   return await all<any>("SELECT * FROM client_taches WHERE client_id = ? ORDER BY ordre, id", [client_id]);

@@ -118,6 +118,45 @@ export default function PayePage() {
           <a href="/employes" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-bold">Gérer les employés →</a>
         </section>
 
+        {/* === BANQUE D'HEURES par employé (toujours visible, persistante) === */}
+        {(() => {
+          // Dernière période chronologique de chaque employé = solde final actuel de sa banque
+          const dernierePar = new Map<string, any>();
+          for (const p of periodes) {
+            const prec = dernierePar.get(p.employe);
+            if (!prec || p.debut > prec.debut) dernierePar.set(p.employe, p);
+          }
+          const banques = [...dernierePar.entries()].map(([emp, p]) => ({ emp, solde: p.banque_solde || 0, taux: p.taux_horaire || 0 }));
+          const totalBanque = banques.reduce((s, b) => s + b.solde, 0);
+          if (banques.length === 0) return null;
+          return (
+            <section className="bg-gradient-to-br from-indigo-50 to-violet-50 border-2 border-indigo-300 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div>
+                  <h2 className="font-bold text-indigo-900">🏦 Banque d'heures disponibles</h2>
+                  <p className="text-xs text-indigo-700">Surplus au-delà de 80 h/période — payables plus tard sur les périodes sous 80 h.</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-indigo-700 uppercase font-semibold">Total banque</div>
+                  <div className="text-xl font-bold text-indigo-900">{totalBanque.toFixed(2)} h</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {banques.map((b) => (
+                  <div key={b.emp} className={`bg-white rounded p-3 border-l-4 ${b.solde > 0 ? "border-indigo-500" : "border-slate-300"}`}>
+                    <div className="font-bold text-sm text-slate-900">{b.emp}</div>
+                    <div className={`text-2xl font-bold ${b.solde > 0 ? "text-indigo-700" : "text-slate-400"}`}>{b.solde.toFixed(2)} h</div>
+                    {b.solde > 0 && b.taux > 0 && (
+                      <div className="text-[10px] text-slate-500">≈ {formatCAD(b.solde * b.taux)} brut payable</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-indigo-800 italic mt-2">💡 Ces heures sont automatiquement proposées pour combler une période future sous 80 h — bouton « 🏦 Combler X h depuis la banque » apparaît sur ces périodes.</p>
+            </section>
+          );
+        })()}
+
         {/* KPIs (DAS gardée pour les calculs internes de marge, pas affichée ici) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <KPI label="À payer" value={formatCAD(aPayerTotal)} couleur="text-red-700" />

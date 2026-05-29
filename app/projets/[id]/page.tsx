@@ -241,6 +241,18 @@ ${VIKING_EMAIL}
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>
 
+        {/* ALERTE DÉPASSEMENT BUDGET */}
+        {projet.budget_estime > 0 && projet.pct_budget_consomme >= 90 && (
+          <div className={`rounded-lg p-3 border-2 ${projet.pct_budget_consomme >= 100 ? "bg-red-50 border-red-400 text-red-900" : "bg-amber-50 border-amber-400 text-amber-900"} flex items-center gap-3`}>
+            <span className="text-2xl">{projet.pct_budget_consomme >= 100 ? "🚨" : "⚠️"}</span>
+            <div className="flex-1 text-sm">
+              <strong>{projet.pct_budget_consomme >= 100 ? "Budget DÉPASSÉ" : "Budget presque atteint"}</strong> —
+              {" "}<strong>{projet.pct_budget_consomme.toFixed(0)}%</strong> du budget consommé ({formatCAD(projet.cout_total)} sur {formatCAD(projet.budget_estime)})
+              {projet.pct_budget_consomme >= 100 && <span> · Déficit : <strong>{formatCAD(projet.cout_total - projet.budget_estime)}</strong></span>}
+            </div>
+          </div>
+        )}
+
         {/* RENTABILITÉ TEMPS RÉEL */}
         <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-lg p-5 shadow-lg">
           <h2 className="text-sm font-semibold text-slate-300 uppercase mb-3">💰 Rentabilité temps réel</h2>
@@ -870,17 +882,25 @@ function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: (
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [description, setDescription] = useState("");
+  const [autoScan, setAutoScan] = useState(false); // off par défaut sur les photos de chantier (paysages)
 
   const upload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const { compresserImage, genererVignette } = await import("@/lib/img");
+    const scanner = autoScan ? await import("@/lib/imgScanner") : null;
     setBusy(true);
     setProgress({ total: files.length, done: 0 });
     try {
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
         if (f.size > 20 * 1024 * 1024) continue;
-        const data = await compresserImage(f);
+        let data = await compresserImage(f);
+        if (scanner) {
+          try {
+            const cadree = await scanner.autoCadrer(data);
+            data = await scanner.filtreDocument(cadree, 1);
+          } catch { /* garde l'original si scan échoue */ }
+        }
         const thumb = await genererVignette(f).catch(() => null);
         await fetch("/api/photos", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -907,6 +927,10 @@ function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: (
           <label className="block text-[10px] font-medium text-slate-600 mb-1">Description (optionnel)</label>
           <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ex: avant travaux, façade nord..." className="w-full px-2 py-1.5 border rounded text-xs" />
         </div>
+        <label className="flex items-center gap-1 text-[10px] text-slate-600 cursor-pointer self-end pb-1.5" title="Active pour les plans/croquis/contrats pris en photo. Désactive pour photos de chantier normales.">
+          <input type="checkbox" checked={autoScan} onChange={(e) => setAutoScan(e.target.checked)} className="w-3 h-3" />
+          <span>📄 Mode document</span>
+        </label>
         <div className="flex gap-1">
           <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded text-xs font-bold">
             📷 Caméra

@@ -16,6 +16,7 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
   const [projets, setProjets] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>(CATEGORIES_FALLBACK);
   const [fournisseursConnus, setFournisseursConnus] = useState<string[]>([]);
+  const [catParFournisseur, setCatParFournisseur] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ projet_id: 0, date: today, montant: "", fournisseur: "", description: "", categorie: CATEGORIES_FALLBACK[0] });
   const [recu, setRecu] = useState<{ data: string; type: string; nom: string } | null>(null);
   const [scannerOuvert, setScannerOuvert] = useState(false);
@@ -74,6 +75,9 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     });
     fetch("/api/depenses?fournisseurs=1").then((r) => r.json()).then((d) => {
       if (Array.isArray(d)) setFournisseursConnus(d);
+    }).catch(() => {});
+    fetch("/api/depenses?categories_par_fournisseur=1").then((r) => r.json()).then((m) => {
+      if (m && typeof m === "object") setCatParFournisseur(m);
     }).catch(() => {});
     fetch("/api/categories-depense").then((r) => r.json()).then((cats: any[]) => {
       if (Array.isArray(cats) && cats.length > 0) {
@@ -154,7 +158,20 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Fournisseur</label>
-            <input type="text" autoCapitalize="words" list="fournisseurs-connus" value={form.fournisseur} onChange={(e) => setForm({ ...form, fournisseur: e.target.value })} placeholder="Gentek, MAC, Maibec..." className="w-full px-3 py-3 border rounded-lg text-sm" />
+            <input
+              type="text"
+              autoCapitalize="words"
+              list="fournisseurs-connus"
+              value={form.fournisseur}
+              onChange={(e) => {
+                const v = e.target.value;
+                // Auto-catégorie : si on a déjà vu ce fournisseur, propose sa catégorie habituelle
+                const catSuggeree = catParFournisseur[v.toLowerCase().trim()];
+                setForm((f) => ({ ...f, fournisseur: v, ...(catSuggeree && categories.includes(catSuggeree) ? { categorie: catSuggeree } : {}) }));
+              }}
+              placeholder="Gentek, MAC, Maibec..."
+              className="w-full px-3 py-3 border rounded-lg text-sm"
+            />
             <datalist id="fournisseurs-connus">
               {fournisseursConnus.map((f) => <option key={f} value={f} />)}
             </datalist>
