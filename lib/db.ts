@@ -54,6 +54,7 @@ export async function initDb() {
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_data TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
+  await tryExec("ALTER TABLE projets ADD COLUMN numero TEXT");
   // Signature en ligne des soumissions par le client
   await tryExec("ALTER TABLE soumissions ADD COLUMN signature_nom TEXT");
   await tryExec("ALTER TABLE soumissions ADD COLUMN signature_date TEXT");
@@ -108,6 +109,25 @@ export async function initDb() {
   await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_courriel ON clients(courriel)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_clients_tel ON clients(telephone)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_employes_actif ON employes(actif)");
+  // Backfill numéros de projet manquants (anciens projets créés avant le numérotage)
+  try {
+    const sansNum = await all<{ id: number; date_creation: string }>("SELECT id, date_creation FROM projets WHERE numero IS NULL ORDER BY date_creation ASC, id ASC");
+    if (sansNum.length > 0) {
+      // Compteur par année à partir des numéros déjà attribués
+      const compteurs: Record<string, number> = {};
+      const existants = await all<{ numero: string }>("SELECT numero FROM projets WHERE numero IS NOT NULL");
+      for (const e of existants) {
+        const [an, seq] = (e.numero || "").split("-");
+        const n = parseInt(seq || "0", 10);
+        if (an && !isNaN(n)) compteurs[an] = Math.max(compteurs[an] || 0, n);
+      }
+      for (const p of sansNum) {
+        const an = (p.date_creation || "").slice(0, 4) || String(new Date().getFullYear());
+        compteurs[an] = (compteurs[an] || 0) + 1;
+        await tryExec(`UPDATE projets SET numero='${an}-${String(compteurs[an]).padStart(3, "0")}' WHERE id=${p.id}`);
+      }
+    }
+  } catch (e) { console.warn("[backfill numero projet]", (e as Error).message); }
   await tryExec(`CREATE TABLE IF NOT EXISTS oauth_tokens (
     id INTEGER PRIMARY KEY,
     provider TEXT UNIQUE NOT NULL,
@@ -578,7 +598,7 @@ function calculerTotaux(r: any): ProjetAvecTotaux {
 
 // Colonnes projets sans facture_finale_data (blob potentiel de plusieurs MB).
 // La liste retourne juste un flag a_facture_finale.
-const PROJ_SQL = `SELECT p.id, p.client_id, p.nom, p.adresse_chantier, p.description, p.statut,
+const PROJ_SQL = `SELECT p.id, p.numero, p.client_id, p.nom, p.adresse_chantier, p.description, p.statut,
   p.date_debut, p.date_fin_prevue, p.date_fin_reelle, p.budget_estime, p.heures_estimees,
   p.prix_contrat, p.facture_finale_type, (p.facture_finale_data IS NOT NULL) as a_facture_finale,
   p.soumission_numero, p.date_creation,
@@ -604,12 +624,30 @@ export async function getProjet(id: number): Promise<ProjetAvecTotaux | null> {
   const r = await one<any>(`${PROJ_FULL} WHERE p.id = ?`, [id]);
   return r ? calculerTotaux(r) : null;
 }
+/** Génère le prochain numéro de projet séquentiel AAAA-NNN.
+ *  Se base sur les numéros existants pour l'année courante (ne saute pas, ne duplique pas). */
+export async function genererNumeroProjet(): Promise<string> {
+  const annee = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric" }).format(new Date());
+  const prefixe = `${annee}-`;
+  const rows = await all<{ numero: string }>(
+    `SELECT numero FROM projets WHERE numero LIKE ? ORDER BY numero DESC`, [`${prefixe}%`]
+  );
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt((r.numero || "").split("-")[1] || "0", 10);
+    if (!isNaN(n) && n > max) max = n;
+  }
+  return `${prefixe}${String(max + 1).padStart(3, "0")}`;
+}
+
 export async function ajouterProjet(p: Projet): Promise<number> {
+  const numero = (p as any).numero || await genererNumeroProjet();
   const r = await run(
-    `INSERT INTO projets (client_id, nom, adresse_chantier, description, statut, date_debut, date_fin_prevue, soumission_numero, budget_estime, heures_estimees, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [p.client_id || null, p.nom, p.adresse_chantier || null, p.description || null,
+    `INSERT INTO projets (numero, client_id, nom, adresse_chantier, description, statut, date_debut, date_fin_prevue, soumission_numero, budget_estime, heures_estimees, prix_contrat, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [numero, p.client_id || null, p.nom, p.adresse_chantier || null, p.description || null,
      p.statut || 'actif', p.date_debut || null, p.date_fin_prevue || null,
      p.soumission_numero || null, p.budget_estime || null, p.heures_estimees || null,
+     (p as any).prix_contrat || null,
      new Date().toISOString()]
   );
   return r.lastInsertRowid;

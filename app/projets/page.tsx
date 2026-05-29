@@ -114,6 +114,11 @@ export default function ProjetsPage() {
       />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+        {/* Bouton Nouveau projet — toujours visible (surtout mobile) */}
+        <button onClick={() => setCreerOuvert(true)} className="md:hidden w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white rounded-lg font-bold shadow">
+          ➕ Nouveau projet
+        </button>
+
         {/* KPIs projets actifs */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <KPI label="Projets actifs" value={stats.actifs} />
@@ -170,6 +175,7 @@ export default function ProjetsPage() {
               <a key={p.id} href={`/projets/${p.id}`} className="bg-white rounded-lg shadow hover:shadow-lg transition p-4 space-y-2">
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0 flex-1">
+                    {p.numero && <div className="text-[10px] font-mono text-indigo-600 font-bold">{p.numero}</div>}
                     <div className="font-bold text-slate-900 truncate">{p.nom}</div>
                     <div className="text-xs text-slate-500 truncate">{p.client_nom || "Sans client"}</div>
                   </div>

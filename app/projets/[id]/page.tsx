@@ -70,6 +70,7 @@ export default function ProjetDetail() {
     d.setDate(d.getDate() + diff); d.setHours(0, 0, 0, 0); return d;
   });
   const [selectionH, setSelectionH] = useState<Set<number>>(new Set());
+  const [coutDetail, setCoutDetail] = useState(false);
   const [hRecherche, setHRecherche] = useState("");
   const [hPeriode, setHPeriode] = useState<string>(""); // "" = toutes, ou "YYYY-MM-DD|YYYY-MM-DD"
   const [fForm, setFForm] = useState({ numero: "", montant: "", date: today, description: "" });
@@ -168,7 +169,7 @@ export default function ProjetDetail() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Navigation titre={`🏗️ ${projet.nom}`} soustitre={projet.client_nom || ""} />
+      <Navigation titre={`🏗️ ${projet.nom}`} soustitre={`${projet.numero ? projet.numero + " · " : ""}${projet.client_nom || ""}`} />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
 
@@ -243,6 +244,27 @@ export default function ProjetDetail() {
             <Stat label="Dépenses" value={formatCAD(projet.total_depenses)} />
             <Stat label="Facturé / Payé" value={`${formatCAD(projet.total_facture)} / ${formatCAD(projet.total_paye)}`} sub={aRecevoir > 0 ? `À recevoir : ${formatCAD(aRecevoir)}` : ""} />
           </div>
+
+          {/* Détail du coût engagé — cliquable */}
+          <button onClick={() => setCoutDetail(!coutDetail)} className="mt-3 text-xs text-slate-300 hover:text-white flex items-center gap-1">
+            {coutDetail ? "▾" : "▸"} Détail du coût engagé ({formatCAD(projet.cout_total)})
+          </button>
+          {coutDetail && (
+            <div className="mt-2 bg-slate-800/60 rounded-lg p-3 text-sm space-y-1.5">
+              <div className="flex justify-between"><span className="text-slate-300">👷 Main-d'œuvre ({projet.total_heures.toFixed(1)} h)</span><span className="font-bold text-white">{formatCAD(projet.cout_main_oeuvre)}</span></div>
+              {(() => {
+                const parCat: Record<string, number> = {};
+                for (const d of depenses) { const k = d.categorie || "autre"; parCat[k] = (parCat[k] || 0) + (d.montant || 0); }
+                const cats = Object.entries(parCat).sort(([, a], [, b]) => b - a);
+                return cats.length === 0
+                  ? <div className="text-slate-400 text-xs italic">Aucune dépense matériaux/autres encore.</div>
+                  : cats.map(([cat, montant]) => (
+                      <div key={cat} className="flex justify-between"><span className="text-slate-300 capitalize">📦 {cat}</span><span className="font-bold text-white">{formatCAD(montant)}</span></div>
+                    ));
+              })()}
+              <div className="flex justify-between pt-1.5 border-t border-slate-600"><span className="font-bold text-slate-200">Coût total engagé</span><span className="font-bold text-amber-300">{formatCAD(projet.cout_total)}</span></div>
+            </div>
+          )}
         </div>
 
         {/* CONTRAT + FACTURE FINALE */}
