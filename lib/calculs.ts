@@ -2,9 +2,9 @@
 // C'est le cœur business : paie (heures sup ×1.5, DAS), marges, périodes.
 // Toute modification ici est couverte par lib/calculs.test.ts.
 
-export const TAUX_SUP = 1.5;       // heures supplémentaires ×1.5
-export const SEUIL_SUP_SEMAINE = 40; // au-delà de 40h/semaine = supplémentaire
-export const DAS_DEFAUT = 0.15;    // déductions à la source 15%
+export const TAUX_SUP = 1.5;        // heures supplémentaires ×1.5
+export const SEUIL_SUP_PERIODE = 80; // au-delà de 80h sur la quinzaine = supplémentaire
+export const DAS_DEFAUT = 0.15;     // déductions à la source 15%
 
 /** Marge d'un projet : revenu (prix contrat ou budget) − coûts (MO + dépenses). */
 export function calculerMargeProjet(input: {
@@ -44,19 +44,12 @@ export function periodeBiHebdo(dateStr: string, ancreISO = ANCRE_PAIE): { debut:
   return { debut: fmt(debut), fin: fmt(fin) };
 }
 
-/** Sépare heures normales / supplémentaires sur une période bi-hebdo (2 × seuil 40h). */
-export function calculerHeuresPaye(heures: { date: string; heures: number }[], debutISO: string): { normales: number; sup: number } {
-  const debut = dateISOLocale(debutISO);
-  const sem1Fin = new Date(debut); sem1Fin.setDate(debut.getDate() + 6);
-  const sem2Debut = new Date(debut); sem2Debut.setDate(debut.getDate() + 7);
-  let h1 = 0, h2 = 0;
-  for (const e of heures) {
-    const d = dateISOLocale(e.date);
-    if (d <= sem1Fin) h1 += e.heures;
-    else if (d >= sem2Debut) h2 += e.heures;
-  }
-  const normales = Math.min(SEUIL_SUP_SEMAINE, h1) + Math.min(SEUIL_SUP_SEMAINE, h2);
-  const sup = Math.max(0, h1 - SEUIL_SUP_SEMAINE) + Math.max(0, h2 - SEUIL_SUP_SEMAINE);
+/** Heures supplémentaires = au-delà de 80h sur la QUINZAINE complète
+ *  (et non 40h/semaine). debutISO conservé pour compat de signature. */
+export function calculerHeuresPaye(heures: { date: string; heures: number }[], _debutISO: string): { normales: number; sup: number } {
+  const total = heures.reduce((s, e) => s + (e.heures || 0), 0);
+  const normales = Math.min(SEUIL_SUP_PERIODE, total);
+  const sup = Math.max(0, total - SEUIL_SUP_PERIODE);
   return { normales, sup };
 }
 

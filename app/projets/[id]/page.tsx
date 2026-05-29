@@ -152,9 +152,41 @@ export default function ProjetDetail() {
     charger();
   };
 
+  const envoyerDemandeReview = (courriel: string) => {
+    const sujet = "Travaux complétés — Revêtement Viking Inc.";
+    const corps = `Bonjour,
+
+Les travaux sont maintenant complets.
+
+Si vous avez apprécié notre service vous pouvez nous laisser un avis sur notre page, c'est toujours grandement apprécié.
+
+Voici le lien : https://g.page/r/CY_Ub0jeQKebEB0/review
+
+Page Google : Revêtement Viking Inc.
+
+Au plaisir de refaire affaire avec vous dans le futur.
+
+Cordialement,
+
+Revêtement Viking Inc.
+(438) 493-2041`;
+    window.location.href = `mailto:${courriel}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+  };
+
   const changerStatut = async (nouveauStatut: string) => {
     await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, statut: nouveauStatut }) });
     toast(`Statut → ${STATUTS_LABEL[nouveauStatut]}`, "success");
+    // Projet complété → proposer l'envoi automatique du courriel de demande d'avis Google
+    if (nouveauStatut === "complete") {
+      const courriel = projet?.client_courriel;
+      if (courriel) {
+        if (confirm(`Projet complété ✅\n\nEnvoyer un courriel de demande d'avis Google à ${courriel} ?`)) {
+          envoyerDemandeReview(courriel);
+        }
+      } else {
+        toast("Projet complété. Aucun courriel client enregistré pour la demande d'avis.", "info");
+      }
+    }
     charger();
   };
 
@@ -1022,7 +1054,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
                 <img src={`/api/projets/${projet.id}/facture`} alt="Facture" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
               </div>
             ) : (
-              <iframe src={`/api/projets/${projet.id}/facture`} title="Facture" className="w-full h-full border-0" />
+              <iframe src={`/api/projets/${projet.id}/facture#view=FitH&toolbar=1`} title="Facture" className="w-full h-full border-0" />
             )}
           </div>
         </div>
@@ -1042,7 +1074,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
                 <img src={`/api/projets/${projet.id}/contrat`} alt="Contrat signé" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
               </div>
             ) : (
-              <iframe src={`/api/projets/${projet.id}/contrat`} title="Contrat signé" className="w-full h-full border-0" />
+              <iframe src={`/api/projets/${projet.id}/contrat#view=FitH&toolbar=1`} title="Contrat signé" className="w-full h-full border-0" />
             )}
           </div>
         </div>

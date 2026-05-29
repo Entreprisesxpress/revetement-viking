@@ -63,29 +63,22 @@ describe("periodeBiHebdo (ancrage lundi 18 mai 2026)", () => {
   });
 });
 
-describe("calculerHeuresPaye (heures sup ×1.5)", () => {
-  it("aucune heure sup sous 40h/semaine", () => {
-    const h = [{ date: "2026-01-05", heures: 8 }, { date: "2026-01-06", heures: 8 }];
-    const r = calculerHeuresPaye(h, "2026-01-04");
-    expect(r.normales).toBe(16);
+describe("calculerHeuresPaye (sup = >80h sur la quinzaine)", () => {
+  it("aucune heure sup sous 80h sur la quinzaine", () => {
+    const h = [{ date: "2026-05-19", heures: 45 }, { date: "2026-05-26", heures: 30 }]; // 75h
+    const r = calculerHeuresPaye(h, "2026-05-18");
+    expect(r.normales).toBe(75);
     expect(r.sup).toBe(0);
   });
-  it("compte les heures sup au-delà de 40h dans une semaine", () => {
-    // semaine 1 : 45h → 40 normales + 5 sup
-    const h = [
-      { date: "2026-01-05", heures: 10 }, { date: "2026-01-06", heures: 10 },
-      { date: "2026-01-07", heures: 10 }, { date: "2026-01-08", heures: 10 },
-      { date: "2026-01-09", heures: 5 },
-    ];
-    const r = calculerHeuresPaye(h, "2026-01-04");
-    expect(r.normales).toBe(40);
-    expect(r.sup).toBe(5);
+  it("45h une semaine + 30h l'autre = 75h → 0 sup (avant: aurait donné 5 sup)", () => {
+    const h = [{ date: "2026-05-19", heures: 45 }, { date: "2026-05-26", heures: 30 }];
+    const r = calculerHeuresPaye(h, "2026-05-18");
+    expect(r.sup).toBe(0);
   });
-  it("traite les 2 semaines séparément (pas de cumul 80h)", () => {
-    // 45h semaine 1 + 45h semaine 2 = 80 normales? NON : 40+40 normales, 5+5 sup
-    const sem1 = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09"].map((d) => ({ date: d, heures: 9 })); // 45h
-    const sem2 = ["2026-01-12", "2026-01-13", "2026-01-14", "2026-01-15", "2026-01-16"].map((d) => ({ date: d, heures: 9 })); // 45h
-    const r = calculerHeuresPaye([...sem1, ...sem2], "2026-01-04");
+  it("compte les heures sup au-delà de 80h sur la quinzaine", () => {
+    // 50h + 40h = 90h → 80 normales + 10 sup
+    const h = [{ date: "2026-05-19", heures: 50 }, { date: "2026-05-26", heures: 40 }];
+    const r = calculerHeuresPaye(h, "2026-05-18");
     expect(r.normales).toBe(80);
     expect(r.sup).toBe(10);
   });

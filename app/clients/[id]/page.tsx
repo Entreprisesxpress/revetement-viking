@@ -59,6 +59,12 @@ export default function ClientDetail() {
     charger();
   };
 
+  const changerStatutRapide = async () => {
+    await fetch("/api/clients", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, statut: "actif" }) });
+    toast("✓ Client marqué actif", "success");
+    charger();
+  };
+
   const ajouterInteraction = async () => {
     if (!iForm.sujet && !iForm.note) { toast("Sujet ou note requis", "warning"); return; }
     await fetch("/api/interactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...iForm, client_id: id }) });
@@ -139,6 +145,12 @@ export default function ClientDetail() {
                 </div>
                 <div className="text-sm space-y-1">
                   <div>👤 <strong>{client.nom}</strong></div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[11px] px-2 py-0.5 rounded font-semibold ${client.statut === "actif" ? "bg-emerald-100 text-emerald-900" : client.statut === "prospect" ? "bg-amber-100 text-amber-900" : "bg-slate-200 text-slate-700"}`}>{client.statut || "prospect"}</span>
+                    {client.statut !== "actif" && (
+                      <button onClick={changerStatutRapide} className="text-xs text-emerald-700 hover:underline font-semibold">→ Marquer actif</button>
+                    )}
+                  </div>
                   {client.telephone && <div>📞 <a href={`tel:${client.telephone}`} className="text-blue-600">{client.telephone}</a></div>}
                   {client.courriel && <div>✉️ <a href={`mailto:${client.courriel}`} className="text-blue-600 break-all">{client.courriel}</a></div>}
                   {client.adresse && <div>📍 {client.adresse}</div>}
