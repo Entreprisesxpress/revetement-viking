@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -266,7 +266,7 @@ async function doInitDb() {
       payee INTEGER DEFAULT 0, date_paiement TEXT, date_saisie TEXT NOT NULL
     )`,
     `CREATE TABLE IF NOT EXISTS depenses_projet (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, projet_id INTEGER NOT NULL,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, projet_id INTEGER,
       date TEXT NOT NULL, montant REAL NOT NULL, fournisseur TEXT, description TEXT,
       categorie TEXT, date_saisie TEXT NOT NULL
     )`,
@@ -293,6 +293,28 @@ async function doInitDb() {
       notes_chantier TEXT, complexite TEXT
     )`,
   ]);
+  // MIGRATION : rendre depenses_projet.projet_id NULLABLE (dépenses générales sans projet).
+  // Les anciennes installations ont projet_id NOT NULL → INSERT null échoue (500).
+  // SQLite ne permet pas d'enlever NOT NULL via ALTER → reconstruction de la table.
+  try {
+    const info = await all<any>("PRAGMA table_info(depenses_projet)");
+    const col = info.find((c) => c.name === "projet_id");
+    if (col && Number(col.notnull) === 1) {
+      await tryExec("ALTER TABLE depenses_projet RENAME TO depenses_projet_old");
+      await tryExec(`CREATE TABLE depenses_projet (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, projet_id INTEGER,
+        date TEXT NOT NULL, montant REAL NOT NULL, fournisseur TEXT, description TEXT,
+        categorie TEXT, recu_data TEXT, recu_type TEXT, date_saisie TEXT NOT NULL
+      )`);
+      await tryExec(`INSERT INTO depenses_projet (id, projet_id, date, montant, fournisseur, description, categorie, recu_data, recu_type, date_saisie)
+        SELECT id, projet_id, date, montant, fournisseur, description, categorie, recu_data, recu_type, date_saisie FROM depenses_projet_old`);
+      await tryExec("DROP TABLE depenses_projet_old");
+      await tryExec("CREATE INDEX IF NOT EXISTS idx_depenses_projet ON depenses_projet(projet_id, date DESC)");
+      await tryExec("CREATE INDEX IF NOT EXISTS idx_depenses_date ON depenses_projet(date DESC)");
+      await tryExec("CREATE INDEX IF NOT EXISTS idx_depenses_categorie ON depenses_projet(categorie)");
+    }
+  } catch (e) { console.warn("[migration depenses_projet nullable]", (e as Error).message); }
+
   // Schéma à jour : on enregistre la version pour sauter les migrations aux prochains démarrages.
   try { await getLibsqlClient().execute(`PRAGMA user_version = ${SCHEMA_VERSION}`); } catch { /* ignore */ }
   _initialized = true;
