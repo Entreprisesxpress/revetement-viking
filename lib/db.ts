@@ -56,6 +56,8 @@ export async function initDb() {
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
   await tryExec("ALTER TABLE projets ADD COLUMN numero TEXT");
+  await tryExec("ALTER TABLE projets ADD COLUMN contrat_signe_data TEXT");
+  await tryExec("ALTER TABLE projets ADD COLUMN contrat_signe_type TEXT");
   // Signature en ligne des soumissions par le client
   await tryExec("ALTER TABLE soumissions ADD COLUMN signature_nom TEXT");
   await tryExec("ALTER TABLE soumissions ADD COLUMN signature_date TEXT");
@@ -598,6 +600,7 @@ function calculerTotaux(r: any): ProjetAvecTotaux {
 const PROJ_SQL = `SELECT p.id, p.numero, p.client_id, p.nom, p.adresse_chantier, p.description, p.statut,
   p.date_debut, p.date_fin_prevue, p.date_fin_reelle, p.budget_estime, p.heures_estimees,
   p.prix_contrat, p.facture_finale_type, (p.facture_finale_data IS NOT NULL) as a_facture_finale,
+  p.contrat_signe_type, (p.contrat_signe_data IS NOT NULL) as a_contrat_signe,
   p.soumission_numero, p.date_creation,
   c.nom as client_nom,
   COALESCE((SELECT SUM(heures) FROM heures_projet WHERE projet_id = p.id), 0) as total_heures,
@@ -616,8 +619,10 @@ export async function listerProjets(statut?: string): Promise<ProjetAvecTotaux[]
   return rows.map(calculerTotaux);
 }
 export async function getProjet(id: number): Promise<ProjetAvecTotaux | null> {
-  // Pour le détail projet on charge le blob facture_finale_data
-  const PROJ_FULL = PROJ_SQL.replace("(p.facture_finale_data IS NOT NULL) as a_facture_finale", "p.facture_finale_data, (p.facture_finale_data IS NOT NULL) as a_facture_finale");
+  // Pour le détail projet on charge les blobs (facture + contrat signé)
+  const PROJ_FULL = PROJ_SQL
+    .replace("(p.facture_finale_data IS NOT NULL) as a_facture_finale", "p.facture_finale_data, (p.facture_finale_data IS NOT NULL) as a_facture_finale")
+    .replace("(p.contrat_signe_data IS NOT NULL) as a_contrat_signe", "p.contrat_signe_data, (p.contrat_signe_data IS NOT NULL) as a_contrat_signe");
   const r = await one<any>(`${PROJ_FULL} WHERE p.id = ?`, [id]);
   return r ? calculerTotaux(r) : null;
 }
@@ -650,7 +655,7 @@ export async function ajouterProjet(p: Projet): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierProjet(id: number, p: Partial<Projet>) {
-  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type'];
+  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type', 'contrat_signe_data', 'contrat_signe_type'];
   const definis = champs.filter(k => (p as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');

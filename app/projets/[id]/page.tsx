@@ -899,6 +899,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const [edit, setEdit] = useState(false);
   const [prix, setPrix] = useState(projet.prix_contrat ? String(projet.prix_contrat) : "");
   const [factureOuverte, setFactureOuverte] = useState(false);
+  const [contratOuvert, setContratOuvert] = useState(false);
   const sauver = async () => {
     const valeur = prix ? +prix : null;
     // Sync les deux champs pour que toutes les pages (liste, détail, finances) reflètent le changement
@@ -923,13 +924,27 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     };
     reader.readAsDataURL(file);
   };
+  const uploadContrat = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await fetch("/api/projets", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projet.id, contrat_signe_data: reader.result, contrat_signe_type: file.type }),
+      });
+      onUpdate();
+    };
+    reader.readAsDataURL(file);
+  };
   return (
     <section className="bg-white rounded-lg shadow p-4 md:p-5 space-y-3">
       <div className="flex justify-between items-center">
-        <h2 className="font-bold">📄 Contrat & Facture finale</h2>
+        <h2 className="font-bold">📄 Contrat & Facture</h2>
         {!edit && <button onClick={() => setEdit(true)} className="text-xs text-emerald-700 hover:underline">✏️ Modifier</button>}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Prix total du contrat</div>
           {edit ? (
@@ -967,6 +982,30 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
             </label>
           )}
         </div>
+
+        {/* Contrat signé */}
+        <div>
+          <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Contrat signé</div>
+          {projet.contrat_signe_data || projet.a_contrat_signe ? (
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded p-2">
+              {projet.contrat_signe_type?.startsWith("image/") ? (
+                <div className="w-12 h-12 bg-slate-200 rounded flex items-center justify-center text-2xl">🖋️</div>
+              ) : (
+                <div className="w-12 h-12 bg-slate-200 rounded flex items-center justify-center text-2xl">📝</div>
+              )}
+              <button onClick={() => setContratOuvert(true)} className="flex-1 text-left text-sm text-blue-700 hover:underline font-semibold">📎 Ouvrir le contrat</button>
+              <label className="cursor-pointer text-xs text-blue-600 hover:underline">
+                Remplacer
+                <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadContrat} />
+              </label>
+            </div>
+          ) : (
+            <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 rounded p-3 text-center transition flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
+              🖋️ Joindre le contrat signé
+              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadContrat} />
+            </label>
+          )}
+        </div>
       </div>
 
       {/* Visualiseur facture plein écran avec bouton retour */}
@@ -984,6 +1023,26 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
               </div>
             ) : (
               <iframe src={`/api/projets/${projet.id}/facture`} title="Facture" className="w-full h-full border-0" />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Visualiseur contrat signé plein écran avec bouton retour */}
+      {contratOuvert && (
+        <div className="fixed inset-0 z-[80] bg-black/95 flex flex-col">
+          <div className="flex items-center justify-between p-3 text-white safe-top">
+            <button onClick={() => setContratOuvert(false)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 font-semibold text-sm">← Retour</button>
+            <span className="text-sm opacity-80">Contrat signé — {projet.nom}</span>
+            <a href={`/api/projets/${projet.id}/contrat`} target="_blank" rel="noreferrer" download className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm">⬇</a>
+          </div>
+          <div className="flex-1 bg-white">
+            {projet.contrat_signe_type?.startsWith("image/") ? (
+              <div className="w-full h-full flex items-center justify-center bg-black" onClick={() => setContratOuvert(false)}>
+                <img src={`/api/projets/${projet.id}/contrat`} alt="Contrat signé" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
+              </div>
+            ) : (
+              <iframe src={`/api/projets/${projet.id}/contrat`} title="Contrat signé" className="w-full h-full border-0" />
             )}
           </div>
         </div>
