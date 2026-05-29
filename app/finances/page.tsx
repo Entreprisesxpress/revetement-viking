@@ -3,24 +3,54 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import FAB from "@/components/FAB";
+import DepensesVue from "@/components/DepensesVue";
 import { formatCAD } from "@/lib/calculateur";
 
 const MOIS = ["", "Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"];
 
 export default function FinancesPage() {
+  const [onglet, setOnglet] = useState<"apercu" | "depenses">("apercu");
   const [annee, setAnnee] = useState(new Date().getFullYear());
   const [data, setData] = useState<any>(null);
   const [projets, setProjets] = useState<any[]>([]);
 
+  // Permet d'ouvrir directement l'onglet Dépenses via /finances?tab=depenses
   useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "depenses") {
+      setOnglet("depenses");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (onglet !== "apercu") return;
     fetch(`/api/finances?annee=${annee}`).then((r) => r.json()).then(setData);
     fetch("/api/projets").then((r) => r.json()).then(setProjets);
-  }, [annee]);
+  }, [annee, onglet]);
 
+  const Tabs = (
+    <div className="flex gap-2 border-b">
+      <button onClick={() => setOnglet("apercu")} className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${onglet === "apercu" ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>💰 Vue d'ensemble</button>
+      <button onClick={() => setOnglet("depenses")} className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${onglet === "depenses" ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>💸 Dépenses</button>
+    </div>
+  );
+
+  // Onglet DÉPENSES
+  if (onglet === "depenses") return (
+    <div className="min-h-screen bg-slate-50">
+      <Navigation titre="💰 Finances" soustitre="Vue d'ensemble · Dépenses" />
+      <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+        {Tabs}
+        <DepensesVue />
+      </main>
+    </div>
+  );
+
+  // Onglet VUE D'ENSEMBLE
   if (!data) return (
     <div className="min-h-screen bg-slate-50">
-      <Navigation titre="💰 Finances" />
-      <main className="max-w-7xl mx-auto p-4">
+      <Navigation titre="💰 Finances" soustitre="Vue d'ensemble · Dépenses" />
+      <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+        {Tabs}
         <div className="bg-white rounded-lg shadow p-8 text-center text-slate-500">Chargement...</div>
       </main>
     </div>
@@ -56,6 +86,7 @@ export default function FinancesPage() {
       } />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+        {Tabs}
         {/* === REVENUS DES PROJETS (somme prix_contrat) === */}
         <section className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-lg p-4 md:p-5">
           <h2 className="font-bold text-emerald-900 mb-3">💰 Revenus des projets</h2>

@@ -14,7 +14,6 @@ const LINKS: NavLink[] = [
   { href: "/soumissions/nouveau", label: "Soumission", icon: "➕" },
   { href: "/projets", label: "Projets", icon: "🏗️" },
   { href: "/heures", label: "Horaire", icon: "⏱️" },
-  { href: "/depenses", label: "Dépenses", icon: "💸" },
   { href: "/clients", label: "CRM", icon: "👥" },
   { href: "/finances/paye", label: "Paie", icon: "💵" },
   { href: "/finances", label: "Finances", icon: "💰" },
