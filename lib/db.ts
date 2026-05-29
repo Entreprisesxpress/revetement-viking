@@ -619,11 +619,11 @@ export async function listerProjets(statut?: string): Promise<ProjetAvecTotaux[]
   return rows.map(calculerTotaux);
 }
 export async function getProjet(id: number): Promise<ProjetAvecTotaux | null> {
-  // Pour le détail projet on charge les blobs (facture + contrat signé)
-  const PROJ_FULL = PROJ_SQL
-    .replace("(p.facture_finale_data IS NOT NULL) as a_facture_finale", "p.facture_finale_data, (p.facture_finale_data IS NOT NULL) as a_facture_finale")
-    .replace("(p.contrat_signe_data IS NOT NULL) as a_contrat_signe", "p.contrat_signe_data, (p.contrat_signe_data IS NOT NULL) as a_contrat_signe");
-  const r = await one<any>(`${PROJ_FULL} WHERE p.id = ?`, [id]);
+  // PERF : on ne charge PAS les blobs facture/contrat (plusieurs Mo) dans le JSON.
+  // Les flags a_facture_finale / a_contrat_signe + les types suffisent pour l'UI ;
+  // les binaires sont servis à la demande par /api/projets/[id]/facture et /contrat.
+  // (Inclut client_courriel pour le courriel d'avis Google.)
+  const r = await one<any>(`${PROJ_SQL} WHERE p.id = ?`, [id]);
   return r ? calculerTotaux(r) : null;
 }
 /** Génère le prochain numéro de projet séquentiel AAAA-NNN.

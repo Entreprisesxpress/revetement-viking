@@ -56,7 +56,7 @@ export default function ProjetDetail() {
   const [factures, setFactures] = useState<any[]>([]);
   const [depenses, setDepenses] = useState<any[]>([]);
   const [photos, setPhotos] = useState<any[]>([]);
-  const [onglet, setOnglet] = useState<"heures" | "factures" | "depenses" | "photos">("heures");
+  const [onglet, setOnglet] = useState<"heures" | "depenses" | "photos">("heures");
 
   // Forms
   const today = new Date().toISOString().slice(0, 10);
@@ -321,9 +321,9 @@ ${VIKING_EMAIL}
 
         {/* Onglets */}
         <div className="flex gap-2 border-b overflow-x-auto">
-          {(["heures", "factures", "depenses", "photos"] as const).map((o) => (
+          {(["heures", "depenses", "photos"] as const).map((o) => (
             <button key={o} onClick={() => setOnglet(o)} className={`px-4 py-2 text-sm font-semibold border-b-2 transition whitespace-nowrap ${onglet === o ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
-              {o === "heures" ? `⏱️ Heures (${heures.length})` : o === "factures" ? `🧾 Factures (${factures.length})` : o === "depenses" ? `💸 Dépenses (${depenses.length})` : `📸 Photos (${photos.length})`}
+              {o === "heures" ? `⏱️ Heures (${heures.length})` : o === "depenses" ? `💸 Dépenses (${depenses.length})` : `📸 Photos (${photos.length})`}
             </button>
           ))}
         </div>
@@ -1005,13 +1005,9 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
         </div>
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Facture finale</div>
-          {projet.facture_finale_data ? (
+          {projet.a_facture_finale || projet.facture_finale_data ? (
             <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded p-2">
-              {projet.facture_finale_type?.startsWith("image/") ? (
-                <img src={projet.facture_finale_data} alt="Facture" className="w-12 h-12 object-cover rounded" />
-              ) : (
-                <div className="w-12 h-12 bg-slate-200 rounded flex items-center justify-center text-2xl">📄</div>
-              )}
+              <div className="w-12 h-12 bg-slate-200 rounded flex items-center justify-center text-2xl">{projet.facture_finale_type?.startsWith("image/") ? "🖼️" : "📄"}</div>
               <button
                 onClick={() => setFactureOuverte(true)}
                 className="flex-1 text-left text-sm text-emerald-700 hover:underline font-semibold"
