@@ -27,9 +27,23 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     try {
       const data = await compresserImage(file);
       const type = file.type === "application/pdf" ? file.type : "image/jpeg";
+      // PDF : on garde tel quel, pas de scan
+      if (type === "application/pdf") {
+        setRecu({ data, type, nom: file.name });
+        return;
+      }
+      // IMAGE : on applique automatiquement le scan document (cadrage + filtre) — comme Drive
+      // Affiche immédiatement l'original puis remplace par la version scannée quand prête.
       setRecu({ data, type, nom: file.name });
-      // Ouvre automatiquement le scanner pour cadrer + filtrer + OCR (uniquement pour les images)
-      if (type.startsWith("image/")) setScannerOuvert(true);
+      try {
+        const { autoCadrer, filtreDocument } = await import("@/lib/imgScanner");
+        const cadree = await autoCadrer(data);
+        const filtree = await filtreDocument(cadree, 1);
+        setRecu({ data: filtree, type: "image/jpeg", nom: file.name + " (scan)" });
+        toast("✨ Photo scannée automatiquement (cadrée + nette)", "success");
+      } catch {
+        // Si le scan échoue, on garde l'image originale (déjà affichée)
+      }
     } catch (e: any) {
       toast("Erreur : " + e.message, "error");
     }
@@ -184,7 +198,7 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
                   <div className="text-[10px] text-slate-500">{(recu.data.length * 0.75 / 1024).toFixed(0)} ko</div>
                 </div>
                 {recu.type.startsWith("image/") && (
-                  <button onClick={() => setScannerOuvert(true)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded font-bold" title="Cadrer · Filtrer · OCR">📄 Scanner</button>
+                  <button onClick={() => setScannerOuvert(true)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded font-bold" title="Réajuster le cadrage / Lancer l'OCR pour pré-remplir le formulaire">🔎 OCR</button>
                 )}
                 <button onClick={() => setRecu(null)} className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm">✕</button>
               </div>
