@@ -49,12 +49,22 @@ export default function MeteoProjet({ adresse }: Props) {
     setBusy(true); setErreur("");
     (async () => {
       try {
-        // 1. Géocoder l'adresse (Open-Meteo géocoding)
-        const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(adresse)}&count=1&language=fr&format=json`).then((r) => r.json());
-        const lieu = g?.results?.[0];
-        if (!lieu) throw new Error("Adresse non trouvée");
+        // 1. Géocoder l'adresse complète via Nominatim (rue + ville + code postal supportés)
+        let lat: number | null = null, lon: number | null = null;
+        try {
+          const n = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresse)}&format=json&limit=1&countrycodes=ca`, { headers: { "Accept": "application/json" } }).then((r) => r.json());
+          if (Array.isArray(n) && n[0]) { lat = parseFloat(n[0].lat); lon = parseFloat(n[0].lon); }
+        } catch { /* fallback ci-dessous */ }
+        // Repli : Open-Meteo géocoding par nom de ville (extrait le dernier segment)
+        if (lat === null || lon === null) {
+          const ville = adresse.split(",").slice(-2)[0]?.trim() || adresse;
+          const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(ville)}&count=1&language=fr&format=json`).then((r) => r.json());
+          const lieu = g?.results?.[0];
+          if (!lieu) throw new Error("Adresse non géocodée");
+          lat = lieu.latitude; lon = lieu.longitude;
+        }
         // 2. Prévisions 5 jours
-        const f = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lieu.latitude}&longitude=${lieu.longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max&timezone=America/Montreal&forecast_days=5`).then((r) => r.json());
+        const f = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max&timezone=America/Montreal&forecast_days=5`).then((r) => r.json());
         if (!alive) return;
         const d = f?.daily;
         if (!d) throw new Error("Pas de prévision");
