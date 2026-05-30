@@ -266,8 +266,31 @@ ${VIKING_EMAIL}
             <button onClick={() => telechargerFeuilleTemps(projet)} className="text-xs px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded font-semibold">⏱️ Feuille de temps PDF</button>
             <a href={`/api/rapports?projet_id=${id}&format=csv`} className="text-xs px-3 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-semibold">📊 Export CSV</a>
             {projet.reno_assistance ? (
-              <span className="text-xs px-3 py-1 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-300" title="Dossier subvention / aide à la rénovation">🛠️ Reno assistance</span>
-            ) : null}
+              <span className="text-xs px-3 py-1 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-2" title="Dossier subvention / aide à la rénovation">
+                🛠️ Reno assistance
+                <button
+                  onClick={async () => {
+                    if (!confirm("Retirer le badge « Reno assistance » de ce projet ?")) return;
+                    const r = await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: projet.id, reno_assistance: 0 }) });
+                    if (r.ok) { toast("Badge retiré", "success"); charger(); }
+                    else toast("Erreur", "error");
+                  }}
+                  className="ml-1 text-amber-900 hover:text-red-700 font-bold leading-none"
+                  title="Retirer le badge Reno assistance"
+                  aria-label="Retirer"
+                >×</button>
+              </span>
+            ) : (
+              <button
+                onClick={async () => {
+                  const r = await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: projet.id, reno_assistance: 1 }) });
+                  if (r.ok) { toast("Badge Reno assistance ajouté", "success"); charger(); }
+                  else toast("Erreur", "error");
+                }}
+                className="text-xs px-3 py-1 rounded-full font-semibold bg-slate-100 text-slate-600 hover:bg-amber-100 hover:text-amber-900 border border-dashed border-slate-300"
+                title="Ajouter le badge Reno assistance"
+              >+ Reno assistance</button>
+            )}
           </div>
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>

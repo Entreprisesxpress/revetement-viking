@@ -46,7 +46,7 @@ export default function ClientsPage() {
 
   const creer = async () => {
     if (!nouveau.nom.trim()) { toast("Nom requis", "warning"); return; }
-    const r = await fetch("/api/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(nouveau) });
+    const r = await fetch("/api/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...nouveau, pipeline_stage: "info_1" }) });
     if ((await r.json()).ok) {
       toast("Client créé", "success");
       setCreerOuvert(false);

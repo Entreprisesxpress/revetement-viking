@@ -22,23 +22,50 @@ export default function MicVocal({ onTranscript, langue = "fr-CA", taille = "md"
     if (!SR) { setSupporte(false); return; }
   }, []);
 
-  const demarrer = () => {
+  const demarrer = async () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
+    if (!SR) { alert("Dictée vocale non supportée par ce navigateur. Utiliser Chrome ou Edge."); return; }
+    // Demande explicite de permission micro (sinon Chrome desktop échoue en silence)
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+        flux.getTracks().forEach((t) => t.stop());
+      }
+    } catch {
+      alert("Le micro est bloqué. Cliquer sur l'icône cadenas 🔒 à gauche de l'URL pour autoriser le micro pour ce site.");
+      return;
+    }
     const reco = new SR();
     reco.lang = langue;
     reco.continuous = true;
-    reco.interimResults = false;
+    reco.interimResults = true;
+    let dejaTraite = 0;
     reco.onresult = (e: any) => {
       let t = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) t += e.results[i][0].transcript + " ";
+      for (let i = dejaTraite; i < e.results.length; i++) {
+        if (e.results[i].isFinal) { t += e.results[i][0].transcript + " "; dejaTraite = i + 1; }
       }
       if (t.trim()) onTranscript(t.trim());
     };
     reco.onend = () => setActif(false);
-    reco.onerror = () => setActif(false);
-    reco.start();
+    reco.onerror = (e: any) => {
+      setActif(false);
+      const err = e?.error || "inconnu";
+      if (err === "not-allowed" || err === "service-not-allowed") {
+        alert("Permission micro refusée. Cliquer sur 🔒 à gauche de l'URL et autoriser le micro.");
+      } else if (err === "no-speech") {
+        // silence normal, ne rien afficher
+      } else if (err === "audio-capture") {
+        alert("Aucun micro détecté. Brancher un casque ou un micro et réessayer.");
+      } else if (err !== "aborted") {
+        alert(`Erreur dictée : ${err}`);
+      }
+    };
+    try { reco.start(); } catch (err: any) {
+      setActif(false);
+      alert(`Impossible de démarrer la dictée : ${err?.message || err}`);
+      return;
+    }
     recoRef.current = reco;
     setActif(true);
   };
