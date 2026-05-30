@@ -61,6 +61,8 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   // Profil utilisateur (avatar + nom)
   useEffect(() => {
     fetch("/api/auth/profil").then((r) => r.ok ? r.json() : null).then((p) => p && setProfil(p)).catch(() => {});
+    // Précharge le cache offline en arrière-plan (clients/projets/soumissions/employés)
+    import("@/lib/offlineCache").then((m) => m.prechargerCache());
     activerMoniteurOffline((info) => {
       if (info.envoyees > 0) {
         // Toast léger sans dépendance — visible une fois la connexion revenue
