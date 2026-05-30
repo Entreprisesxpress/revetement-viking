@@ -229,11 +229,15 @@ function Colonne({ stage, clients, stats, ajoutOuvert, onOuvrirAjout, onFermerAj
 function CarteDraggable({ client, stats, onOuvrir }: { client: any; stats?: any; onOuvrir: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `c-${client.id}` });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined;
+  // Précharge la fiche complète au survol pour ouverture instantanée du drawer
+  const prefetch = () => { import("@/lib/prefetchClient").then((m) => m.prefetchClient(client.id)); };
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`bg-white rounded p-2 shadow-sm border border-slate-200 cursor-grab active:cursor-grabbing select-none ${isDragging ? "opacity-30" : ""}`}
+      onMouseEnter={prefetch}
+      onTouchStart={prefetch}
       {...attributes}
       {...listeners}
     >

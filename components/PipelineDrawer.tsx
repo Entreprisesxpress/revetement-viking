@@ -83,6 +83,16 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const rechargerSoumissions = () => fetch(`/api/clients/${client.id}/soumissions`).then((r) => r.json()).then((cs) => Array.isArray(cs) && setSoumissions(cs)).catch(() => {});
 
   useEffect(() => {
+    // Stale-while-revalidate : si le prefetch hover a chargé les données, affiche-les immédiatement
+    import("@/lib/prefetchClient").then((m) => {
+      const pre = m.getClientPrefetch(client.id);
+      if (pre) {
+        if (pre.taches) setTaches(pre.taches);
+        if (pre.commentaires) setCommentaires(pre.commentaires);
+        if (pre.fichiers) setFichiers(pre.fichiers);
+        if (pre.contrats) setContrats(pre.contrats);
+      }
+    });
     fetch(`/api/client-fichiers?client_id=${client.id}`).then((r) => r.json()).then((f) => Array.isArray(f) && setFichiers(f)).catch(() => {});
     rechargerTaches();
     rechargerComm();

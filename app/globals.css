@@ -19,6 +19,24 @@ html {
   scroll-behavior: smooth;
 }
 
+/* === MODE SOMBRE (toggle via class "vk-dark" sur html) === */
+html.vk-dark {
+  color-scheme: dark;
+  background: #0f172a;
+}
+html.vk-dark body {
+  filter: invert(0.92) hue-rotate(180deg);
+  background: #0f172a;
+}
+/* Réinverse les médias pour qu'ils restent normaux */
+html.vk-dark img,
+html.vk-dark video,
+html.vk-dark iframe,
+html.vk-dark svg.no-invert,
+html.vk-dark [data-no-invert] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 /* === FLUIDITÉ : feedback tactile au clic (effet "press") === */
 button:not(:disabled):active,
 a:active,
