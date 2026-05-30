@@ -72,20 +72,10 @@ export function TalonPaiePDF({ talon }: { talon: TalonProps }) {
           <Text style={s.val}>{cad(talon.montant_brut)}</Text>
         </View>
 
-        {/* Retenues */}
-        <Text style={s.sectionTitre}>Retenues</Text>
-        <View style={s.row}>
-          <Text>Déductions à la source (DAS) — {(talon.das_pct * 100).toFixed(0)} %</Text>
-          <Text style={s.val}>− {cad(talon.das_montant)}</Text>
-        </View>
-        <Text style={[s.small, { marginTop: 4 }]}>
-          Estimation regroupée (impôt fédéral, provincial, RRQ, RQAP, AE). Montant indicatif — se référer au relevé officiel pour les déclarations.
-        </Text>
-
-        {/* Net */}
+        {/* Net (DAS retiré de l'affichage — montant payé tel quel) */}
         <View style={s.net}>
-          <Text style={s.netLabel}>Salaire net à payer</Text>
-          <Text style={s.netVal}>{cad(talon.montant_net)}</Text>
+          <Text style={s.netLabel}>Salaire à payer</Text>
+          <Text style={s.netVal}>{cad(talon.montant_brut)}</Text>
         </View>
 
         <View style={s.footer}>

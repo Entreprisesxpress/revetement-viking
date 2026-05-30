@@ -78,15 +78,15 @@ export default function FinancesPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Navigation titre="💰 Finances" soustitre={`Année ${annee}`} actions={
-        <div className="flex gap-1">
-          <button onClick={() => setAnnee(annee - 1)} className="px-3 py-2 bg-slate-200 rounded text-sm">←</button>
-          <button onClick={() => setAnnee(annee + 1)} className="px-3 py-2 bg-slate-200 rounded text-sm">→</button>
-        </div>
-      } />
+      <Navigation titre="💰 Finances" soustitre={`Année ${annee}`} />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
         {Tabs}
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={() => setAnnee(annee - 1)} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded text-sm font-bold">← {annee - 1}</button>
+          <span className="px-3 py-1.5 bg-emerald-100 text-emerald-900 rounded text-sm font-bold">{annee}</span>
+          <button onClick={() => setAnnee(annee + 1)} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded text-sm font-bold">{annee + 1} →</button>
+        </div>
         {/* === REVENUS DES PROJETS (somme prix_contrat) === */}
         <section className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-lg p-4 md:p-5">
           <h2 className="font-bold text-emerald-900 mb-3">💰 Revenus des projets</h2>

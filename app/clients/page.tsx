@@ -15,7 +15,7 @@ const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
   perdu: { label: "Perdu", couleur: "bg-red-100 text-red-900" },
 };
 
-const SOURCES = ["Référence", "Site web", "Facebook", "Google", "Bouche-à-oreille", "Salon/Foire", "Autre"];
+const SOURCES = ["Référence", "Réno Assistance", "Site web", "Facebook", "Google", "Autre"];
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<any[]>([]);

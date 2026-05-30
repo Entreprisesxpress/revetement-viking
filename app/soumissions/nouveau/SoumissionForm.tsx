@@ -542,15 +542,15 @@ info@entreprisesxpress.ca`;
             {modifierNumero && <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded ml-1">✏️ Modif</span>}
           </>
         }
-        actions={
-          <>
-            <button onClick={sauvegarder} disabled={chargementSave} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold disabled:opacity-50 text-left">{chargementSave ? "..." : "💾 Sauver"}</button>
-            <button onClick={telechargerPDF} disabled={chargementPDF} className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded text-sm font-semibold disabled:opacity-50 text-left">{chargementPDF ? "..." : "📄 PDF"}</button>
-            <button onClick={envoyerEmail} className="px-3 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded text-sm font-semibold text-left">✉️ Email</button>
-            <button onClick={telechargerCommande} disabled={chargementCmd} className="px-3 py-2 bg-orange-500 hover:bg-orange-400 text-white rounded text-sm text-left">{chargementCmd ? "..." : "🛒 Commande"}</button>
-          </>
-        }
       />
+
+      {/* Barre d'actions directe (pas de dropdown "Actions") */}
+      <div className="sticky top-[var(--vk-nav-h,0)] z-20 bg-white/95 backdrop-blur border-b border-slate-200 px-3 sm:px-4 md:px-6 py-2 flex gap-2 flex-wrap items-center">
+        <button onClick={sauvegarder} disabled={chargementSave} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold disabled:opacity-50">{chargementSave ? "..." : "💾 Sauver"}</button>
+        <button onClick={telechargerPDF} disabled={chargementPDF} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded text-sm font-bold disabled:opacity-50">{chargementPDF ? "..." : "📄 PDF"}</button>
+        <button onClick={envoyerEmail} className="px-3 py-1.5 bg-blue-500 hover:bg-blue-400 text-white rounded text-sm font-bold">✉️ Email</button>
+        <button onClick={telechargerCommande} disabled={chargementCmd} className="px-3 py-1.5 bg-orange-500 hover:bg-orange-400 text-white rounded text-sm font-bold disabled:opacity-50">{chargementCmd ? "..." : "🛒 Commande"}</button>
+      </div>
 
       <main className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 py-4 md:py-6 grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-6 pb-24">
         <div className="lg:col-span-2 space-y-4 md:space-y-6 min-w-0">

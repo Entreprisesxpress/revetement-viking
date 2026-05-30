@@ -172,7 +172,20 @@ export default function ProjetsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {projetsAffiches.map((p) => (
-              <Link key={p.id} href={`/projets/${p.id}`} prefetch onMouseEnter={() => prefetchProjet(p.id)} onTouchStart={() => prefetchProjet(p.id)} className="bg-white rounded-lg shadow hover:shadow-lg transition p-4 space-y-2">
+              <Link key={p.id} href={`/projets/${p.id}`} prefetch onMouseEnter={() => prefetchProjet(p.id)} onTouchStart={() => prefetchProjet(p.id)} className="group relative bg-white rounded-lg shadow hover:shadow-lg transition p-4 space-y-2">
+                <button
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!confirm(`Supprimer définitivement « ${p.nom} » ?\n\n⚠️ Irréversible.`)) return;
+                    const r = await fetch(`/api/projets?id=${p.id}`, { method: "DELETE" });
+                    if (r.ok) { toast(`Projet supprimé`, "success"); charger(); }
+                    else toast("Erreur suppression", "error");
+                  }}
+                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition bg-red-100 hover:bg-red-200 text-red-700 rounded-full w-7 h-7 flex items-center justify-center text-sm z-10"
+                  title="Supprimer ce projet"
+                  aria-label="Supprimer"
+                >🗑</button>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">

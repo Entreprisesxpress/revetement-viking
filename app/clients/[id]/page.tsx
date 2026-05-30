@@ -17,7 +17,7 @@ const TYPES_INTERACTION = [
 ];
 
 const STATUTS = ["prospect", "actif", "inactif", "perdu"];
-const SOURCES = ["Référence", "Site web", "Facebook", "Google", "Bouche-à-oreille", "Salon/Foire", "Autre"];
+const SOURCES = ["Référence", "Réno Assistance", "Site web", "Facebook", "Google", "Autre"];
 
 export default function ClientDetail() {
   const params = useParams();
