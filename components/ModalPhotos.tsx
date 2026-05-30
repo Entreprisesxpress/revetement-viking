@@ -52,14 +52,23 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
         let data: string;
         let type: string;
         if (f.type.startsWith("video/")) {
-          // Vidéo : upload direct en base64 (pas de compression)
+          // Vidéo : compression côté client si possible (720p, 1.5 Mbps)
+          let videoFile: File = f;
+          if (f.size > 3 * 1024 * 1024) {
+            try {
+              const { compresserVideo } = await import("@/lib/compress-video");
+              videoFile = await compresserVideo(f);
+            } catch (e) {
+              console.warn("Compression vidéo échouée, upload original", e);
+            }
+          }
           data = await new Promise<string>((res, rej) => {
             const r = new FileReader();
             r.onload = () => res(r.result as string);
             r.onerror = rej;
-            r.readAsDataURL(f);
+            r.readAsDataURL(videoFile);
           });
-          type = f.type;
+          type = videoFile.type;
         } else {
           data = await compresserImage(f);
           type = "image/jpeg";

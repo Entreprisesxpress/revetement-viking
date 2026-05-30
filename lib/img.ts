@@ -1,8 +1,9 @@
 // Compression image côté client avant upload
 // Réduit drastiquement taille + temps d'upload (5MB → ~300-500 ko)
 
-const MAX_DIMENSION = 1920; // largeur ou hauteur max
+const MAX_DIMENSION = 1600; // largeur ou hauteur max (était 1920 — réduit pour upload + rapide)
 const QUALITE = 0.82; // JPEG quality 0-1
+const MAX_OCTETS = 250_000; // 250 KB cible — si > on baisse la qualité progressivement
 
 export async function compresserImage(file: File): Promise<string> {
   // PDF : on retourne tel quel en base64 (pas de compression)
@@ -43,8 +44,14 @@ export async function compresserImage(file: File): Promise<string> {
       const ctx = canvas.getContext("2d");
       if (!ctx) return reject(new Error("Canvas non disponible"));
       ctx.drawImage(img, 0, 0, width, height);
-      // Conversion JPEG avec qualité contrôlée
-      const compressed = canvas.toDataURL("image/jpeg", QUALITE);
+      // Conversion JPEG ; si > MAX_OCTETS, baisse progressivement la qualité
+      let q = QUALITE;
+      let compressed = canvas.toDataURL("image/jpeg", q);
+      const octets = (s: string) => Math.round((s.length * 0.75));
+      while (octets(compressed) > MAX_OCTETS && q > 0.4) {
+        q -= 0.1;
+        compressed = canvas.toDataURL("image/jpeg", q);
+      }
       resolve(compressed);
     };
     img.onerror = reject;
