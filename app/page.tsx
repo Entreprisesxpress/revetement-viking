@@ -36,6 +36,7 @@ export default function Home() {
   const [heuresSemaine, setHeuresSemaine] = useState<any[]>([]);
   const [relances, setRelances] = useState<any[]>([]);
   const [annuel, setAnnuel] = useState<{ ca: number; depenses: number; mo: number } | null>(null);
+  const [tableauBord, setTableauBord] = useState<any>(null);
   const [modalHeures, setModalHeures] = useState(false);
   const [modalDepense, setModalDepense] = useState(false);
   const [modalPhotos, setModalPhotos] = useState(false);
@@ -49,6 +50,7 @@ export default function Home() {
     fetch("/api/projets?statut=actif").then((r) => r.json()).then(setProjetsActifs).catch(() => {});
     fetch("/api/heures-sommaire?jours=7").then((r) => r.json()).then(setHeuresSemaine).catch(() => {});
     fetch("/api/relances").then((r) => r.json()).then(setRelances).catch(() => {});
+    fetch("/api/dashboard").then((r) => r.json()).then(setTableauBord).catch(() => {});
     // Totaux de l'année : chiffre d'affaires + dépenses (tous projets, pas juste actifs)
     fetch(`/api/finances?annee=${new Date().getFullYear()}`).then((r) => r.json()).then((d) => {
       const t = (d.mois || []).reduce((s: any, m: any) => ({
@@ -221,6 +223,45 @@ export default function Home() {
           <KPI label="Pipeline" value={formatCAD(stats.pipeline || 0)} couleur="text-blue-600" />
           <KPI label="Acceptées" value={formatCAD(stats.revenus_acceptes || 0)} couleur="text-emerald-600" />
         </div>
+
+        {/* === SANTÉ BUSINESS — Tableau de bord enrichi === */}
+        {tableauBord && (
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <a href="/finances" className="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-lg p-3 hover:shadow-md transition">
+              <div className="text-[10px] uppercase font-bold text-emerald-700">💰 Revenu du mois</div>
+              <div className="text-xl md:text-2xl font-bold text-emerald-900 mt-1">{formatCAD(tableauBord.revenu_mois)}</div>
+            </a>
+            <a href="/projets" className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-3 hover:shadow-md transition">
+              <div className="text-[10px] uppercase font-bold text-blue-700">📊 Marge moyenne</div>
+              <div className="text-xl md:text-2xl font-bold text-blue-900 mt-1">{tableauBord.marge_moyenne_pct?.toFixed(1)} %</div>
+              <div className="text-[10px] text-blue-600">{formatCAD(tableauBord.marge_moyenne_montant || 0)}</div>
+            </a>
+            <a href="/finances" className="bg-gradient-to-br from-red-50 to-red-100 border border-red-200 rounded-lg p-3 hover:shadow-md transition">
+              <div className="text-[10px] uppercase font-bold text-red-700">⚠️ Factures impayées</div>
+              <div className="text-xl md:text-2xl font-bold text-red-900 mt-1">{formatCAD(tableauBord.factures_impayees_montant)}</div>
+              <div className="text-[10px] text-red-600">{tableauBord.factures_impayees_nb} facture(s)</div>
+            </a>
+            <a href="/employes" className="bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200 rounded-lg p-3 hover:shadow-md transition">
+              <div className="text-[10px] uppercase font-bold text-amber-700">🏦 Banque d'heures</div>
+              <div className="text-xl md:text-2xl font-bold text-amber-900 mt-1">{(tableauBord.banque_heures || 0).toFixed(1)} h</div>
+              <div className="text-[10px] text-amber-600">à utiliser plus tard</div>
+            </a>
+            {tableauBord.projets_en_retard > 0 && (
+              <a href="/projets?statut=actif" className="col-span-2 md:col-span-2 bg-gradient-to-r from-orange-50 to-red-50 border border-orange-300 rounded-lg p-3 hover:shadow-md transition">
+                <div className="text-[10px] uppercase font-bold text-orange-700">🔥 Projets en retard</div>
+                <div className="text-xl font-bold text-orange-900 mt-1">{tableauBord.projets_en_retard} chantier(s) à finir</div>
+                <div className="text-xs text-orange-700">Date de fin prévue dépassée</div>
+              </a>
+            )}
+            {tableauBord.soumissions_a_relancer > 0 && (
+              <a href="/soumissions?statut=envoyee" className="col-span-2 md:col-span-2 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-300 rounded-lg p-3 hover:shadow-md transition">
+                <div className="text-[10px] uppercase font-bold text-purple-700">📞 À relancer</div>
+                <div className="text-xl font-bold text-purple-900 mt-1">{tableauBord.soumissions_a_relancer} soumission(s) sans réponse</div>
+                <div className="text-xs text-purple-700">Envoyées il y a plus de 7 jours</div>
+              </a>
+            )}
+          </section>
+        )}
 
         {/* Statuts */}
         <section className="bg-white rounded-lg shadow p-4 md:p-5">

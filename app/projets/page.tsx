@@ -123,10 +123,18 @@ export default function ProjetsPage() {
       />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
-        {/* Bouton Nouveau projet — toujours visible (mobile + desktop) */}
-        <button onClick={() => setCreerOuvert(true)} className="w-full md:w-auto px-4 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white rounded-lg font-bold shadow">
-          ➕ Nouveau projet
-        </button>
+        {/* Bouton Nouveau projet + Carte */}
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setCreerOuvert(true)} className="flex-1 md:flex-none px-4 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white rounded-lg font-bold shadow">
+            ➕ Nouveau projet
+          </button>
+          <a href="/projets/carte" className="px-4 py-3 bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white rounded-lg font-bold shadow">
+            🗺️ Carte
+          </a>
+          <a href="/projets/calendrier" className="px-4 py-3 bg-purple-600 hover:bg-purple-500 active:scale-[0.99] text-white rounded-lg font-bold shadow">
+            📅 Calendrier
+          </a>
+        </div>
 
         {/* KPIs projets actifs */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
