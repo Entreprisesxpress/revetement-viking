@@ -117,6 +117,53 @@ export async function filtreDocument(dataUrl: string, intensite = 1): Promise<st
   return c.toDataURL("image/jpeg", 0.85);
 }
 
+/** Extrait une signature manuscrite d'une photo de papier :
+ *  applique un seuil de luminance, garde les pixels sombres opaques (signature)
+ *  et rend le fond transparent. Cadre serré autour du contenu. */
+export async function extraireSignature(dataUrl: string, seuil = 110): Promise<string> {
+  const img = await chargerImage(dataUrl);
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, W, H);
+  const d = id.data;
+  let xMin = W, yMin = H, xMax = 0, yMax = 0;
+  let foundAny = false;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (lum < seuil) {
+        // pixel "sombre" = signature → opaque noir
+        d[i] = 15; d[i + 1] = 23; d[i + 2] = 42; d[i + 3] = 255; // bleu marine sombre
+        if (x < xMin) xMin = x;
+        if (x > xMax) xMax = x;
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+        foundAny = true;
+      } else {
+        // fond → transparent
+        d[i + 3] = 0;
+      }
+    }
+  }
+  if (!foundAny) return dataUrl;
+  ctx.putImageData(id, 0, 0);
+  // Crop serré avec une petite marge
+  const m = Math.max(8, Math.round(Math.min(W, H) * 0.02));
+  const x0 = Math.max(0, xMin - m), y0 = Math.max(0, yMin - m);
+  const w = Math.min(W - x0, xMax - xMin + 2 * m);
+  const h = Math.min(H - y0, yMax - yMin + 2 * m);
+  if (w <= 0 || h <= 0) return c.toDataURL("image/png");
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  out.getContext("2d")!.drawImage(c, x0, y0, w, h, 0, 0, w, h);
+  return out.toDataURL("image/png");
+}
+
 /** Lance l'OCR via Tesseract.js (chargement à la demande). */
 export async function ocrRecu(dataUrl: string, onProgress?: (p: number) => void): Promise<{
   texte: string;

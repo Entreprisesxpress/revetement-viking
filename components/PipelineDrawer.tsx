@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useToast } from "@/components/Toasts";
 import { compresserImage } from "@/lib/img";
 import { PIPELINE_STAGES } from "@/components/PipelineCRM";
+import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 
 interface Props {
   client: any;
@@ -315,6 +316,37 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     }
   };
 
+  const signerParPhotoPapier = async (co: any, file: File) => {
+    try {
+      toast("📷 Extraction de la signature…", "info");
+      const { extraireSignature } = await import("@/lib/imgScanner");
+      const dataUrl = await new Promise<string>((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file);
+      });
+      const sigPng = await extraireSignature(dataUrl);
+      // Régénère le PDF avec la signature image et envoie pour signature côté serveur
+      const { genererContratBlob } = await import("@/lib/pdf-contrat");
+      // Fetch données du contrat via le token
+      const meta = await fetch(`/api/contrats-pipeline/${co.token}`).then((r) => r.json());
+      const data = { ...meta.data, signature_client: { nom: form.nom, date: new Date().toLocaleDateString("fr-CA") }, signature_client_image: sigPng };
+      const blob = await genererContratBlob(data);
+      const pdfSigne = await new Promise<string>((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(blob);
+      });
+      const r = await fetch(`/api/contrats-pipeline/${co.token}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature_dataurl: sigPng, signature_nom: form.nom + " (signature papier)", pdf_signe: pdfSigne }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        toast("✅ Signature papier importée et contrat marqué signé", "success");
+        rechargerContrats();
+      } else toast(d.error || "Erreur", "error");
+    } catch (e: any) {
+      toast("Erreur extraction : " + (e?.message || ""), "error");
+    }
+  };
+
   const supprimerContrat = async (id: number) => {
     if (!confirm("Supprimer ce contrat ? (Le lien de signature deviendra invalide.)")) return;
     await fetch(`/api/contrats-pipeline?id=${id}`, { method: "DELETE" });
@@ -439,7 +471,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
           {/* Coordonnées + raccourcis appel/SMS/mail */}
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="Nom" value={form.nom} onChange={(v) => setForm({ ...form, nom: v })} />
-            <Field label="Adresse" value={form.adresse} onChange={(v) => setForm({ ...form, adresse: v })} />
+            <AdresseAutocomplete label="Adresse" value={form.adresse} onChange={(v) => setForm({ ...form, adresse: v })} placeholder="Ex: 145 Rue Fraser…" />
             <Field label="Téléphone" value={form.telephone} onChange={(v) => setForm({ ...form, telephone: v })} />
             <Field label="Courriel" value={form.courriel} onChange={(v) => setForm({ ...form, courriel: v })} />
           </section>
@@ -543,7 +575,13 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
                         <a href={`/api/contrats-pipeline/${co.token}/pdf${co.statut === "signe" ? "?signe=1" : ""}`} target="_blank" rel="noreferrer" className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold">👁 Aperçu</a>
                         <button onClick={() => copierLienContrat(co.token)} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded text-[10px] font-bold">🔗 Lien</button>
                         {co.statut !== "signe" && (
-                          <button onClick={() => envoyerContratParMail(co)} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold" title="Envoyer le contrat par courriel pour signature">📧 Envoyer pour signature</button>
+                          <>
+                            <button onClick={() => envoyerContratParMail(co)} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold" title="Envoyer le contrat par courriel pour signature">📧 Envoyer</button>
+                            <label className="px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-[10px] font-bold cursor-pointer" title="Importer une photo de la signature manuscrite sur papier">
+                              📷 Sig papier
+                              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && signerParPhotoPapier(co, e.target.files[0])} />
+                            </label>
+                          </>
                         )}
                         <button onClick={() => supprimerContrat(co.id)} className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-[10px]">🗑</button>
                       </div>

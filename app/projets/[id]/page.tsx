@@ -7,6 +7,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import Lightbox from "@/components/Lightbox";
 import { getProjetPrefetch, setProjetPrefetch } from "@/lib/prefetchProjet";
+import MeteoProjet from "@/components/MeteoProjet";
 
 const STATUTS_LABEL: Record<string, string> = {
   a_venir: "À venir",
@@ -249,6 +250,9 @@ ${VIKING_EMAIL}
           </div>
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>
+
+        {/* MÉTÉO 5 JOURS au chantier */}
+        {projet.adresse_chantier && projet.statut === "actif" && <MeteoProjet adresse={projet.adresse_chantier} />}
 
         {/* ALERTE DÉPASSEMENT BUDGET */}
         {projet.budget_estime > 0 && projet.pct_budget_consomme >= 90 && (

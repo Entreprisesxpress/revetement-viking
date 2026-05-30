@@ -69,7 +69,7 @@ const CSP = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   // OCR : tessdata + CDN ; météo Open-Meteo ; Google APIs (Drive)
-  "connect-src 'self' blob: data: https://api.open-meteo.com https://geocoding-api.open-meteo.com https://*.googleapis.com https://www.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com",
+  "connect-src 'self' blob: data: https://api.open-meteo.com https://geocoding-api.open-meteo.com https://*.googleapis.com https://www.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://nominatim.openstreetmap.org",
   "frame-ancestors 'self'",
   "base-uri 'self'",
   "form-action 'self'",
