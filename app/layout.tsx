@@ -6,6 +6,8 @@ import PWARegister from "@/components/PWARegister";
 import PanneauRaccourcis from "@/components/PanneauRaccourcis";
 import BarreChargementRoute from "@/components/BarreChargementRoute";
 import IndicateurHorsLigne from "@/components/IndicateurHorsLigne";
+import PaletteCommande from "@/components/PaletteCommande";
+import MicroFlottant from "@/components/MicroFlottant";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -92,6 +94,8 @@ export default function RootLayout({
           <BarreChargementRoute />
           <div id="contenu-principal">{children}</div>
           <PanneauRaccourcis />
+          <PaletteCommande />
+          <MicroFlottant />
         </ToastsProvider>
         <PWARegister />
       </body>

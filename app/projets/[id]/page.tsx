@@ -319,6 +319,9 @@ ${VIKING_EMAIL}
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>
 
+        {/* NOTES RAPIDES (vocales) */}
+        <NotesRapidesProjet projet_id={projet.id} />
+
         {/* RÉSUMÉ IA */}
         {resumeIa && (
           <div className="bg-indigo-50 border-2 border-indigo-300 rounded-lg p-4">
@@ -1204,4 +1207,36 @@ function FieldNum({ label, value, onChange, step = 1 }: { label: string; value: 
 }
 function FieldDate({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return <div><label className="block text-xs font-medium text-slate-600 mb-1">{label}</label><input type="date" value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 border rounded text-sm" /></div>;
+}
+
+function NotesRapidesProjet({ projet_id }: { projet_id: number }) {
+  const [notes, setNotes] = useState<any[]>([]);
+  const charger = () => fetch(`/api/notes-rapides?projet_id=${projet_id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNotes(Array.isArray(d) ? d : []));
+  useEffect(() => { charger(); }, [projet_id]);
+  const supprimer = async (id: number) => {
+    if (!confirm("Supprimer cette note ?")) return;
+    await fetch(`/api/notes-rapides?id=${id}`, { method: "DELETE" });
+    charger();
+  };
+  if (notes.length === 0) return null;
+  return (
+    <section className="bg-white rounded-lg shadow p-4 border-l-4 border-emerald-400">
+      <h3 className="font-bold text-slate-900 mb-3 flex items-center gap-2">🎤 Notes du chantier <span className="text-xs font-normal text-slate-500">({notes.length})</span></h3>
+      <ul className="space-y-2">
+        {notes.map((n) => (
+          <li key={n.id} className="bg-slate-50 rounded p-3 flex justify-between items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-slate-800 whitespace-pre-wrap">{n.texte}</p>
+              <div className="text-[10px] text-slate-500 mt-1 flex gap-2 flex-wrap">
+                <span>👤 {n.auteur || "?"}</span>
+                <span>{n.source === "vocal" ? "🎤 dictée" : "✏️ texte"}</span>
+                <span>{new Date(n.date_creation).toLocaleString("fr-CA", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+              </div>
+            </div>
+            <button onClick={() => supprimer(n.id)} className="text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded">🗑</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

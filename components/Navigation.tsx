@@ -224,6 +224,16 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
             )}
           </div>
 
+          {/* Recherche globale (Ctrl+K) */}
+          <button
+            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
+            className="p-2 rounded hover:bg-slate-700 transition flex-shrink-0 text-lg"
+            title="Recherche globale (Ctrl+K)"
+            aria-label="Recherche globale"
+          >
+            🔎
+          </button>
+
           {/* Cloche de notifications + dropdown */}
           <div className="relative">
             <button

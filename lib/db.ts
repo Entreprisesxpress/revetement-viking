@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -150,6 +150,19 @@ async function doInitDb() {
     date_creation TEXT
   )`);
   await tryExec("CREATE INDEX IF NOT EXISTS idx_ia_feedback_date ON ia_feedback(date_creation DESC)");
+
+  // === NOTES RAPIDES (vocales ou texte) attachées à un projet ===
+  await tryExec(`CREATE TABLE IF NOT EXISTS notes_rapides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    projet_id INTEGER,
+    client_id INTEGER,
+    texte TEXT NOT NULL,
+    source TEXT,
+    auteur TEXT,
+    date_creation TEXT
+  )`);
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_notes_rapides_projet ON notes_rapides(projet_id, date_creation DESC)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_notes_rapides_client ON notes_rapides(client_id, date_creation DESC)");
 
   // === CAMÉRAS de sécurité (URL embed ou stream) ===
   await tryExec(`CREATE TABLE IF NOT EXISTS cameras (
