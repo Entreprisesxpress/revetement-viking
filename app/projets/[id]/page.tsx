@@ -59,6 +59,18 @@ export default function ProjetDetail() {
   const [selectionH, setSelectionH] = useState<Set<number>>(new Set());
   const [coutDetail, setCoutDetail] = useState(false);
   const [lightboxId, setLightboxId] = useState<number | null>(null);
+  const [resumeIa, setResumeIa] = useState<string | null>(null);
+  const [resumeBusy, setResumeBusy] = useState(false);
+
+  const genererResumeIa = async () => {
+    setResumeBusy(true);
+    try {
+      const r = await fetch(`/api/projets/${id}/resume-ia`, { method: "POST" });
+      const d = await r.json();
+      if (d.ok) setResumeIa(d.resume);
+      else toast("IA : " + (d.error || "erreur"), "error");
+    } finally { setResumeBusy(false); }
+  };
   const [hRecherche, setHRecherche] = useState("");
   const [hPeriode, setHPeriode] = useState<string>(""); // "" = toutes, ou "YYYY-MM-DD|YYYY-MM-DD"
   const [dForm, setDForm] = useState({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
@@ -240,6 +252,7 @@ ${VIKING_EMAIL}
             {projet.soumission_numero && (
               <a href={`/soumissions/nouveau?modifier=${projet.soumission_numero}`} className="text-xs px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded font-semibold">📄 Voir soumission {projet.soumission_numero}</a>
             )}
+            <button onClick={genererResumeIa} disabled={resumeBusy} className="text-xs px-3 py-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 disabled:opacity-50 rounded font-semibold" title="Résumé automatique du chantier par IA">🤖 {resumeBusy ? "Analyse…" : "Résumé IA"}</button>
             <button onClick={() => telechargerFeuilleTemps(projet)} className="text-xs px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded font-semibold">⏱️ Feuille de temps PDF</button>
             <a href={`/api/rapports?projet_id=${id}&format=csv`} className="text-xs px-3 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-semibold">📊 Export CSV</a>
             <button
@@ -250,6 +263,20 @@ ${VIKING_EMAIL}
           </div>
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>
+
+        {/* RÉSUMÉ IA */}
+        {resumeIa && (
+          <div className="bg-indigo-50 border-2 border-indigo-300 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-bold text-indigo-900">🤖 Résumé IA du chantier</h3>
+              <div className="flex gap-2">
+                <button onClick={() => { navigator.clipboard.writeText(resumeIa).then(() => toast("Copié", "success")); }} className="text-xs text-indigo-700 hover:underline">📋 Copier</button>
+                <button onClick={() => setResumeIa(null)} className="text-xs text-slate-500 hover:underline">Fermer</button>
+              </div>
+            </div>
+            <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans">{resumeIa}</pre>
+          </div>
+        )}
 
         {/* MÉTÉO 5 JOURS au chantier */}
         {projet.adresse_chantier && projet.statut === "actif" && <MeteoProjet adresse={projet.adresse_chantier} />}

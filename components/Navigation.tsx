@@ -3,6 +3,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { activerMoniteurOffline, nbActionsEnAttente } from "@/lib/fileOffline";
 
 interface NavLink {
   href: string;
@@ -60,6 +61,16 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   // Profil utilisateur (avatar + nom)
   useEffect(() => {
     fetch("/api/auth/profil").then((r) => r.ok ? r.json() : null).then((p) => p && setProfil(p)).catch(() => {});
+    activerMoniteurOffline((info) => {
+      if (info.envoyees > 0) {
+        // Toast léger sans dépendance — visible une fois la connexion revenue
+        const t = document.createElement("div");
+        t.className = "fixed bottom-20 right-4 bg-emerald-600 text-white px-4 py-2 rounded shadow-lg text-sm z-50";
+        t.textContent = `✓ ${info.envoyees} saisie(s) hors-ligne synchronisée(s)`;
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 4000);
+      }
+    });
   }, []);
 
   const deconnexion = async () => {

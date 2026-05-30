@@ -7,6 +7,7 @@ import BottomSheet from "@/components/BottomSheet";
 import { compresserImage } from "@/lib/img";
 
 const ScannerRecu = lazy(() => import("@/components/ScannerRecu"));
+import MicVocal from "@/components/MicVocal";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
 const CATEGORIES_FALLBACK = ["matériaux", "outils", "location", "sous-traitant", "transport", "permis", "essence", "autre"];
@@ -197,7 +198,10 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Description</label>
-            <input type="text" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Détails..." className="w-full px-3 py-3 border rounded-lg text-sm" />
+            <div className="flex gap-2">
+              <input type="text" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Détails… ou utilise le micro →" className="flex-1 px-3 py-3 border rounded-lg text-sm" />
+              <MicVocal taille="sm" onTranscript={(t) => setForm((f) => ({ ...f, description: (f.description ? f.description + " " : "") + t }))} titre="Dicter la description" />
+            </div>
           </div>
 
           {/* Reçu : photo caméra ou fichier galerie/PDF */}

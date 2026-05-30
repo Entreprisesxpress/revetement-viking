@@ -5,6 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
 import { compresserImage, genererVignette } from "@/lib/img";
+import MicVocal from "@/components/MicVocal";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; }
 interface LigneJour {
@@ -332,7 +333,10 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
                       </div>
                     </details>
                   </div>
-                  <input type="text" value={l.description} onChange={(e) => modifier(i, { description: e.target.value })} placeholder="Description (optionnel)" className="w-full px-3 py-2 border rounded text-xs bg-white" />
+                  <div className="flex gap-2">
+                    <input type="text" value={l.description} onChange={(e) => modifier(i, { description: e.target.value })} placeholder="Description / rapport de journée (optionnel) — ou utilise le micro →" className="flex-1 px-3 py-2 border rounded text-xs bg-white" />
+                    <MicVocal taille="sm" onTranscript={(t) => modifier(i, { description: (l.description ? l.description + " " : "") + t })} titre="Dicter le rapport de journée pour ce projet" />
+                  </div>
 
                   {/* 📸 Photos du jour pour CE projet */}
                   <div className="space-y-1">

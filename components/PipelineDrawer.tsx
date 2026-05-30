@@ -6,6 +6,7 @@ import { useToast } from "@/components/Toasts";
 import { compresserImage } from "@/lib/img";
 import { PIPELINE_STAGES } from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
+import MicVocal from "@/components/MicVocal";
 
 interface Props {
   client: any;
@@ -34,6 +35,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const [taches, setTaches] = useState<any[]>([]);
   const [commentaires, setCommentaires] = useState<any[]>([]);
   const [contrats, setContrats] = useState<any[]>([]);
+  const [soumissions, setSoumissions] = useState<any[]>([]);
   const [nouvelleTache, setNouvelleTache] = useState("");
   const [nouveauComm, setNouveauComm] = useState("");
   const [uploadEnCours, setUploadEnCours] = useState(false);
@@ -78,12 +80,14 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const rechargerTaches = () => fetch(`/api/client-taches?client_id=${client.id}`).then((r) => r.json()).then((t) => Array.isArray(t) && setTaches(t)).catch(() => {});
   const rechargerComm = () => fetch(`/api/client-commentaires?client_id=${client.id}`).then((r) => r.json()).then((c) => Array.isArray(c) && setCommentaires(c)).catch(() => {});
   const rechargerContrats = () => fetch(`/api/contrats-pipeline?client_id=${client.id}`).then((r) => r.json()).then((cs) => Array.isArray(cs) && setContrats(cs)).catch(() => {});
+  const rechargerSoumissions = () => fetch(`/api/clients/${client.id}/soumissions`).then((r) => r.json()).then((cs) => Array.isArray(cs) && setSoumissions(cs)).catch(() => {});
 
   useEffect(() => {
     fetch(`/api/client-fichiers?client_id=${client.id}`).then((r) => r.json()).then((f) => Array.isArray(f) && setFichiers(f)).catch(() => {});
     rechargerTaches();
     rechargerComm();
     rechargerContrats();
+    rechargerSoumissions();
     fetch("/api/auth/me").then((r) => r.json()).then((d) => setMoiUtilisateur(d.user)).catch(() => {});
   }, [client.id]);
 
@@ -547,7 +551,10 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
 
           {/* Description du projet (style Asana — fourchette budgétaire, dimensions, type) */}
           <section>
-            <label className="block text-xs font-medium text-slate-600 mb-1">📝 Description du projet</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-slate-600">📝 Description du projet</label>
+              <MicVocal taille="sm" onTranscript={(t) => setForm((f) => ({ ...f, notes: (f.notes ? f.notes + " " : "") + t }))} titre="Dicter la description du projet" />
+            </div>
             <textarea
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
@@ -556,6 +563,30 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
               className="w-full px-3 py-2 border rounded text-sm font-mono"
             />
           </section>
+
+          {/* SOUMISSIONS / DEVIS liés à ce client */}
+          {soumissions.length > 0 && (
+            <section>
+              <label className="block text-xs font-medium text-slate-600 mb-1">📄 Soumissions / Devis ({soumissions.length})</label>
+              <ul className="space-y-1">
+                {soumissions.map((s: any) => {
+                  const color = s.statut === "acceptee" ? "border-emerald-400 bg-emerald-50" : s.statut === "envoyee" ? "border-blue-400 bg-blue-50" : s.statut === "refusee" ? "border-red-300 bg-red-50" : "border-slate-200";
+                  return (
+                    <li key={s.numero} className={`border-l-4 ${color} bg-white rounded p-2 text-xs flex items-center justify-between`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-slate-900">📄 {s.numero}</div>
+                        <div className="text-[10px] text-slate-500 truncate">{s.projet || "—"} · {s.statut}{s.date_envoi ? ` · envoyée ${new Date(s.date_envoi).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })}` : ""}</div>
+                      </div>
+                      <div className="text-right ml-2">
+                        <div className="font-bold text-emerald-700">{Number(s.total || 0).toLocaleString("fr-CA", { style: "currency", currency: "CAD" })}</div>
+                        <a href={`/soumissions/nouveau?modifier=${s.numero}`} className="text-[10px] text-blue-600 hover:underline">Ouvrir →</a>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {/* CONTRATS générés (avec preuve de transmission style DocuSign) */}
           {contrats.length > 0 && (
@@ -799,14 +830,15 @@ function CommentairesSection({ commentaires, nouveauComm, setNouveauComm, poster
 
       <div className="relative flex gap-2">
         <div className="flex-1 relative">
+          <div className="absolute top-1 right-1 z-10"><MicVocal taille="sm" onTranscript={(t) => setNouveauComm((nouveauComm ? nouveauComm + " " : "") + t)} titre="Dicter le commentaire" /></div>
           <textarea
             ref={taRef}
             value={nouveauComm}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
             rows={2}
-            placeholder="Ajouter un commentaire… tape @ pour mentionner Gabriel ou Francis (notification par courriel)"
-            className="w-full px-3 py-2 border rounded text-sm"
+            placeholder="Ajouter un commentaire… tape @ pour mentionner, ou utilise 🎤 pour dicter"
+            className="w-full px-3 py-2 pr-12 border rounded text-sm"
           />
           {mentionOuvert && suggestions.length > 0 && (
             <div className="absolute bottom-full left-0 mb-1 bg-white border-2 border-emerald-400 rounded shadow-xl z-30 w-48">
