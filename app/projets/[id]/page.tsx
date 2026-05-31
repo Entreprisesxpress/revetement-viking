@@ -10,11 +10,12 @@ import { getProjetPrefetch, setProjetPrefetch } from "@/lib/prefetchProjet";
 import MeteoProjet from "@/components/MeteoProjet";
 
 const STATUTS_LABEL: Record<string, string> = {
-  a_venir: "À venir",
-  actif: "Actif",
-  en_pause: "En pause",
-  complete: "Complété",
-  annule: "Annulé",
+  en_cours: "🟢 En cours",
+  a_venir: "🟣 À venir",
+  actif: "🔵 Actif",
+  en_pause: "🟡 En pause",
+  complete: "✅ Complété",
+  annule: "❌ Annulé",
 };
 
 const CAT_DEPENSES = ["matériaux", "outils", "location équipement", "sous-traitant", "transport", "permis", "essence", "autre"];
@@ -275,6 +276,32 @@ ${VIKING_EMAIL}
             <select value={projet.statut} onChange={(e) => changerStatut(e.target.value)} className="px-3 py-1 border rounded text-sm">
               {Object.entries(STATUTS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
+            {/* Boutons d'action rapide selon le statut */}
+            {projet.statut === "a_venir" && (
+              <button onClick={() => changerStatut("en_cours")} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold active:scale-95 transition" title="Démarrer le chantier maintenant">
+                🟢 Commencer ce chantier
+              </button>
+            )}
+            {projet.statut === "en_cours" && (
+              <>
+                <button onClick={() => changerStatut("en_pause")} className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded text-sm font-bold" title="Mettre en pause temporairement">
+                  ⏸️ Mettre en pause
+                </button>
+                <button onClick={() => { if (confirm("Marquer ce chantier comme COMPLÉTÉ ?")) changerStatut("complete"); }} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold active:scale-95 transition" title="Marquer le chantier comme terminé">
+                  ✅ Marquer complété
+                </button>
+              </>
+            )}
+            {projet.statut === "en_pause" && (
+              <button onClick={() => changerStatut("en_cours")} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold active:scale-95 transition" title="Reprendre le chantier">
+                ▶️ Reprendre le chantier
+              </button>
+            )}
+            {projet.statut === "actif" && (
+              <button onClick={() => changerStatut("en_cours")} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold active:scale-95 transition" title="Passer en travail actif">
+                🟢 Travailler maintenant
+              </button>
+            )}
             {projet.soumission_numero && (
               <a href={`/soumissions/nouveau?modifier=${projet.soumission_numero}`} className="text-xs px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded font-semibold">📄 Voir soumission {projet.soumission_numero}</a>
             )}
