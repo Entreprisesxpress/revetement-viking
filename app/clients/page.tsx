@@ -10,7 +10,7 @@ import { exporterCSV } from "@/lib/csv";
 
 const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
   prospect: { label: "Prospect", couleur: "bg-amber-100 text-amber-900" },
-  actif: { label: "Client actif", couleur: "bg-emerald-100 text-emerald-900" },
+  actif: { label: "Clients", couleur: "bg-emerald-100 text-emerald-900" },
   inactif: { label: "Inactif", couleur: "bg-slate-200 text-slate-700" },
   perdu: { label: "Perdu", couleur: "bg-red-100 text-red-900" },
 };
