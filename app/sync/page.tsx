@@ -158,7 +158,14 @@ function SyncContent() {
 function BackupBouton() {
   const [loading, setLoading] = useState(false);
   const [dernier, setDernier] = useState<{ nom: string; counts: any } | null>(null);
+  const [historique, setHistorique] = useState<any>(null);
   const { toast } = useToast();
+
+  const chargerHistorique = () => {
+    fetch("/api/backup/liste", { cache: "no-store" }).then((r) => r.json()).then(setHistorique).catch(() => {});
+  };
+  useEffect(() => { chargerHistorique(); }, []);
+
   const lancer = async () => {
     setLoading(true);
     try {
@@ -167,20 +174,71 @@ function BackupBouton() {
       if (d.ok) {
         setDernier({ nom: d.nom, counts: d.tailles });
         toast(`✓ Backup créé : ${d.nom}`, "success");
+        chargerHistorique();
       } else {
         toast("Erreur backup : " + (d.error || "inconnue"), "error");
       }
     } finally { setLoading(false); }
   };
+
+  // Couleur selon fraîcheur du dernier backup auto
+  const couleurEtat = historique?.etat === "frais" ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+    : historique?.etat === "vieux" ? "bg-amber-100 text-amber-900 border-amber-300"
+    : historique?.etat === "tres_vieux" ? "bg-red-100 text-red-900 border-red-300"
+    : "bg-slate-100 text-slate-700 border-slate-300";
+  const labelEtat = historique?.etat === "frais" ? "✅ Autobackup à jour"
+    : historique?.etat === "vieux" ? "⚠️ Autobackup en retard"
+    : historique?.etat === "tres_vieux" ? "🔴 Autobackup ne tourne plus !"
+    : "❓ Aucun backup encore créé";
+
   return (
-    <div className="bg-white rounded p-2 border border-emerald-200">
+    <div className="bg-white rounded p-3 border border-emerald-200 space-y-3">
+      {/* Statut autobackup */}
+      {historique?.ok && (
+        <div className={`rounded p-2 border ${couleurEtat}`}>
+          <div className="font-bold text-sm">{labelEtat}</div>
+          <div className="text-xs mt-1">
+            {historique.total > 0 ? (
+              <>
+                <strong>{historique.total}</strong> backup(s) dans Drive · Dernier : <strong>{historique.dernier?.nom}</strong>
+                {historique.heures_depuis_dernier !== null && (
+                  <> · il y a <strong>{historique.heures_depuis_dernier} h</strong></>
+                )}
+              </>
+            ) : (
+              <>Aucun fichier backup-*.json trouvé dans Drive/Viking/Backups. Lance un backup manuel ci-dessous.</>
+            )}
+          </div>
+          <div className="text-[10px] text-slate-600 mt-1">⏰ Cron Vercel programmé tous les jours à <strong>8h UTC</strong> (4h du matin heure Montréal)</div>
+        </div>
+      )}
+
       <button onClick={lancer} disabled={loading} className="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold disabled:opacity-50">
-        {loading ? "⏳ Backup en cours..." : "💾 Sauvegarder DB → Drive maintenant"}
+        {loading ? "⏳ Backup en cours..." : "💾 Lancer un backup maintenant"}
       </button>
       {dernier && (
-        <div className="text-xs text-slate-600 mt-1">
+        <div className="text-xs text-slate-600">
           ✓ <code className="bg-slate-100 px-1 rounded">{dernier.nom}</code> · {dernier.counts.soumissions} soum · {dernier.counts.projets} projets · {dernier.counts.clients} clients
         </div>
+      )}
+
+      {/* Historique des 5 derniers backups */}
+      {historique?.backups?.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer font-bold text-slate-700">📜 Historique ({historique.total} backup(s))</summary>
+          <ul className="mt-2 space-y-1">
+            {historique.backups.slice(0, 10).map((b: any) => (
+              <li key={b.id} className="flex justify-between items-center bg-slate-50 rounded px-2 py-1">
+                <span className="font-mono">{b.nom}</span>
+                <span className="flex gap-2 items-center text-slate-500">
+                  <span>{b.taille_ko ? `${b.taille_ko} KB` : ""}</span>
+                  <span>{b.date ? new Date(b.date).toLocaleString("fr-CA", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                  {b.lien && <a href={b.lien} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">↗ Drive</a>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );
