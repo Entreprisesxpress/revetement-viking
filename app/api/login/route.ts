@@ -27,13 +27,16 @@ export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
   const ua = req.headers.get("user-agent") || undefined;
 
-  if (!UTILISATEURS.includes(user as any)) {
-    return NextResponse.json({ error: "Utilisateur inconnu" }, { status: 400 });
-  }
-
+  // Rate-limit EN TÊTE : couvre tous les essais, y compris « utilisateur inconnu »
+  // (qui renvoyaient 400 avant le throttle → endpoint abusable sans limite).
   if (await rateLimitDepasse("auth.login_echec", ip, 5, 15)) {
     await journaliser("auth.login_echec", { description: `Bloqué (rate limit) — ${user}`, ip, user_agent: ua });
     return NextResponse.json({ error: "Trop d'essais. Réessaie dans 15 minutes." }, { status: 429 });
+  }
+
+  if (!UTILISATEURS.includes(user as any)) {
+    await journaliser("auth.login_echec", { description: `Utilisateur inconnu — ${user}`, ip, user_agent: ua });
+    return NextResponse.json({ error: "Utilisateur inconnu" }, { status: 400 });
   }
 
   const attendu = motDePasseDe(user);

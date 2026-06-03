@@ -8,6 +8,7 @@ import BarreChargementRoute from "@/components/BarreChargementRoute";
 import IndicateurHorsLigne from "@/components/IndicateurHorsLigne";
 import PaletteCommande from "@/components/PaletteCommande";
 import MicroFlottant from "@/components/MicroFlottant";
+import Garde401 from "@/components/Garde401";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -89,6 +90,7 @@ export default function RootLayout({
         <a href="#contenu-principal" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:font-semibold">
           Aller au contenu principal
         </a>
+        <Garde401 />
         <ToastsProvider>
           <IndicateurHorsLigne />
           <BarreChargementRoute />
