@@ -278,6 +278,10 @@ async function doInitDb() {
   await tryExec("CREATE INDEX IF NOT EXISTS idx_journal_user ON journal_activite(utilisateur)");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_data TEXT");
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN recu_type TEXT");
+  // Verrouillage optimiste (B7) : compteur incrémenté à chaque UPDATE. Permet de
+  // détecter qu'un autre utilisateur a modifié la ligne entre le chargement et la sauvegarde.
+  await tryExec("ALTER TABLE depenses_projet ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
+  await tryExec("ALTER TABLE heures_projet ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
   await tryExec("ALTER TABLE projets ADD COLUMN numero TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN contrat_signe_data TEXT");
@@ -1275,13 +1279,27 @@ export async function supprimerHeureProjet(id: number) {
 export async function getHeureProjet(id: number) {
   return await one<any>("SELECT * FROM heures_projet WHERE id = ?", [id]);
 }
-export async function modifierHeureProjet(id: number, h: Partial<HeureProjet>) {
+// Résultat d'une modification avec verrouillage optimiste (B7).
+export type ResultatMaj = { ok: true } | { ok: false; conflit?: true; introuvable?: true; versionActuelle?: number };
+
+export async function modifierHeureProjet(id: number, h: Partial<HeureProjet>, versionAttendue?: number): Promise<ResultatMaj> {
   const champs = ['projet_id', 'date', 'heures', 'description', 'employe', 'taux_horaire'];
   const definis = champs.filter(k => (h as any)[k] !== undefined);
-  if (!definis.length) return;
+  if (!definis.length) return { ok: true };
   const sets = definis.map(k => `${k} = ?`).join(', ');
   const valeurs = definis.map(k => (h as any)[k]);
-  await run(`UPDATE heures_projet SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  if (versionAttendue != null) {
+    // Maj conditionnelle : ne passe que si la version n'a pas bougé depuis le chargement.
+    const r = await run(`UPDATE heures_projet SET ${sets}, version = version + 1 WHERE id = ? AND version = ?`, [...valeurs, id, versionAttendue]);
+    if (r.rowsAffected === 0) {
+      const actuel = await one<{ version: number }>("SELECT version FROM heures_projet WHERE id = ?", [id]);
+      return actuel ? { ok: false, conflit: true, versionActuelle: actuel.version } : { ok: false, introuvable: true };
+    }
+    return { ok: true };
+  }
+  // Rétrocompat : sans version fournie, maj inconditionnelle (mais on incrémente quand même).
+  await run(`UPDATE heures_projet SET ${sets}, version = version + 1 WHERE id = ?`, [...valeurs, id]);
+  return { ok: true };
 }
 export async function listerToutesHeures(filtres?: { employe?: string; projet_id?: number; depuis?: string; jusqu_a?: string }): Promise<any[]> {
   const conds: string[] = []; const args: any[] = [];
@@ -1400,7 +1418,7 @@ export interface DepenseProjet {
   recu_data?: string; recu_type?: string;
 }
 // Colonnes sans le blob recu_data (perf : envoie juste un flag a_recu)
-const DEPENSES_COLS_LITES = "id, projet_id, date, montant, fournisseur, description, categorie, recu_type, ajoute_par, (recu_data IS NOT NULL) as a_recu";
+const DEPENSES_COLS_LITES = "id, projet_id, date, montant, fournisseur, description, categorie, recu_type, ajoute_par, version, (recu_data IS NOT NULL) as a_recu";
 export async function listerDepensesProjet(projet_id: number | null, options: { sansData?: boolean } = {}) {
   const cols = options.sansData ? DEPENSES_COLS_LITES : "*";
   if (projet_id === null) return await all<DepenseProjet>(`SELECT ${cols} FROM depenses_projet WHERE projet_id IS NULL ORDER BY date DESC`);
@@ -1426,16 +1444,25 @@ export async function ajouterDepenseProjet(d: DepenseProjet & { ajoute_par?: str
 export async function supprimerDepenseProjet(id: number) {
   await run("DELETE FROM depenses_projet WHERE id = ?", [id]);
 }
-export async function modifierDepenseProjet(id: number, d: Partial<DepenseProjet>) {
+export async function modifierDepenseProjet(id: number, d: Partial<DepenseProjet>, versionAttendue?: number): Promise<ResultatMaj> {
   const champs = ["projet_id", "date", "montant", "fournisseur", "description", "categorie"];
   const sets: string[] = [];
   const args: any[] = [];
   for (const c of champs) {
     if ((d as any)[c] !== undefined) { sets.push(`${c} = ?`); args.push((d as any)[c] || null); }
   }
-  if (sets.length === 0) return;
+  if (sets.length === 0) return { ok: true };
+  if (versionAttendue != null) {
+    const r = await run(`UPDATE depenses_projet SET ${sets.join(", ")}, version = version + 1 WHERE id = ? AND version = ?`, [...args, id, versionAttendue]);
+    if (r.rowsAffected === 0) {
+      const actuel = await one<{ version: number }>("SELECT version FROM depenses_projet WHERE id = ?", [id]);
+      return actuel ? { ok: false, conflit: true, versionActuelle: actuel.version } : { ok: false, introuvable: true };
+    }
+    return { ok: true };
+  }
   args.push(id);
-  await run(`UPDATE depenses_projet SET ${sets.join(", ")} WHERE id = ?`, args);
+  await run(`UPDATE depenses_projet SET ${sets.join(", ")}, version = version + 1 WHERE id = ?`, args);
+  return { ok: true };
 }
 
 // === PHOTOS CHANTIER ===

@@ -136,8 +136,16 @@ export default function DepensesVue() {
       description: editing.description,
       projet_id: editing.projet_id ? +editing.projet_id : null,
       montant: +editing.montant,
+      version: editing.version, // verrouillage optimiste (B7)
     };
     const r = await fetch("/api/depenses", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.status === 409) {
+      const d = await r.json().catch(() => ({}));
+      toast(d.message || "Conflit : cette dépense a été modifiée ailleurs. Liste rechargée.", "warning");
+      setEditing(null);
+      charger();
+      return;
+    }
     if ((await r.json()).ok) {
       toast("Dépense modifiée", "success");
       setEditing(null);

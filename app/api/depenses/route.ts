@@ -34,7 +34,12 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
   const user = await utilisateurActif(req);
-  await modifierDepenseProjet(+body.id, body);
+  // Verrouillage optimiste (B7) : 409 si la dépense a changé depuis son chargement.
+  const res = await modifierDepenseProjet(+body.id, body, body.version);
+  if (!res.ok) {
+    if (res.conflit) return NextResponse.json({ error: "conflit", message: "Cette dépense a été modifiée par quelqu'un d'autre entre-temps. Recharge la liste avant de sauvegarder.", versionActuelle: res.versionActuelle }, { status: 409 });
+    return NextResponse.json({ error: "dépense introuvable" }, { status: 404 });
+  }
   journaliser("depense.modifiee", {
     ref_type: "depense", ref_id: body.id, utilisateur: user || undefined,
     description: `${body.fournisseur || "?"} · ${body.montant || "?"}$`,

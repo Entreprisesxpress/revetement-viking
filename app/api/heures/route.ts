@@ -58,7 +58,13 @@ export async function PATCH(req: NextRequest) {
   // Snapshot avant modification pour audit
   const avant = await getHeureProjet(+body.id);
   if (!avant) return NextResponse.json({ error: "entrée introuvable" }, { status: 404 });
-  await modifierHeureProjet(+body.id, body);
+  // Verrouillage optimiste (B7) : si le client fournit `version`, on refuse (409) si
+  // la ligne a changé entre-temps, au lieu d'écraser silencieusement.
+  const res = await modifierHeureProjet(+body.id, body, body.version);
+  if (!res.ok) {
+    if (res.conflit) return NextResponse.json({ error: "conflit", message: "Cette entrée a été modifiée par quelqu'un d'autre entre-temps. Recharge la liste avant de sauvegarder.", versionActuelle: res.versionActuelle }, { status: 409 });
+    return NextResponse.json({ error: "entrée introuvable" }, { status: 404 });
+  }
   const apres = await getHeureProjet(+body.id);
   journaliser("heures.modifiees", {
     ref_type: "heures", ref_id: body.id,

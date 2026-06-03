@@ -176,8 +176,16 @@ export default function HoraireePage() {
       id: editing.id, projet_id: editing.projet_id, date: editing.date,
       heures: +editing.heures, taux_horaire: +editing.taux_horaire,
       employe: editing.employe, description: editing.description,
+      version: editing.version, // verrouillage optimiste (B7)
     };
     const r = await fetch("/api/heures", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.status === 409) {
+      const d = await r.json().catch(() => ({}));
+      toast(d.message || "Conflit : ces heures ont été modifiées ailleurs. Liste rechargée.", "warning");
+      setEditing(null);
+      charger();
+      return;
+    }
     if ((await r.json()).ok) {
       toast("Heures mises à jour", "success");
       setEditing(null);
