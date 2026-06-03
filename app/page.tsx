@@ -10,6 +10,16 @@ import ModalPhotos from "@/components/ModalPhotos";
 import FAB from "@/components/FAB";
 import Meteo from "@/components/Meteo";
 
+/** Lundi de la semaine courante (date locale, format YYYY-MM-DD). Le dashboard
+ *  regarde les heures PAR SEMAINE (lundi → aujourd'hui), pas une fenêtre glissante. */
+function lundiSemaineISO(): string {
+  const d = new Date();
+  const jour = d.getDay(); // 0 = dimanche
+  d.setDate(d.getDate() + (jour === 0 ? -6 : 1 - jour));
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), j = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${j}`;
+}
+
 const STATUT_LABELS: Record<string, { label: string; couleur: string }> = {
   brouillon: { label: "Brouillon", couleur: "bg-slate-200 text-slate-800" },
   envoyee: { label: "Envoyée", couleur: "bg-blue-200 text-blue-900" },
@@ -50,7 +60,7 @@ export default function Home() {
     // Streaming progressif : chaque fetch met à jour son state indépendamment
     fetch("/api/soumissions?stats=1").then((r) => r.json()).then(setStats).catch(() => {});
     fetch("/api/projets?statut=actif").then((r) => r.json()).then(setProjetsActifs).catch(() => {});
-    fetch("/api/heures-sommaire?jours=7").then((r) => r.json()).then(setHeuresSemaine).catch(() => {});
+    fetch(`/api/heures-sommaire?depuis=${lundiSemaineISO()}`).then((r) => r.json()).then(setHeuresSemaine).catch(() => {});
     fetch("/api/relances").then((r) => r.json()).then(setRelances).catch(() => {});
     fetch("/api/dashboard").then((r) => r.json()).then(setTableauBord).catch(() => {});
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
@@ -190,7 +200,7 @@ export default function Home() {
         {heuresSemaine.length > 0 && (
           <section className="bg-white rounded-lg shadow p-4 md:p-5">
             <div className="flex justify-between items-center mb-3">
-              <h2 className="font-semibold text-slate-900">👷 Heures par employé · 7 derniers jours</h2>
+              <h2 className="font-semibold text-slate-900">👷 Heures par employé · cette semaine</h2>
               <a href="/heures" className="text-xs text-emerald-700 hover:underline font-semibold">✏️ Voir / modifier →</a>
             </div>
             <div className="space-y-2">
