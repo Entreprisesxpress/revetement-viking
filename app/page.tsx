@@ -18,13 +18,13 @@ const STATUT_LABELS: Record<string, { label: string; couleur: string }> = {
   facturee: { label: "Facturée", couleur: "bg-purple-200 text-purple-900" },
 };
 
-function Salutation() {
+function Salutation({ nom }: { nom?: string }) {
   const h = new Date().getHours();
   const salut = h < 5 ? "🌙 Bonne nuit" : h < 12 ? "☀️ Bonjour" : h < 17 ? "👋 Bon après-midi" : h < 21 ? "🌆 Bonsoir" : "🌙 Bonne soirée";
   const date = new Date().toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   return (
     <div className="flex items-baseline justify-between gap-3 flex-wrap">
-      <h1 className="text-2xl md:text-3xl font-bold text-slate-900">{salut}, Gabriel</h1>
+      <h1 className="text-2xl md:text-3xl font-bold text-slate-900">{salut}{nom ? `, ${nom}` : ""}</h1>
       <p className="text-sm text-slate-500 capitalize">{date}</p>
     </div>
   );
@@ -80,7 +80,7 @@ export default function Home() {
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4 md:space-y-6">
 
         {/* 👋 SALUTATION DU JOUR */}
-        <Salutation />
+        <Salutation nom={monUser} />
 
         {/* 🌤️ MÉTÉO 7 JOURS */}
         <Meteo />

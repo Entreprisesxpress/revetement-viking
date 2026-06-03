@@ -8,10 +8,10 @@ export const dynamic = "force-dynamic";
  *  et envoie un email récap à Francis (assigne par défaut). */
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization") || "";
-    if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
-  }
+  // Fail-closed : sans CRON_SECRET, route désactivée (sinon déclenchable publiquement).
+  if (!cronSecret) return NextResponse.json({ error: "CRON_SECRET non configuré — route désactivée" }, { status: 503 });
+  const auth = req.headers.get("authorization") || "";
+  if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
   if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
 
   const dest = process.env.FRANCIS_EMAIL || process.env.GABRIEL_EMAIL;

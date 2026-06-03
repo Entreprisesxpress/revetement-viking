@@ -9,10 +9,11 @@ const cad = (n: number) => new Intl.NumberFormat("fr-CA", { style: "currency", c
 /** Cron hebdo (dimanche soir) : envoie un récap de la semaine à Francis + Gabriel. */
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization") || "";
-    if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
-  }
+  // Sécurité fail-closed : sans CRON_SECRET, la route serait déclenchable publiquement
+  // (envoi d'emails abusif). On la désactive plutôt que de la laisser ouverte.
+  if (!cronSecret) return NextResponse.json({ error: "CRON_SECRET non configuré — route désactivée" }, { status: 503 });
+  const auth = req.headers.get("authorization") || "";
+  if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
   if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
 
   const c: any = db();

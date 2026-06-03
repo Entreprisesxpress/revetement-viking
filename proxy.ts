@@ -81,7 +81,7 @@ function avecHeaders(res: NextResponse): NextResponse {
   res.headers.set("X-Frame-Options", "SAMEORIGIN");
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.headers.set("Permissions-Policy", "geolocation=(self), microphone=(), camera=(self), payment=()");
+  res.headers.set("Permissions-Policy", "geolocation=(self), microphone=(self), camera=(self), payment=()");
   res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   res.headers.set("Content-Security-Policy", CSP);
   return res;

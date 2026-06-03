@@ -54,7 +54,10 @@ export async function compresserImage(file: File): Promise<string> {
       }
       resolve(compressed);
     };
-    img.onerror = reject;
+    img.onerror = () => reject(new Error(
+      `Image illisible (${file.type || "format inconnu"}). ` +
+      "Si c'est une photo iPhone (HEIC), règle l'iPhone sur Réglages → Appareil photo → Formats → « Le plus compatible », ou convertis-la en JPEG avant de l'ajouter."
+    ));
     img.src = dataUrl;
   });
 }
