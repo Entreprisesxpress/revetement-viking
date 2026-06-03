@@ -62,13 +62,22 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
     chargerEmployes();
     // On charge TOUS les projets (pas seulement 'actif') puis on garde ceux
     // qui ne sont ni complétés ni annulés. Trie actif en premier.
-    fetch("/api/projets").then((r) => r.json()).then((tous: any[]) => {
+    // On charge aussi les dernières heures pour pré-sélectionner le « projet en cours »
+    // (celui où on a travaillé en dernier), modifiable ensuite.
+    Promise.all([
+      fetch("/api/projets").then((r) => r.json()).catch(() => []),
+      fetch("/api/heures").then((r) => r.json()).catch(() => []),
+    ]).then(([tous, heures]: [any[], any[]]) => {
       const dispo = (Array.isArray(tous) ? tous : [])
         .filter((p) => p.statut !== "complete" && p.statut !== "annule")
         .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
       setProjets(dispo);
       if (dispo.length > 0 && lignes.length === 0) {
-        setLignes([{ projet_id: dispo[0].id, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
+        // Projet « en cours » = projet des dernières heures saisies (si toujours
+        // disponible), sinon le projet actif le plus récent. Reste modifiable.
+        const dernierProjet = Array.isArray(heures) && heures.length > 0 ? heures[0]?.projet_id : null;
+        const defautId = dispo.some((p) => p.id === dernierProjet) ? dernierProjet : dispo[0].id;
+        setLignes([{ projet_id: defautId, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
       }
     });
   }, [ouvert]);
@@ -333,8 +342,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
                       </div>
                     </details>
                   </div>
-                  <div className="flex gap-2">
-                    <input type="text" value={l.description} onChange={(e) => modifier(i, { description: e.target.value })} placeholder="Description / rapport de journée (optionnel) — ou utilise le micro →" className="flex-1 px-3 py-2 border rounded text-xs bg-white" />
+                  <div className="flex gap-2 items-start">
+                    <textarea value={l.description} onChange={(e) => modifier(i, { description: e.target.value })} rows={3} placeholder="Description / rapport de journée (optionnel) — ou utilise le micro →" className="flex-1 px-3 py-2 border rounded text-xs bg-white resize-y min-h-[4.5rem] leading-relaxed" />
                     <MicVocal taille="sm" onTranscript={(t) => modifier(i, { description: (l.description ? l.description + " " : "") + t })} titre="Dicter le rapport de journée pour ce projet" />
                   </div>
 
