@@ -134,6 +134,11 @@ export async function proxy(req: NextRequest) {
   const user = await utilisateurDuCookie(cookie?.value);
 
   if (!user) {
+    // API protégée : 401 JSON plutôt qu'une redirection 307 vers du HTML
+    // (sinon les fetch/<img> côté client échouent silencieusement).
+    if (path.startsWith("/api/")) {
+      return avecHeaders(NextResponse.json({ error: "non authentifié" }, { status: 401 }));
+    }
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", path);

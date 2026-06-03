@@ -44,8 +44,12 @@ export default function Meteo() {
   const [ouvert, setOuvert] = useState(false);
 
   useEffect(() => {
+    // Timeout 8 s : sur réseau de chantier lent/instable, l'appel pouvait pendre
+    // indéfiniment → le widget restait coincé sur son squelette gris (cases vides).
+    const ctrl = new AbortController();
+    const minuteur = setTimeout(() => ctrl.abort(), 8000);
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&timezone=America/Toronto&forecast_days=7`;
-    fetch(url)
+    fetch(url, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((d) => {
         if (!d.daily) throw new Error("Pas de données");
@@ -59,10 +63,12 @@ export default function Meteo() {
         }));
         setJours(out);
       })
-      .catch((e) => setErreur(e.message));
+      .catch((e) => setErreur(e?.name === "AbortError" ? "timeout" : (e?.message || "erreur")))
+      .finally(() => clearTimeout(minuteur));
+    return () => { clearTimeout(minuteur); ctrl.abort(); };
   }, []);
 
-  if (erreur) return null; // pas de bandeau si erreur
+  if (erreur) return null; // météo indisponible → on masque le bandeau (jamais de case grise infinie)
 
   if (jours.length === 0) {
     return <div className="skeleton h-10 rounded-lg" />;

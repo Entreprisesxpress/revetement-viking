@@ -59,7 +59,7 @@ export const themeColor = "#0f172a";
 export const viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // Pas de maximumScale=1 : l'utilisateur doit pouvoir zoomer (a11y — WCAG 1.4.4 Resize text).
 };
 
 export default function RootLayout({
