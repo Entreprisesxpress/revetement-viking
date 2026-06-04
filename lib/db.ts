@@ -284,6 +284,14 @@ async function doInitDb() {
   await tryExec("ALTER TABLE heures_projet ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
   // Réglages applicatifs clé/valeur (ex. mode maintenance)
   await tryExec("CREATE TABLE IF NOT EXISTS parametres_app (cle TEXT PRIMARY KEY, valeur TEXT)");
+  // Extras à facturer (travaux/matériaux supplémentaires hors soumission)
+  await tryExec(`CREATE TABLE IF NOT EXISTS extras (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    projet_id INTEGER, date TEXT, nature TEXT, description TEXT,
+    montant REAL, heures REAL, photo_data TEXT, thumb_data TEXT,
+    statut TEXT DEFAULT 'a_charger', saisi_par TEXT, date_creation TEXT, date_charge TEXT
+  )`);
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_extras_statut ON extras(statut, date DESC)");
   await tryExec("ALTER TABLE projets ADD COLUMN prix_contrat REAL");
   await tryExec("ALTER TABLE projets ADD COLUMN numero TEXT");
   await tryExec("ALTER TABLE projets ADD COLUMN contrat_signe_data TEXT");
@@ -1426,6 +1434,43 @@ export async function getParametre(cle: string): Promise<string | null> {
 }
 export async function setParametre(cle: string, valeur: string): Promise<void> {
   await run("INSERT INTO parametres_app (cle, valeur) VALUES (?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur", [cle, valeur]);
+}
+
+// === EXTRAS À FACTURER ===
+export interface Extra {
+  id?: number; projet_id?: number | null; date: string; nature?: string; description: string;
+  montant?: number | null; heures?: number | null; photo_data?: string | null; thumb_data?: string | null;
+  statut?: string; saisi_par?: string;
+}
+// Colonnes "lites" : sans les blobs photo (flag a_photo seulement) + nom de projet.
+const EXTRAS_COLS_LITES = "e.id, e.projet_id, e.date, e.nature, e.description, e.montant, e.heures, e.statut, e.saisi_par, e.date_creation, e.date_charge, (e.photo_data IS NOT NULL) as a_photo, p.nom as projet_nom";
+export async function ajouterExtra(x: Extra): Promise<number> {
+  const r = await run(
+    `INSERT INTO extras (projet_id, date, nature, description, montant, heures, photo_data, thumb_data, statut, saisi_par, date_creation)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'a_charger', ?, ?)`,
+    [x.projet_id || null, x.date, x.nature || null, x.description, x.montant ?? null, x.heures ?? null,
+     x.photo_data || null, x.thumb_data || null, x.saisi_par || null, new Date().toISOString()]
+  );
+  return r.lastInsertRowid;
+}
+export async function listerExtras(statut?: string): Promise<any[]> {
+  const where = statut ? "WHERE e.statut = ?" : "";
+  const args = statut ? [statut] : [];
+  return await all<any>(`SELECT ${EXTRAS_COLS_LITES} FROM extras e LEFT JOIN projets p ON p.id = e.projet_id ${where} ORDER BY e.date DESC, e.id DESC LIMIT 500`, args);
+}
+export async function compterExtrasACharger(): Promise<{ n: number; total: number }> {
+  const r = await one<any>("SELECT COUNT(*) as n, COALESCE(SUM(montant),0) as total FROM extras WHERE statut = 'a_charger'");
+  return { n: r?.n || 0, total: r?.total || 0 };
+}
+export async function getExtraPhoto(id: number): Promise<{ photo_data?: string; thumb_data?: string } | null> {
+  return await one<any>("SELECT photo_data, thumb_data FROM extras WHERE id = ?", [id]);
+}
+export async function marquerExtraCharge(id: number, charge: boolean): Promise<void> {
+  await run("UPDATE extras SET statut = ?, date_charge = ? WHERE id = ?",
+    [charge ? "charge" : "a_charger", charge ? new Date().toISOString() : null, id]);
+}
+export async function supprimerExtra(id: number): Promise<void> {
+  await run("DELETE FROM extras WHERE id = ?", [id]);
 }
 
 // === FACTURES ===

@@ -7,7 +7,7 @@ import BottomSheet from "@/components/BottomSheet";
 import { compresserImage, genererVignette } from "@/lib/img";
 import MicVocal from "@/components/MicVocal";
 
-interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; }
+interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; onExtra?: () => void; }
 interface LigneJour {
   projet_id: number; heures: string; description: string;
   photos: { data: string; type: string; nom: string; thumb?: string | null }[];
@@ -34,7 +34,7 @@ function calculerHeures(debut: string, fin: string, dejeunerRetire: boolean): nu
 }
 interface Employe { id: number; nom: string; taux_horaire: number; das_pct: number; }
 
-export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
+export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }: Props) {
   const today = todayLocal();
   const [date, setDate] = useState(today);
   const [employes, setEmployes] = useState<Employe[]>([]);
@@ -388,6 +388,12 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess }: Props) {
           <button onClick={ajouterLigne} className="w-full mt-2 px-3 py-3 border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 rounded-lg text-sm text-slate-600 font-semibold">
             ＋ Autre projet
           </button>
+
+          {onExtra && (
+            <button onClick={onExtra} className="w-full mt-2 px-3 py-3 bg-amber-50 border-2 border-amber-300 hover:bg-amber-100 rounded-lg text-sm text-amber-900 font-bold">
+              💲 Un extra à facturer aujourd'hui ? (travaux / matériaux en plus)
+            </button>
+          )}
 
           {totalHeures > 0 && empsActifs.length > 0 && (
             <div className="bg-emerald-50 border-2 border-emerald-300 rounded-lg p-3 mt-3 flex justify-between items-center">

@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toasts";
 import ModalHeuresJour from "@/components/ModalHeuresJour";
 import ModalDepense from "@/components/ModalDepense";
 import ModalPhotos from "@/components/ModalPhotos";
+import ModalExtra from "@/components/ModalExtra";
 import FAB from "@/components/FAB";
 import Meteo from "@/components/Meteo";
 
@@ -52,6 +53,8 @@ export default function Home() {
   const [modalHeures, setModalHeures] = useState(false);
   const [modalDepense, setModalDepense] = useState(false);
   const [modalPhotos, setModalPhotos] = useState(false);
+  const [modalExtra, setModalExtra] = useState(false);
+  const [extras, setExtras] = useState<any[]>([]);
   const { toast } = useToast();
 
   const charger = async () => {
@@ -63,6 +66,7 @@ export default function Home() {
     fetch(`/api/heures-sommaire?depuis=${lundiSemaineISO()}`).then((r) => r.json()).then(setHeuresSemaine).catch(() => {});
     fetch("/api/relances").then((r) => r.json()).then(setRelances).catch(() => {});
     fetch("/api/dashboard").then((r) => r.json()).then(setTableauBord).catch(() => {});
+    fetch("/api/extras?statut=a_charger").then((r) => r.json()).then((d) => setExtras(Array.isArray(d) ? d : [])).catch(() => {});
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
       const u = d?.user || "";
       setMonUser(u);
@@ -111,14 +115,57 @@ export default function Home() {
           </div>
         </section>
 
+        {/* 💲 EXTRAS À FACTURER — alerte persistante */}
+        {extras.length > 0 && (
+          <section className="bg-amber-50 border-2 border-amber-400 rounded-lg p-4 md:p-5">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="font-bold text-amber-900">💲 Extras à facturer ({extras.length}{extras.reduce((s, e) => s + (e.montant || 0), 0) > 0 ? ` · ${formatCAD(extras.reduce((s, e) => s + (e.montant || 0), 0))}` : ""})</h2>
+              <a href="/extras" className="text-xs text-amber-800 hover:underline font-semibold">Voir tous →</a>
+            </div>
+            <p className="text-xs text-amber-800 mb-3">Travaux / matériaux supplémentaires à charger au client (ex. dans QuickBooks). Marque « facturé » une fois fait.</p>
+            <div className="space-y-1.5">
+              {extras.slice(0, 5).map((e) => (
+                <div key={e.id} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-amber-200">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-slate-900 truncate">
+                      {e.nature === "heures" ? "⏱️" : e.nature === "materiaux" ? "📦" : "💰"} {e.description}
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {e.projet_nom || "Sans projet"} · {e.date}{e.saisi_par ? ` · ${e.saisi_par}` : ""}
+                      {e.montant ? ` · ${formatCAD(e.montant)}` : e.heures ? ` · ${e.heures} h` : ""}
+                      {e.a_photo ? " · 📎" : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await fetch("/api/extras", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: e.id, statut: "charge" }) });
+                      toast("✓ Extra marqué facturé", "success");
+                      setExtras((arr) => arr.filter((x) => x.id !== e.id));
+                    }}
+                    className="flex-shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold whitespace-nowrap"
+                  >
+                    ✓ Facturé
+                  </button>
+                </div>
+              ))}
+            </div>
+            {extras.length > 5 && <p className="text-xs text-amber-700 mt-2">+ {extras.length - 5} autre(s) — <a href="/extras" className="underline">voir tous</a></p>}
+          </section>
+        )}
+
         {/* ⚡ ACTIONS RAPIDES */}
         <section className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-lg p-4 md:p-5">
           <h2 className="text-sm font-bold text-emerald-900 uppercase mb-3">⚡ Actions rapides</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
             <button onClick={() => setModalHeures(true)} className="bg-white hover:bg-emerald-50 border-2 border-emerald-300 rounded-lg p-3 md:p-4 text-left transition shadow-sm hover:shadow">
               <div className="text-2xl md:text-3xl mb-1">⏱️</div>
               <div className="font-bold text-emerald-900 text-sm md:text-base">Saisir heures</div>
               <div className="text-[10px] md:text-xs text-slate-600">Multi-employés</div>
+            </button>
+            <button onClick={() => setModalExtra(true)} className="bg-white hover:bg-amber-50 border-2 border-amber-300 rounded-lg p-3 md:p-4 text-left transition shadow-sm hover:shadow">
+              <div className="text-2xl md:text-3xl mb-1">💲</div>
+              <div className="font-bold text-amber-900 text-sm md:text-base">Extra à facturer</div>
+              <div className="text-[10px] md:text-xs text-slate-600">Travaux / matériaux</div>
             </button>
             <button onClick={() => setModalDepense(true)} className="bg-white hover:bg-orange-50 border-2 border-orange-300 rounded-lg p-3 md:p-4 text-left transition shadow-sm hover:shadow">
               <div className="text-2xl md:text-3xl mb-1">💸</div>
@@ -320,9 +367,10 @@ export default function Home() {
         </section>
       </main>
 
-      <ModalHeuresJour ouvert={modalHeures} onClose={() => setModalHeures(false)} onSuccess={charger} />
+      <ModalHeuresJour ouvert={modalHeures} onClose={() => setModalHeures(false)} onSuccess={charger} onExtra={() => { setModalHeures(false); setModalExtra(true); }} />
       <ModalDepense ouvert={modalDepense} onClose={() => setModalDepense(false)} onSuccess={charger} />
       <ModalPhotos ouvert={modalPhotos} onClose={() => setModalPhotos(false)} onSuccess={charger} />
+      <ModalExtra ouvert={modalExtra} onClose={() => setModalExtra(false)} onSuccess={charger} />
       <FAB onSuccess={charger} />
 
     </div>
