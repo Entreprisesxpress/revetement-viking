@@ -21,7 +21,7 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
 
   useEffect(() => {
     if (!ouvert) return;
-    fetch("/api/projets").then((r) => r.json()).then((tous: any[]) => {
+    fetch("/api/projets?lite=1").then((r) => r.json()).then((tous: any[]) => {
       const dispo = (Array.isArray(tous) ? tous : [])
         .filter((p) => p.statut !== "complete" && p.statut !== "annule")
         .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
