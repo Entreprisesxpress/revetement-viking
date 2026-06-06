@@ -108,6 +108,8 @@ export function buildOAuthAuthUrl(): string {
     scope: SCOPES,
     access_type: "offline",
     prompt: "consent", // force refresh_token à chaque fois
+    // Pré-sélectionne le bon compte Google lors de la connexion (configurable).
+    login_hint: process.env.GOOGLE_DRIVE_COMPTE || "revetementviking@gmail.com",
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
