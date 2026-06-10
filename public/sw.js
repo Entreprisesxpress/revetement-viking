@@ -1,7 +1,7 @@
 // Service Worker — Revêtement Viking
 // Cache-first pour les assets, network-first pour les pages, fallback offline
 
-const CACHE_VERSION = "viking-v4";
+const CACHE_VERSION = "viking-v5";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -50,18 +50,19 @@ self.addEventListener("fetch", (event) => {
   // réseau direct pour le reste (mutations, auth, photos binaires…).
   if (url.pathname.startsWith("/api/")) {
     if (estApiLecture(url.pathname)) {
+      // RÉSEAU D'ABORD : on sert toujours la réponse fraîche du serveur. Le cache ne
+      // sert QU'EN REPLI hors-ligne — ainsi un cache périmé/corrompu ne peut jamais
+      // casser l'app. (L'affichage instantané vient du cache localStorage côté app.)
       event.respondWith(
-        caches.open(API_CACHE).then((cache) =>
-          cache.match(request).then((cached) => {
-            const reseau = fetch(request)
-              .then((res) => {
-                if (res && res.status === 200 && res.type === "basic") cache.put(request, res.clone());
-                return res;
-              })
-              .catch(() => cached);
-            return cached || reseau;
+        fetch(request)
+          .then((res) => {
+            if (res && res.status === 200 && res.type === "basic") {
+              const copy = res.clone();
+              caches.open(API_CACHE).then((c) => c.put(request, copy));
+            }
+            return res;
           })
-        )
+          .catch(() => caches.open(API_CACHE).then((c) => c.match(request)))
       );
     }
     return;
