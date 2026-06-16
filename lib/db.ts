@@ -1611,6 +1611,10 @@ export async function compterPhotosErreursDrive(): Promise<number> {
   const r = await one<{ n: number }>("SELECT COUNT(*) AS n FROM photos_chantier WHERE drive_sync_error IS NOT NULL");
   return r?.n || 0;
 }
+/** Photos dont la synchro Drive a échoué (pour réessayer). */
+export async function listerPhotosErreursDrive(): Promise<any[]> {
+  return await all<any>("SELECT id, projet_id, date, photo_data, photo_type, description, drive_sync_error FROM photos_chantier WHERE drive_sync_error IS NOT NULL LIMIT 50");
+}
 
 // === BIBLIOTHÈQUE ===
 export interface JobBiblio {

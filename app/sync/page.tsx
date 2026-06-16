@@ -52,6 +52,22 @@ function SyncContent() {
     charger();
   };
 
+  const [resyncBusy, setResyncBusy] = useState(false);
+  const resyncDrive = async () => {
+    setResyncBusy(true);
+    try {
+      const r = await fetch("/api/drive/resync", { method: "POST" }).then((x) => x.json());
+      if (r.ok) {
+        const msg = `✓ ${r.synced} resynchronisée(s)${r.ignores ? `, ${r.ignores} nettoyée(s)` : ""}${r.restants ? ` · ${r.restants} encore en échec` : ""}`;
+        toast(msg, r.restants ? "warning" : "success");
+        if (r.restants && r.dernierErreur) toast("Détail : " + r.dernierErreur, "info");
+      } else {
+        toast(r.message || "Échec de la resynchro", "error");
+      }
+      charger();
+    } finally { setResyncBusy(false); }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Navigation titre="🔄 Synchronisations" soustitre="Google Drive · Asana" />
@@ -70,8 +86,11 @@ function SyncContent() {
               {drive.email && <div>📧 Compte : <code className="text-xs bg-white px-2 py-0.5 rounded">{drive.email}</code></div>}
               <p className="text-xs text-slate-700">Chaque photo ajoutée dans l'app est automatiquement copiée dans Drive. Sous-dossier par projet créé auto.</p>
               {drive.erreurs_photos > 0 && (
-                <div className="bg-red-50 border border-red-300 rounded p-2 text-xs text-red-800">
-                  ⚠️ {drive.erreurs_photos} photo(s) n'ont pas pu être synchronisées dans Drive. Vérifie la connexion ou réessaye plus tard.
+                <div className="bg-red-50 border border-red-300 rounded p-2 text-xs text-red-800 space-y-2">
+                  <div>⚠️ {drive.erreurs_photos} photo(s) n'ont pas pu être synchronisées dans Drive.</div>
+                  <button onClick={resyncDrive} disabled={resyncBusy} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded font-bold">
+                    {resyncBusy ? "⏳ Resynchronisation…" : "🔄 Réessayer la synchro Drive"}
+                  </button>
                 </div>
               )}
               <BackupBouton />
