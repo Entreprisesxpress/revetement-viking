@@ -59,9 +59,11 @@ export default function Home() {
   const [detailFin, setDetailFin] = useState<null | "ca" | "depenses" | "marge">(null);
   const [moDetail, setMoDetail] = useState<{ employe: string; total_heures: number; cout_total: number; n_jours: number }[] | null>(null);
   const [moBusy, setMoBusy] = useState(false);
+  const [caDetail, setCaDetail] = useState<{ nom: string; date: string; revenu_at: number }[] | null>(null);
+  const [caBusy, setCaBusy] = useState(false);
   const { toast } = useToast();
 
-  const fermerDetail = () => { setDetailFin(null); setMoDetail(null); };
+  const fermerDetail = () => { setDetailFin(null); setMoDetail(null); setCaDetail(null); };
   const chargerMO = async () => {
     if (moDetail) { setMoDetail(null); return; } // re-clic = replier
     setMoBusy(true);
@@ -70,6 +72,23 @@ export default function Home() {
       const d = await fetch(`/api/heures-sommaire?depuis=${an}-01-01`).then((r) => r.json());
       setMoDetail(Array.isArray(d) ? d : []);
     } catch { setMoDetail([]); } finally { setMoBusy(false); }
+  };
+  const chargerCA = async () => {
+    if (caDetail) { setCaDetail(null); return; }
+    setCaBusy(true);
+    try {
+      const an = new Date().getFullYear();
+      const tous = await fetch("/api/projets?statut=complete").then((r) => r.json());
+      const liste = (Array.isArray(tous) ? tous : [])
+        .map((p: any) => {
+          const dc = p.date_fin_reelle || p.date_fin_prevue || p.date_debut || p.date_creation || "";
+          const valeur = (p.prix_contrat || p.budget_estime || 0);
+          return { nom: p.nom || "Projet", date: String(dc).slice(0, 10), revenu_at: valeur / 1.14975, an: String(dc).slice(0, 4) };
+        })
+        .filter((p: any) => p.an === String(an) && p.revenu_at > 0)
+        .sort((a: any, b: any) => b.date.localeCompare(a.date));
+      setCaDetail(liste);
+    } catch { setCaDetail([]); } finally { setCaBusy(false); }
   };
 
   const charger = async () => {
@@ -408,6 +427,25 @@ export default function Home() {
                 <Lc label="− Taxes retirées (TPS 5 % + TVQ 9,975 %)" value={"− " + formatCAD(caTi - caAt)} couleur="text-slate-500" />
                 <div className="border-t pt-2" />
                 <Lc label="= Chiffre d'affaires (avant taxes)" value={formatCAD(caAt)} gras couleur="text-emerald-700" />
+                <button onClick={chargerCA} className="w-full text-left text-[11px] text-emerald-700 hover:underline pl-1 font-semibold">
+                  {caBusy ? "⏳ chargement…" : caDetail ? "▾ masquer les projets" : "🏗️ voir les projets qui composent le CA →"}
+                </button>
+                {caDetail && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded p-2 space-y-1">
+                    {caDetail.length === 0 ? (
+                      <div className="text-[11px] text-slate-500 italic">Aucun projet complété cette année.</div>
+                    ) : (<>
+                      {caDetail.map((p, i) => (
+                        <div key={i} className="flex justify-between items-baseline text-[11px]">
+                          <span className="text-slate-700 font-medium truncate mr-2">{p.nom}</span>
+                          <span className="text-slate-600 whitespace-nowrap">{p.date} · <strong className="text-emerald-800">{formatCAD(p.revenu_at)}</strong></span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between text-[11px] font-bold border-t border-emerald-200 pt-1"><span>Total ({caDetail.length} projet{caDetail.length > 1 ? "s" : ""})</span><span className="text-emerald-800">{formatCAD(caDetail.reduce((s, p) => s + p.revenu_at, 0))}</span></div>
+                      <div className="text-[10px] text-slate-400">Valeurs avant taxes. Le CA = valeur du contrat à la complétion du projet.</div>
+                    </>)}
+                  </div>
+                )}
               </>)}
               {detailFin === "depenses" && (<>
                 <p className="text-xs text-slate-500">Tous les coûts de {an} : dépenses (matériaux, fournisseurs) avant taxes + main-d'œuvre.</p>
