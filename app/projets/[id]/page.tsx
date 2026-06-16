@@ -168,8 +168,11 @@ Cordialement,
 Revêtement Viking Inc.
 ${VIKING_EMAIL}
 (438) 493-2041`;
-    // from/reply-to vers le courriel Viking (le client peut répondre directement)
-    window.location.href = `mailto:${courriel}?from=${encodeURIComponent(VIKING_EMAIL)}&reply-to=${encodeURIComponent(VIKING_EMAIL)}&subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+    // Ouvre la fenêtre de rédaction GMAIL (compte Viking), pré-remplie — tu révises
+    // et envoies depuis Gmail. Repli sur le même onglet si la pop-up est bloquée.
+    const url = `https://mail.google.com/mail/?authuser=${encodeURIComponent(VIKING_EMAIL)}&view=cm&fs=1&to=${encodeURIComponent(courriel)}&su=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+    const w = window.open(url, "_blank");
+    if (!w) window.location.href = url;
   };
 
   const changerStatut = async (nouveauStatut: string) => {
@@ -179,18 +182,9 @@ ${VIKING_EMAIL}
     if (nouveauStatut === "complete") {
       const courriel = projet?.client_courriel;
       if (courriel) {
-        if (confirm(`Projet complété ✅\n\nEnvoyer un courriel de demande d'avis Google à ${courriel} ?`)) {
-          // 1. Tente l'envoi serveur automatique (Gmail SMTP)
-          let envoye = false;
-          try {
-            const r = await fetch("/api/email/review", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ projet_id: id }),
-            }).then((x) => x.json());
-            if (r.ok) { toast(`✓ Courriel d'avis envoyé à ${courriel}`, "success"); envoye = true; }
-          } catch {}
-          // 2. Sinon (SMTP non configuré) → ouvre le client mail pré-rempli
-          if (!envoye) envoyerDemandeReview(courriel, projet?.client_nom);
+        if (confirm(`Projet complété ✅\n\nOuvrir Gmail pour envoyer la demande d'avis à ${courriel} ?`)) {
+          // Ouvre la rédaction Gmail pré-remplie — l'envoi se fait depuis Gmail.
+          envoyerDemandeReview(courriel, projet?.client_nom);
         }
       } else {
         toast("Projet complété. Aucun courriel client enregistré pour la demande d'avis.", "info");
