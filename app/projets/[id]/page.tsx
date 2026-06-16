@@ -1165,6 +1165,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const [prix, setPrix] = useState(projet.prix_contrat ? String(projet.prix_contrat) : "");
   const [contratOuvert, setContratOuvert] = useState(false);
   const [factureOuverte, setFactureOuverte] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
   const sauver = async () => {
     const valeur = prix ? +prix : null;
     // Sync les deux champs pour que toutes les pages (liste, détail, finances) reflètent le changement
@@ -1195,11 +1196,32 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
     const reader = new FileReader();
     reader.onload = async () => {
+      const dataUrl = reader.result as string;
       await fetch("/api/projets", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: projet.id, facture_finale_data: reader.result, facture_finale_type: file.type }),
+        body: JSON.stringify({ id: projet.id, facture_finale_data: dataUrl, facture_finale_type: file.type }),
       });
       onUpdate();
+      // OCR : si le prix du contrat n'est pas défini, lit le total de la facture et le propose.
+      if (!projet.prix_contrat) {
+        setOcrBusy(true);
+        try {
+          const r = await fetch("/api/facture-ocr", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dataUrl }),
+          }).then((x) => x.json());
+          if (r?.ok && r.total) {
+            const fmt = (+r.total).toLocaleString("fr-CA", { style: "currency", currency: "CAD" });
+            if (confirm(`💡 Total détecté sur la facture : ${fmt}\n\nL'utiliser comme prix du contrat ?`)) {
+              await fetch("/api/projets", {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: projet.id, prix_contrat: r.total, budget_estime: r.total }),
+              });
+              onUpdate();
+            }
+          }
+        } catch { /* OCR best-effort */ } finally { setOcrBusy(false); }
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -1221,6 +1243,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
           ) : (
             <div className="text-2xl font-bold text-emerald-700">{projet.prix_contrat ? formatCAD(projet.prix_contrat) : <span className="text-slate-400 text-sm font-normal italic">Non défini</span>}</div>
           )}
+          {ocrBusy && <div className="text-[11px] text-emerald-700 mt-1 animate-pulse">🔍 Lecture du total sur la facture…</div>}
         </div>
         {/* Contrat signé */}
         <div>
