@@ -236,11 +236,12 @@ export default function FinancesPage() {
   );
 }
 
-function KPI({ label, value, couleur }: { label: string; value: any; couleur?: string }) {
+function KPI({ label, value, couleur, sub }: { label: string; value: any; couleur?: string; sub?: string }) {
   return (
     <div className="bg-white rounded-lg shadow p-3">
       <div className="text-[10px] text-slate-500 uppercase font-semibold">{label}</div>
       <div className={`text-lg font-bold mt-1 ${couleur || "text-slate-900"}`}>{value}</div>
+      {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
     </div>
   );
 }

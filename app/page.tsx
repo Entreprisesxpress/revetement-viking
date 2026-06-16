@@ -56,6 +56,7 @@ export default function Home() {
   const [modalPhotos, setModalPhotos] = useState(false);
   const [modalExtra, setModalExtra] = useState(false);
   const [extras, setExtras] = useState<any[]>([]);
+  const [detailFin, setDetailFin] = useState<null | "ca" | "depenses" | "marge">(null);
   const { toast } = useToast();
 
   const charger = async () => {
@@ -104,18 +105,21 @@ export default function Home() {
 
         {/* 📊 TOTAUX DE L'ANNÉE (tous projets) */}
         <section className="grid grid-cols-3 gap-2 md:gap-3">
-          <div className="bg-white rounded-lg shadow p-3 md:p-4 border-l-4 border-emerald-500">
+          <button onClick={() => annuel && setDetailFin("ca")} className="bg-white rounded-lg shadow p-3 md:p-4 border-l-4 border-emerald-500 text-left hover:shadow-md transition relative">
             <div className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">Chiffre d'affaires {new Date().getFullYear()} <span className="normal-case text-slate-400">(av. taxes)</span></div>
             <div className="text-lg md:text-2xl font-bold text-emerald-700 mt-1">{annuel ? formatCAD(annuel.ca_at ?? annuel.ca) : "…"}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 md:p-4 border-l-4 border-orange-500">
+            <span className="absolute top-1.5 right-2 text-slate-300 text-xs">ⓘ</span>
+          </button>
+          <button onClick={() => annuel && setDetailFin("depenses")} className="bg-white rounded-lg shadow p-3 md:p-4 border-l-4 border-orange-500 text-left hover:shadow-md transition relative">
             <div className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">Dépenses {new Date().getFullYear()} <span className="normal-case text-slate-400">(av. taxes)</span></div>
             <div className="text-lg md:text-2xl font-bold text-orange-700 mt-1">{annuel ? formatCAD(annuel.dep_at ?? annuel.depenses) : "…"}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-3 md:p-4 border-l-4 border-blue-500">
+            <span className="absolute top-1.5 right-2 text-slate-300 text-xs">ⓘ</span>
+          </button>
+          <button onClick={() => annuel && setDetailFin("marge")} className="bg-white rounded-lg shadow p-3 md:p-4 border-l-4 border-blue-500 text-left hover:shadow-md transition relative">
             <div className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">Marge nette {new Date().getFullYear()} <span className="normal-case text-slate-400">(av. taxes)</span></div>
             <div className={`text-lg md:text-2xl font-bold mt-1 ${annuel && ((annuel.ca_at ?? annuel.ca) - (annuel.dep_at ?? annuel.depenses) - annuel.mo) < 0 ? "text-red-600" : "text-blue-700"}`}>{annuel ? formatCAD((annuel.ca_at ?? annuel.ca) - (annuel.dep_at ?? annuel.depenses) - annuel.mo) : "…"}</div>
-          </div>
+            <span className="absolute top-1.5 right-2 text-slate-300 text-xs">ⓘ</span>
+          </button>
         </section>
 
         {/* 💲 EXTRAS À FACTURER — alerte persistante */}
@@ -370,6 +374,49 @@ export default function Home() {
         </section>
       </main>
 
+      {/* Détail du calcul d'un chiffre (CA / Dépenses / Marge) */}
+      {detailFin && annuel && (() => {
+        const an = new Date().getFullYear();
+        const caAt = annuel.ca_at ?? annuel.ca, caTi = annuel.ca;
+        const depAt = annuel.dep_at ?? annuel.depenses, depTi = annuel.depenses;
+        const mo = annuel.mo;
+        const marge = caAt - depAt - mo;
+        const titre = detailFin === "ca" ? `💰 Chiffre d'affaires ${an}` : detailFin === "depenses" ? `💸 Dépenses ${an}` : `📊 Marge nette ${an}`;
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setDetailFin(null)}>
+            <div className="bg-white rounded-t-2xl md:rounded-lg max-w-md w-full p-5 space-y-2.5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-start mb-1">
+                <h3 className="text-lg font-bold">{titre}</h3>
+                <button onClick={() => setDetailFin(null)} className="text-2xl text-slate-400 hover:text-slate-700 leading-none">×</button>
+              </div>
+              {detailFin === "ca" && (<>
+                <p className="text-xs text-slate-500">Valeur des projets marqués <strong>complétés</strong> en {an}. Les projets en cours ne comptent pas encore.</p>
+                <Lc label="Valeur des projets complétés (taxes incl.)" value={formatCAD(caTi)} />
+                <Lc label="− Taxes retirées (TPS 5 % + TVQ 9,975 %)" value={"− " + formatCAD(caTi - caAt)} couleur="text-slate-500" />
+                <div className="border-t pt-2" />
+                <Lc label="= Chiffre d'affaires (avant taxes)" value={formatCAD(caAt)} gras couleur="text-emerald-700" />
+              </>)}
+              {detailFin === "depenses" && (<>
+                <p className="text-xs text-slate-500">Total des dépenses enregistrées en {an} (matériaux, fournisseurs…).</p>
+                <Lc label="Dépenses (taxes incl.)" value={formatCAD(depTi)} />
+                <Lc label="− Taxes (récupérables, CTI/RTI)" value={"− " + formatCAD(depTi - depAt)} couleur="text-slate-500" />
+                <div className="border-t pt-2" />
+                <Lc label="= Dépenses (avant taxes)" value={formatCAD(depAt)} gras couleur="text-orange-700" />
+              </>)}
+              {detailFin === "marge" && (<>
+                <p className="text-xs text-slate-500">Profit réel = revenu avant taxes, moins TOUS les coûts (dépenses + salaires).</p>
+                <Lc label="Chiffre d'affaires (avant taxes)" value={"+ " + formatCAD(caAt)} couleur="text-emerald-700" />
+                <Lc label="− Dépenses (avant taxes)" value={"− " + formatCAD(depAt)} couleur="text-orange-700" />
+                <Lc label="− Main-d'œuvre (salaires : heures × taux)" value={"− " + formatCAD(mo)} couleur="text-amber-700" />
+                <div className="border-t pt-2" />
+                <Lc label="= Marge nette (avant taxes)" value={formatCAD(marge)} gras couleur={marge >= 0 ? "text-blue-700" : "text-red-600"} />
+                <p className="text-[11px] text-slate-600 bg-amber-50 border border-amber-200 rounded p-2 mt-1">💡 La <strong>main-d'œuvre</strong> ({formatCAD(mo)}) est un vrai coût mais n'est PAS dans la case « Dépenses ». C'est pourquoi « CA − Dépenses » seul ne donne pas la marge.</p>
+              </>)}
+            </div>
+          </div>
+        );
+      })()}
+
       <ModalHeuresJour ouvert={modalHeures} onClose={() => setModalHeures(false)} onSuccess={charger} onExtra={() => { setModalHeures(false); setModalExtra(true); }} />
       <ModalDepense ouvert={modalDepense} onClose={() => setModalDepense(false)} onSuccess={charger} />
       <ModalPhotos ouvert={modalPhotos} onClose={() => setModalPhotos(false)} onSuccess={charger} />
@@ -386,6 +433,16 @@ function KPI({ label, value, sub, couleur }: { label: string; value: any; sub?: 
       <div className="text-[10px] md:text-xs text-slate-500 uppercase font-semibold">{label}</div>
       <div className={`text-xl md:text-2xl font-bold mt-1 ${couleur || "text-slate-900"}`}>{value}</div>
       {sub && <div className="text-xs text-slate-500">{sub}</div>}
+    </div>
+  );
+}
+
+// Ligne d'un calcul détaillé (label à gauche, montant à droite).
+function Lc({ label, value, gras, couleur }: { label: string; value: string; gras?: boolean; couleur?: string }) {
+  return (
+    <div className="flex justify-between items-baseline gap-3">
+      <span className={`text-sm ${gras ? "font-bold text-slate-900" : "text-slate-600"}`}>{label}</span>
+      <span className={`whitespace-nowrap ${gras ? "text-base font-bold" : "text-sm"} ${couleur || "text-slate-900"}`}>{value}</span>
     </div>
   );
 }
