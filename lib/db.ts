@@ -1409,10 +1409,12 @@ export async function finances(annee: number): Promise<any> {
          AND COALESCE(date_fin_reelle, date_fin_prevue, date_debut, date_creation) < ?`,
       [debut, finM]
     ))?.v || 0;
-    // `revenu` = taxes incluses (CA, contrats). `revenu_avant_taxes` = base de rentabilité.
-    // La marge (profit net) se calcule AVANT taxes : revenu_avant_taxes − dépenses − MO.
+    // Marge nette RÉELLE = tout AVANT taxes. Revenu et dépenses sont saisis taxes
+    // incluses ; on les ramène avant taxes (÷ 1,14975). La MO (salaires) n'a pas de
+    // taxe. marge = revenu_avant_taxes − depenses_avant_taxes − MO.
     const revenu_avant_taxes = revenuAvantTaxes(revenu);
-    mois.push({ mois: m, facture, paye, depenses, mo, contrats: revenu, revenu, revenu_avant_taxes, marge: revenu_avant_taxes - depenses - mo });
+    const depenses_avant_taxes = revenuAvantTaxes(depenses);
+    mois.push({ mois: m, facture, paye, depenses, depenses_avant_taxes, mo, contrats: revenu, revenu, revenu_avant_taxes, marge: revenu_avant_taxes - depenses_avant_taxes - mo });
   }
   return { annee, mois };
   });

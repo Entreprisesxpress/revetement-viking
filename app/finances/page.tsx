@@ -81,9 +81,12 @@ export default function FinancesPage() {
     facture: s.facture + m.facture, paye: s.paye + m.paye,
     depenses: s.depenses + m.depenses, mo: s.mo + m.mo, marge: s.marge + m.marge,
     revenu: s.revenu + (m.revenu || 0),
-  }), { facture: 0, paye: 0, depenses: 0, mo: 0, marge: 0, revenu: 0 });
+    // Avant taxes (pour une marge nette réelle cohérente : CA − Dép − MO = Net)
+    revenu_at: s.revenu_at + (m.revenu_avant_taxes || 0),
+    depenses_at: s.depenses_at + (m.depenses_avant_taxes || 0),
+  }), { facture: 0, paye: 0, depenses: 0, mo: 0, marge: 0, revenu: 0, revenu_at: 0, depenses_at: 0 });
 
-  const max = Math.max(...data.mois.map((m: any) => Math.max(m.revenu || 0, m.depenses + m.mo)), 1);
+  const max = Math.max(...data.mois.map((m: any) => Math.max(m.revenu_avant_taxes || 0, (m.depenses_avant_taxes || 0) + m.mo)), 1);
 
   // Totaux par projet
   const totauxProjets = projets.reduce(
@@ -189,11 +192,11 @@ export default function FinancesPage() {
         {/* === FLUX MENSUEL (basé sur dates des factures/dépenses) === */}
         <h2 className="text-lg font-bold text-slate-900">📅 Flux mensuel — {annee}</h2>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <KPI label="Revenus projets" value={formatCAD(totaux.revenu)} couleur="text-emerald-700" sub="contrats + factures" />
-          <KPI label="Dépenses" value={formatCAD(totaux.depenses)} couleur="text-orange-700" />
+          <KPI label="Revenus projets" value={formatCAD(totaux.revenu_at)} couleur="text-emerald-700" sub="avant taxes" />
+          <KPI label="Dépenses" value={formatCAD(totaux.depenses_at)} couleur="text-orange-700" sub="avant taxes" />
           <KPI label="Main-d'œuvre" value={formatCAD(totaux.mo)} couleur="text-amber-700" />
           <KPI label="Encaissé" value={formatCAD(totaux.paye)} couleur="text-blue-700" sub="payé reçu" />
-          <KPI label="Net (reste)" value={formatCAD(totaux.marge)} couleur={totaux.marge >= 0 ? "text-emerald-700" : "text-red-700"} />
+          <KPI label="Marge nette" value={formatCAD(totaux.marge)} couleur={totaux.marge >= 0 ? "text-emerald-700" : "text-red-700"} sub="avant taxes" />
         </div>
 
         {/* Graphique mensuel */}
@@ -209,13 +212,13 @@ export default function FinancesPage() {
                   </span>
                 </div>
                 <div className="flex gap-1 h-6">
-                  <div className="bg-emerald-500 rounded" style={{ width: `${((m.revenu || 0) / max) * 100}%`, minWidth: (m.revenu || 0) > 0 ? 4 : 0 }} title={`Revenus projets ${formatCAD(m.revenu || 0)}`} />
-                  <div className="bg-orange-400 rounded" style={{ width: `${(m.depenses / max) * 100}%`, minWidth: m.depenses > 0 ? 4 : 0 }} title={`Dépenses ${formatCAD(m.depenses)}`} />
+                  <div className="bg-emerald-500 rounded" style={{ width: `${((m.revenu_avant_taxes || 0) / max) * 100}%`, minWidth: (m.revenu_avant_taxes || 0) > 0 ? 4 : 0 }} title={`Revenus (av. taxes) ${formatCAD(m.revenu_avant_taxes || 0)}`} />
+                  <div className="bg-orange-400 rounded" style={{ width: `${((m.depenses_avant_taxes || 0) / max) * 100}%`, minWidth: (m.depenses_avant_taxes || 0) > 0 ? 4 : 0 }} title={`Dépenses (av. taxes) ${formatCAD(m.depenses_avant_taxes || 0)}`} />
                   <div className="bg-amber-400 rounded" style={{ width: `${(m.mo / max) * 100}%`, minWidth: m.mo > 0 ? 4 : 0 }} title={`MO ${formatCAD(m.mo)}`} />
                 </div>
                 <div className="flex justify-between text-[10px] text-slate-500 px-12">
-                  <span>Revenus : <strong className="text-emerald-700">{formatCAD(m.revenu || 0)}</strong>{m.facture === 0 && (m.revenu || 0) > 0 ? " (contrat)" : ""}</span>
-                  <span>Coûts : <strong className="text-orange-700">{formatCAD(m.depenses + m.mo)}</strong></span>
+                  <span>Revenus : <strong className="text-emerald-700">{formatCAD(m.revenu_avant_taxes || 0)}</strong></span>
+                  <span>Coûts : <strong className="text-orange-700">{formatCAD((m.depenses_avant_taxes || 0) + m.mo)}</strong></span>
                 </div>
               </div>
             ))}
