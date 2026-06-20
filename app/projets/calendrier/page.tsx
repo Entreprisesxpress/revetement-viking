@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
+import { infoCalendrierQC } from "@/lib/calendrier-quebec";
 
 /** Échéancier des projets — vues Semaine / Mois / Année.
  *  Un projet est « actif » de date_debut à sa fin (date_fin_prevue, sinon
@@ -58,6 +59,13 @@ export default function CalendrierProjets() {
 
   const aujourdhui = ymd(new Date());
 
+  // Fériés QC + vacances de la construction pour les années visibles (la vue peut
+  // déborder sur l'année voisine, et le congé des Fêtes chevauche déc./janv.).
+  const infoQC = useMemo(() => {
+    const a = curseur.getFullYear();
+    return infoCalendrierQC([a - 1, a, a + 1]);
+  }, [curseur]);
+
   // Projets actifs un jour donné (yyyy-mm-dd).
   const projetsActifsLe = (jour: string) => projets.filter((p) => {
     const deb = debutStr(p), fin = finStr(p);
@@ -105,15 +113,17 @@ export default function CalendrierProjets() {
             <button onClick={aujourdhuiReset} className="px-3 py-1.5 bg-emerald-100 text-emerald-900 hover:bg-emerald-200 rounded font-semibold text-sm">Aujourd'hui</button>
             <button onClick={() => deplacer(1)} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 rounded font-bold" aria-label="Suivant">→</button>
           </div>
-          <div className="flex gap-2 text-xs w-full md:w-auto">
+          <div className="flex gap-2 text-xs w-full md:w-auto flex-wrap">
             <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded">🟢 Actif</span>
             <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded">🟡 À venir</span>
             <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">🔵 Complété</span>
+            <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded">🟧 Vacances constr.</span>
+            <span className="px-2 py-1 bg-rose-100 text-rose-800 rounded">🔴 Férié</span>
           </div>
         </div>
 
-        {vue === "semaine" && <VueSemaine curseur={curseur} projetsActifsLe={projetsActifsLe} aujourdhui={aujourdhui} />}
-        {vue === "mois" && <VueMois curseur={curseur} projetsActifsLe={projetsActifsLe} aujourdhui={aujourdhui} />}
+        {vue === "semaine" && <VueSemaine curseur={curseur} projetsActifsLe={projetsActifsLe} aujourdhui={aujourdhui} infoQC={infoQC} />}
+        {vue === "mois" && <VueMois curseur={curseur} projetsActifsLe={projetsActifsLe} aujourdhui={aujourdhui} infoQC={infoQC} />}
         {vue === "annee" && <VueAnnee annee={curseur.getFullYear()} projets={projets} />}
 
         <p className="text-xs text-slate-500">Cliquer un projet pour ouvrir son détail.</p>
@@ -132,8 +142,10 @@ function Puce({ p }: { p: any }) {
   );
 }
 
+interface InfoQC { ferieDe: (j: string) => string | undefined; vacancesDe: (j: string) => string | undefined; }
+
 // === VUE SEMAINE : 7 colonnes jour ===
-function VueSemaine({ curseur, projetsActifsLe, aujourdhui }: { curseur: Date; projetsActifsLe: (j: string) => any[]; aujourdhui: string }) {
+function VueSemaine({ curseur, projetsActifsLe, aujourdhui, infoQC }: { curseur: Date; projetsActifsLe: (j: string) => any[]; aujourdhui: string; infoQC: InfoQC }) {
   const lundi = lundiDe(curseur);
   const jours = Array.from({ length: 7 }, (_, i) => { const d = new Date(lundi); d.setDate(lundi.getDate() + i); return d; });
   return (
@@ -142,12 +154,17 @@ function VueSemaine({ curseur, projetsActifsLe, aujourdhui }: { curseur: Date; p
         const js = ymd(d);
         const actifs = projetsActifsLe(js);
         const estAuj = js === aujourdhui;
+        const ferie = infoQC.ferieDe(js);
+        const vac = infoQC.vacancesDe(js);
+        const fond = ferie ? "bg-rose-50" : vac ? "bg-orange-50" : "bg-white";
         return (
-          <div key={i} className={`bg-white rounded-lg shadow p-2 min-h-[120px] ${estAuj ? "ring-2 ring-emerald-500" : ""}`}>
-            <div className={`text-xs font-bold mb-1 ${estAuj ? "text-emerald-700" : "text-slate-600"}`}>
+          <div key={i} className={`${fond} rounded-lg shadow p-2 min-h-[120px] ${estAuj ? "ring-2 ring-emerald-500" : ""}`}>
+            <div className={`text-xs font-bold ${estAuj ? "text-emerald-700" : "text-slate-600"}`}>
               {JOURS[i]} {d.getDate()} {MOIS[d.getMonth()]}
             </div>
-            <div className="space-y-1">
+            {ferie && <div className="text-[10px] font-semibold text-rose-700 mb-1 truncate" title={ferie}>🔴 {ferie}</div>}
+            {!ferie && vac && <div className="text-[10px] font-semibold text-orange-700 mb-1 truncate" title={vac}>🟧 {vac}</div>}
+            <div className="space-y-1 mt-1">
               {actifs.length === 0 ? <div className="text-[10px] text-slate-300 italic">—</div> : actifs.map((p) => <Puce key={p.id} p={p} />)}
             </div>
           </div>
@@ -158,7 +175,7 @@ function VueSemaine({ curseur, projetsActifsLe, aujourdhui }: { curseur: Date; p
 }
 
 // === VUE MOIS : grille calendrier classique ===
-function VueMois({ curseur, projetsActifsLe, aujourdhui }: { curseur: Date; projetsActifsLe: (j: string) => any[]; aujourdhui: string }) {
+function VueMois({ curseur, projetsActifsLe, aujourdhui, infoQC }: { curseur: Date; projetsActifsLe: (j: string) => any[]; aujourdhui: string; infoQC: InfoQC }) {
   const annee = curseur.getFullYear(), mois = curseur.getMonth();
   const premier = new Date(annee, mois, 1);
   const offset = (premier.getDay() + 6) % 7; // jours avant le 1er (lundi=0)
@@ -176,12 +193,19 @@ function VueMois({ curseur, projetsActifsLe, aujourdhui }: { curseur: Date; proj
           const horsMois = d.getMonth() !== mois;
           const estAuj = js === aujourdhui;
           const actifs = projetsActifsLe(js);
+          const ferie = infoQC.ferieDe(js);
+          const vac = infoQC.vacancesDe(js);
+          const fond = horsMois ? "bg-slate-50" : ferie ? "bg-rose-50" : vac ? "bg-orange-50" : "";
           return (
-            <div key={i} className={`border-r border-b last:border-r-0 p-1 min-h-[84px] md:min-h-[100px] align-top ${horsMois ? "bg-slate-50" : ""}`}>
-              <div className={`text-[11px] font-bold mb-1 ${estAuj ? "bg-emerald-600 text-white rounded-full w-5 h-5 flex items-center justify-center" : horsMois ? "text-slate-300" : "text-slate-600"}`}>
-                {d.getDate()}
+            <div key={i} className={`border-r border-b last:border-r-0 p-1 min-h-[84px] md:min-h-[100px] align-top ${fond}`}>
+              <div className="flex items-center justify-between gap-1">
+                <div className={`text-[11px] font-bold ${estAuj ? "bg-emerald-600 text-white rounded-full w-5 h-5 flex items-center justify-center" : horsMois ? "text-slate-300" : "text-slate-600"}`}>
+                  {d.getDate()}
+                </div>
+                {ferie ? <span className="text-[9px] leading-tight font-semibold text-rose-700 truncate text-right" title={ferie}>{ferie}</span>
+                  : vac ? <span className="text-[10px]" title={vac}>🟧</span> : null}
               </div>
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 mt-0.5">
                 {actifs.slice(0, 3).map((p) => <Puce key={p.id} p={p} />)}
                 {actifs.length > 3 && <div className="text-[10px] text-slate-500 font-semibold pl-1">+ {actifs.length - 3}</div>}
               </div>
