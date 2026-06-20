@@ -74,34 +74,65 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
     });
   };
 
+  // Envoie une seule image : compression + vignette + POST.
+  const envoyerImage = async (f: File) => {
+    const data = await compresserImage(f);
+    const thumb = await genererVignette(f).catch(() => null);
+    const r = await fetch("/api/photos", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projet_id, date, description: description || f.name,
+        photo_data: data, photo_type: "image/jpeg", employes: "Manuel", thumb_data: thumb,
+      }),
+    });
+    if (!r.ok) throw new Error(`Échec envoi ${f.name}`);
+  };
+
   const envoyer = async () => {
     if (!projet_id) { toast("Choisis un projet", "warning"); return; }
     if (files.length === 0) { toast("Aucun fichier", "warning"); return; }
     setBusy(true);
     setProgress({ total: files.length, done: 0 });
+    const avance = () => setProgress((p) => ({ ...p, done: p.done + 1 }));
     try {
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (f.type.startsWith("video/")) {
-          await envoyerVideo(f);
-        } else {
-          const data = await compresserImage(f);
-          const thumb = await genererVignette(f).catch(() => null);
-          await fetch("/api/photos", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              projet_id, date, description: description || f.name,
-              photo_data: data, photo_type: "image/jpeg", employes: "Manuel", thumb_data: thumb,
-            }),
-          });
+      const videos = files.filter((f) => f.type.startsWith("video/"));
+      const images = files.filter((f) => !f.type.startsWith("video/"));
+
+      // Images : envoi EN PARALLÈLE (pool de 4) — beaucoup plus rapide que le séquentiel.
+      const CONCURRENCE = 4;
+      let curseur = 0;
+      const echecs: string[] = [];
+      const worker = async () => {
+        while (curseur < images.length) {
+          const f = images[curseur++];
+          try { await envoyerImage(f); } catch (e: any) { echecs.push(f.name); }
+          avance();
         }
-        setProgress({ total: files.length, done: i + 1 });
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCE, images.length) }, worker));
+
+      // Vidéos : séquentielles (gros fichiers, barre de progression Drive partagée).
+      for (const f of videos) {
+        try { await envoyerVideo(f); } catch (e: any) { echecs.push(f.name); }
+        avance();
       }
-      toast(`✓ ${files.length} fichier(s) ajoutés au projet`, "success");
-      setFiles([]);
-      setDescription("");
-      onSuccess?.();
-      onClose();
+
+      const reussis = files.length - echecs.length;
+      if (echecs.length === 0) {
+        toast(`✓ ${reussis} fichier(s) ajoutés au projet`, "success");
+      } else {
+        toast(`${reussis}/${files.length} envoyés · ${echecs.length} échec(s) : ${echecs.slice(0, 3).join(", ")}`, "warning");
+      }
+      // On ne ferme que si tout a réussi ; sinon on garde la sélection pour réessayer.
+      if (echecs.length === 0) {
+        setFiles([]);
+        setDescription("");
+        onSuccess?.();
+        onClose();
+      } else {
+        setFiles((prev) => prev.filter((f) => echecs.includes(f.name)));
+        onSuccess?.();
+      }
     } catch (e: any) {
       toast("Erreur : " + e.message, "error");
     } finally {
