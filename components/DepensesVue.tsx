@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
@@ -31,6 +32,8 @@ export default function DepensesVue() {
   const [editing, setEditing] = useState<any>(null);
   const [recuOuvert, setRecuOuvert] = useState<{ id: number; type?: string } | null>(null);
   const [selection, setSelection] = useState<Set<number>>(new Set());
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const sp = useSearchParams();
   const { toast } = useToast();
 
   const charger = async () => {
@@ -46,6 +49,20 @@ export default function DepensesVue() {
   };
 
   useEffect(() => { charger(); }, []);
+
+  // Arrivée depuis la recherche globale (?depense=ID) : cibler cette dépense —
+  // élargir la période pour la rendre visible, filtrer sur son montant, surligner.
+  useEffect(() => {
+    const fid = sp.get("depense");
+    if (!fid || depenses.length === 0) return;
+    const d = depenses.find((x) => String(x.id) === fid);
+    if (!d) return;
+    setDepuis("2020-01-01");
+    setRecherche(String(d.montant ?? ""));
+    setHighlightId(d.id);
+    const t = setTimeout(() => { document.getElementById(`dep-${d.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 350);
+    return () => clearTimeout(t);
+  }, [depenses, sp]);
 
   const projNom = (id: number | null) => projets.find((p) => p.id === id)?.nom || "—";
 
@@ -268,7 +285,7 @@ export default function DepensesVue() {
                 {visibles.map((d) => {
                   const sel = selection.has(d.id);
                   return (
-                    <tr key={d.id} className={`border-t hover:bg-slate-50 vk-lazy-render ${sel ? "bg-blue-50" : ""}`}>
+                    <tr key={d.id} id={`dep-${d.id}`} className={`border-t hover:bg-slate-50 vk-lazy-render ${sel ? "bg-blue-50" : ""} ${highlightId === d.id ? "ring-2 ring-emerald-500 bg-emerald-50" : ""}`}>
                       <td className="p-2">
                         <input type="checkbox" checked={sel} onChange={() => toggleSel(d.id)} />
                       </td>

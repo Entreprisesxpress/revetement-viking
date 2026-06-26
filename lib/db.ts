@@ -957,7 +957,7 @@ export interface ProjetAvecTotaux extends Projet {
   client_nom?: string; total_heures: number; cout_main_oeuvre: number;
   total_depenses: number; total_facture: number; total_paye: number;
   cout_total: number; marge: number; marge_pct: number; pct_budget_consomme: number;
-  revenu?: number; revenu_avant_taxes?: number;
+  revenu?: number; revenu_avant_taxes?: number; extras_factures?: number;
 }
 
 function calculerTotaux(r: any): ProjetAvecTotaux {
@@ -978,7 +978,8 @@ const PROJ_SQL = `SELECT p.id, p.numero, p.client_id, p.nom, p.adresse_chantier,
   COALESCE((SELECT SUM(heures * taux_horaire) FROM heures_projet WHERE projet_id = p.id), 0) as cout_main_oeuvre,
   COALESCE((SELECT SUM(montant) FROM depenses_projet WHERE projet_id = p.id), 0) as total_depenses,
   COALESCE((SELECT SUM(montant) FROM factures_projet WHERE projet_id = p.id), 0) as total_facture,
-  COALESCE((SELECT SUM(montant) FROM factures_projet WHERE projet_id = p.id AND payee = 1), 0) as total_paye
+  COALESCE((SELECT SUM(montant) FROM factures_projet WHERE projet_id = p.id AND payee = 1), 0) as total_paye,
+  COALESCE((SELECT SUM(montant) FROM extras WHERE projet_id = p.id AND statut = 'charge'), 0) as extras_factures
 FROM projets p LEFT JOIN clients c ON c.id = p.client_id`;
 
 // === CONTRATS PIPELINE (avec signature en ligne) ===
@@ -1413,6 +1414,36 @@ export async function rechercheGlobale(q: string): Promise<{ type: string; id: n
   for (const p of projets) out.push({ type: "projet", id: p.id, titre: p.nom, sous: p.adresse_chantier || "" });
   const soums = await all<any>(`SELECT numero, client_nom, total FROM soumissions WHERE LOWER(numero) LIKE ? OR LOWER(client_nom) LIKE ? LIMIT 5`, [like, like]);
   for (const s of soums) out.push({ type: "soumission", id: s.numero, titre: s.numero, sous: s.client_nom || "" });
+  // Dépenses : par MONTANT (ex. "45" ou "45,33"), sinon par fournisseur/description.
+  try {
+    const vus = new Set<number>();
+    const ajouterDep = (d: any) => {
+      if (vus.has(d.id)) return; vus.add(d.id);
+      out.push({ type: "depense", id: d.id, montant: d.montant,
+        titre: `💸 ${(+d.montant).toFixed(2)} $ — ${d.fournisseur || "?"}`,
+        sous: `${d.categorie || ""}${d.projet_nom ? " · " + d.projet_nom : ""} · ${String(d.date).slice(0, 10)}` });
+    };
+    const m = q.replace(",", ".").match(/\d+(\.\d+)?/);
+    if (m) {
+      const n = Number(m[0]);
+      const depMontant = await all<any>(
+        `SELECT dp.id, dp.montant, dp.fournisseur, dp.date, dp.categorie, dp.projet_id, p.nom as projet_nom
+         FROM depenses_projet dp LEFT JOIN projets p ON p.id = dp.projet_id
+         WHERE dp.montant = ? OR CAST(dp.montant AS TEXT) LIKE ?
+         ORDER BY ABS(dp.montant - ?) ASC, dp.date DESC LIMIT 6`,
+        [n, `${m[0]}%`, n]
+      );
+      for (const d of depMontant) ajouterDep(d);
+    }
+    const depTxt = await all<any>(
+      `SELECT dp.id, dp.montant, dp.fournisseur, dp.date, dp.categorie, dp.projet_id, p.nom as projet_nom
+       FROM depenses_projet dp LEFT JOIN projets p ON p.id = dp.projet_id
+       WHERE LOWER(dp.fournisseur) LIKE ? OR LOWER(dp.description) LIKE ?
+       ORDER BY dp.date DESC LIMIT 4`,
+      [like, like]
+    );
+    for (const d of depTxt) ajouterDep(d);
+  } catch { /* table absente sur anciennes bases */ }
   // Recherche étendue : commentaires pipeline + sous-tâches + fichiers attachés
   try {
     const comms = await all<any>(
