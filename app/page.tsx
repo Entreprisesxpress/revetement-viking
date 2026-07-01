@@ -51,7 +51,6 @@ export default function Home() {
   const [tableauBord, setTableauBord] = useState<any>(null);
   const [mesTaches, setMesTaches] = useState<any[]>([]);
   const [tachesAFaire, setTachesAFaire] = useState<any[]>([]);
-  const [jarvisQ, setJarvisQ] = useState("");
   const [monUser, setMonUser] = useState<string>("");
   const [modalHeures, setModalHeures] = useState(false);
   const [modalDepense, setModalDepense] = useState(false);
@@ -353,20 +352,6 @@ export default function Home() {
           <KPI label="Soum. acceptées" value={formatCAD(stats.revenus_acceptes || 0)} couleur="text-emerald-600" />
         </div>
 
-        {/* === DEMANDER À JARVIS === */}
-        <form
-          onSubmit={(e) => { e.preventDefault(); const q = jarvisQ.trim(); if (q) window.location.href = `/jarvis?q=${encodeURIComponent(q)}`; }}
-          className="bg-gradient-to-r from-slate-900 to-slate-700 rounded-lg p-3 flex items-center gap-2 shadow"
-        >
-          <span className="text-xl">🤖</span>
-          <input
-            value={jarvisQ}
-            onChange={(e) => setJarvisQ(e.target.value)}
-            placeholder="Demander à Jarvis… (ex: quel est mon projet le plus rentable ?)"
-            className="flex-1 bg-white/95 px-3 py-2 rounded-lg text-sm border-0 focus:ring-2 focus:ring-emerald-400"
-          />
-          <button type="submit" className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg text-sm font-bold whitespace-nowrap">Demander</button>
-        </form>
 
         {/* === MES TÂCHES === */}
         {monUser && mesTaches.length > 0 && (

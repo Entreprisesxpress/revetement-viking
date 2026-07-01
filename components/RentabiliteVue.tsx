@@ -16,7 +16,16 @@ export default function RentabiliteVue() {
   const [projets, setProjets] = useState<any[]>([]);
   const [filtre, setFiltre] = useState<Filtre>("actif"); // défaut = actifs (comme le tableau de bord)
   const [chargement, setChargement] = useState(true);
+  const [recherche, setRecherche] = useState("");
+  const [triCol, setTriCol] = useState<"nom" | "prix" | "revenuAT" | "dep" | "mo" | "cout" | "marge" | "margePct">("marge");
+  const [triSens, setTriSens] = useState<"asc" | "desc">("desc");
   const { toast } = useToast();
+
+  const trier = (col: typeof triCol) => {
+    if (triCol === col) setTriSens((s) => (s === "asc" ? "desc" : "asc"));
+    else { setTriCol(col); setTriSens(col === "nom" ? "asc" : "desc"); }
+  };
+  const ind = (col: typeof triCol) => (triCol === col ? (triSens === "asc" ? " ▲" : " ▼") : "");
 
   useEffect(() => {
     fetch("/api/projets").then((r) => r.json()).then((d) => {
@@ -29,8 +38,10 @@ export default function RentabiliteVue() {
   }, []);
 
   const lignes = useMemo(() => {
-    const arr = projets.filter((p) => filtre === "tous" ? p.statut !== "annule" : p.statut === filtre);
-    return arr.map((p) => {
+    let arr = projets.filter((p) => filtre === "tous" ? p.statut !== "annule" : p.statut === filtre);
+    const q = recherche.trim().toLowerCase();
+    if (q) arr = arr.filter((p) => `${p.nom || ""} ${p.client_nom || ""}`.toLowerCase().includes(q));
+    const rows = arr.map((p) => {
       const prix = (+p.prix_contrat || +p.budget_estime || 0);
       const extras = +p.extras_factures || 0;
       const revenu = prix + extras;                        // taxes incluses
@@ -42,7 +53,14 @@ export default function RentabiliteVue() {
       const margePct = revenuAT > 0 ? (marge / revenuAT) * 100 : 0;
       return { p, prix, extras, revenu, revenuAT, dep, mo, cout, marge, margePct };
     });
-  }, [projets, filtre]);
+    const val = (r: any) => (triCol === "nom" ? (r.p.nom || "").toLowerCase() : r[triCol]);
+    rows.sort((a, b) => {
+      const va = val(a), vb = val(b);
+      const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+      return triSens === "asc" ? cmp : -cmp;
+    });
+    return rows;
+  }, [projets, filtre, recherche, triCol, triSens]);
 
   const tot = useMemo(() => lignes.reduce((s, l) => ({
     prix: s.prix + l.prix, extras: s.extras + l.extras, revenu: s.revenu + l.revenu,
@@ -109,6 +127,7 @@ export default function RentabiliteVue() {
             <button key={v} onClick={() => setFiltre(v)} className={`px-3 py-1.5 rounded text-sm font-semibold ${filtre === v ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>
           ))}
         </div>
+        <input type="search" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="🔍 Projet ou client…" className="px-3 py-1.5 border rounded-lg text-sm w-44" />
         <span className="text-xs text-slate-500">{lignes.length} projet(s)</span>
         <button onClick={exportPDF} className="ml-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold">📄 Rapport PDF</button>
         <button onClick={exportCSV} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold">📥 Export Excel (CSV)</button>
@@ -127,17 +146,17 @@ export default function RentabiliteVue() {
         ) : (
           <table className="w-full text-sm min-w-max border-collapse">
             <thead className="bg-slate-100 text-xs">
-              <tr className="[&>th]:p-2 [&>th]:border [&>th]:border-slate-200 text-right">
-                <th className="text-left sticky left-0 bg-slate-100 z-10">Projet</th>
-                <th className="text-right">Prix contrat</th>
-                <th className="text-right text-emerald-700">+ Extras</th>
-                <th className="text-right">= Revenu</th>
-                <th className="text-right">÷1,14975<br/>Rev. av. taxes</th>
-                <th className="text-right text-orange-700">− Dépenses</th>
-                <th className="text-right text-amber-700">− M.-d'œuvre</th>
-                <th className="text-right">= Coût total</th>
-                <th className="text-right">Marge $</th>
-                <th className="text-right">Marge %</th>
+              <tr className="[&>th]:p-2 [&>th]:border [&>th]:border-slate-200 [&>th]:cursor-pointer [&>th]:select-none [&>th]:hover:bg-slate-200 text-right">
+                <th onClick={() => trier("nom")} className="text-left sticky left-0 bg-slate-100 z-10">Projet{ind("nom")}</th>
+                <th onClick={() => trier("prix")} className="text-right">Prix contrat{ind("prix")}</th>
+                <th className="text-right text-emerald-700 !cursor-default hover:!bg-slate-100">+ Extras</th>
+                <th className="text-right !cursor-default hover:!bg-slate-100">= Revenu</th>
+                <th onClick={() => trier("revenuAT")} className="text-right">÷1,14975<br/>Rev. av. taxes{ind("revenuAT")}</th>
+                <th onClick={() => trier("dep")} className="text-right text-orange-700">− Dépenses{ind("dep")}</th>
+                <th onClick={() => trier("mo")} className="text-right text-amber-700">− M.-d'œuvre{ind("mo")}</th>
+                <th onClick={() => trier("cout")} className="text-right">= Coût total{ind("cout")}</th>
+                <th onClick={() => trier("marge")} className="text-right">Marge ${ind("marge")}</th>
+                <th onClick={() => trier("margePct")} className="text-right">Marge %{ind("margePct")}</th>
               </tr>
             </thead>
             <tbody>
