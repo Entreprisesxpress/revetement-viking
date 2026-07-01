@@ -50,6 +50,13 @@ export default function JarvisPage() {
 
   useEffect(() => { finRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
+  // Question passée en URL (?q=...) depuis le tableau de bord : envoi automatique.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q && q.trim()) envoyer(q.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const envoyer = async (q?: string) => {
     const question = (q ?? input).trim();
     if (!question || busy) return;

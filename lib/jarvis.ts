@@ -3,6 +3,7 @@
 import {
   db, finances, listerProjets, statistiques, listerClients,
   listerTaches, listerExtras, listerToutesDepenses,
+  getProjet, rechercheGlobale, listerVehicules, listerAssurances, listerFacturesProjet,
 } from "@/lib/db";
 
 // === DÉFINITIONS D'OUTILS (format Anthropic tool-use) ===
@@ -63,6 +64,41 @@ export const OUTILS_JARVIS = [
     name: "extras",
     description: "Extras (travaux/matériaux hors soumission) à facturer ou déjà facturés.",
     input_schema: { type: "object", properties: { statut: { type: "string", enum: ["a_charger", "charge"] } }, additionalProperties: false },
+  },
+  {
+    name: "factures_impayees",
+    description: "Factures non payées avec leur ancienneté (aging) et le total dû, par projet. Pour savoir qui doit de l'argent.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "paie",
+    description: "Sommaire des paies : périodes récentes par employé (heures normales/sup, brut, net, payé ou non).",
+    input_schema: { type: "object", properties: { employe: { type: "string" } }, additionalProperties: false },
+  },
+  {
+    name: "client_details",
+    description: "Fiche complète d'un client par son nom : coordonnées, ses projets (marge, solde dû), tâches ouvertes.",
+    input_schema: { type: "object", properties: { nom: { type: "string" } }, required: ["nom"], additionalProperties: false },
+  },
+  {
+    name: "projet_details",
+    description: "Analyse détaillée d'un projet par son nom : revenu, dépenses, heures par employé, extras, factures, marge.",
+    input_schema: { type: "object", properties: { nom: { type: "string" } }, required: ["nom"], additionalProperties: false },
+  },
+  {
+    name: "recherche",
+    description: "Recherche libre dans toute l'app (clients, projets, soumissions, dépenses par montant, commentaires…). Utile quand on ne sait pas dans quelle catégorie chercher.",
+    input_schema: { type: "object", properties: { terme: { type: "string" } }, required: ["terme"], additionalProperties: false },
+  },
+  {
+    name: "inventaire",
+    description: "État de l'inventaire (matériaux/outils en stock) : quantités, emplacement, valeur. Filtrable par nom/catégorie.",
+    input_schema: { type: "object", properties: { recherche: { type: "string" } }, additionalProperties: false },
+  },
+  {
+    name: "vehicules_assurances",
+    description: "Véhicules de l'entreprise et assurances, avec les renouvellements d'assurance à venir.",
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
   },
 ];
 
@@ -159,6 +195,90 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         return { nombre: e.length, total: num(e.reduce((s: number, x: any) => s + (x.montant || 0), 0)), extras: e.slice(0, 60).map((x: any) => ({
           projet: x.projet_nom || null, nature: x.nature, description: x.description, montant: num(x.montant), heures: x.heures || null, statut: x.statut, date: x.date,
         })) };
+      }
+      case "factures_impayees": {
+        const auj = new Date();
+        const r = await db().execute({
+          sql: `SELECT fp.montant, fp.date, fp.numero, p.nom projet, c.nom client
+                FROM factures_projet fp LEFT JOIN projets p ON p.id=fp.projet_id LEFT JOIN clients c ON c.id=p.client_id
+                WHERE fp.payee=0 OR fp.payee IS NULL ORDER BY fp.date ASC`, args: [],
+        });
+        const lignes = (r.rows as any[]).map((x) => {
+          const jours = Math.max(0, Math.round((auj.getTime() - new Date(x.date).getTime()) / 86400000));
+          return { client: x.client || null, projet: x.projet || null, numero: x.numero || null, montant: num(x.montant), date: x.date, jours_ecoules: jours };
+        });
+        const total = lignes.reduce((s, x) => s + x.montant, 0);
+        const plus30 = lignes.filter((x) => x.jours_ecoules > 30);
+        return { nombre: lignes.length, total_du: num(total), en_retard_plus_30j: { nombre: plus30.length, montant: num(plus30.reduce((s, x) => s + x.montant, 0)) }, factures: lignes };
+      }
+      case "paie": {
+        const conds: string[] = []; const args: any[] = [];
+        if (input.employe) { conds.push("employe = ?"); args.push(input.employe); }
+        const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+        const r = await db().execute({ sql: `SELECT employe, debut, fin, heures_normales, heures_sup, montant_brut, montant_net, paye, date_paiement FROM paies_periodes ${where} ORDER BY fin DESC LIMIT 40`, args });
+        const rows = (r.rows as any[]).map((x) => ({ employe: x.employe, periode: `${x.debut} → ${x.fin}`, heures_normales: num(x.heures_normales), heures_sup: num(x.heures_sup), brut: num(x.montant_brut), net: num(x.montant_net), paye: !!x.paye, date_paiement: x.date_paiement || null }));
+        return { periodes: rows };
+      }
+      case "client_details": {
+        const clients = await listerClients();
+        const q = String(input.nom || "").toLowerCase();
+        const cl = clients.find((c: any) => (c.nom || "").toLowerCase() === q) || clients.find((c: any) => (c.nom || "").toLowerCase().includes(q));
+        if (!cl) return { trouve: false, message: `Aucun client trouvé pour « ${input.nom} ».` };
+        const projets = (await listerProjets()).filter((p) => p.client_id === (cl as any).id);
+        const taches = await listerTaches({ client_id: (cl as any).id, statut: "a_faire" }).catch(() => []);
+        const soldeDu = projets.reduce((s, p) => s + ((p.total_facture || 0) - (p.total_paye || 0)), 0);
+        return {
+          trouve: true,
+          client: { nom: (cl as any).nom, statut: (cl as any).statut, telephone: (cl as any).telephone, courriel: (cl as any).courriel, adresse: (cl as any).adresse },
+          nb_projets: projets.length, solde_du: num(soldeDu), taches_ouvertes: taches.length,
+          projets: projets.map((p) => ({ nom: p.nom, statut: p.statut, prix: num(p.prix_contrat || p.budget_estime || 0), marge: num(p.marge), marge_pct: num(p.marge_pct), a_recevoir: num((p.total_facture || 0) - (p.total_paye || 0)) })),
+        };
+      }
+      case "projet_details": {
+        const projets = await listerProjets();
+        const q = String(input.nom || "").toLowerCase();
+        const base = projets.find((p) => (p.nom || "").toLowerCase() === q) || projets.find((p) => (p.nom || "").toLowerCase().includes(q));
+        if (!base || !base.id) return { trouve: false, message: `Aucun projet trouvé pour « ${input.nom} ».` };
+        const p = await getProjet(base.id) || base;
+        const [hr, factures, extrasAll] = await Promise.all([
+          db().execute({ sql: "SELECT COALESCE(employe,'?') employe, COALESCE(SUM(heures),0) h, COALESCE(SUM(heures*taux_horaire),0) cout FROM heures_projet WHERE projet_id=? GROUP BY employe ORDER BY h DESC", args: [base.id] }).catch(() => ({ rows: [] })),
+          listerFacturesProjet(base.id).catch(() => []),
+          listerExtras().catch(() => []),
+        ]);
+        const extras = (extrasAll as any[]).filter((e) => e.projet_id === base.id);
+        return {
+          trouve: true,
+          projet: { nom: p.nom, client: p.client_nom || null, statut: p.statut, date_fin_prevue: p.date_fin_prevue || null },
+          revenu: { prix_contrat: num(p.prix_contrat || p.budget_estime || 0), extras_factures: num((p as any).extras_factures || 0), avant_taxes: num((p as any).revenu_avant_taxes || 0) },
+          couts: { depenses: num(p.total_depenses), main_oeuvre: num(p.cout_main_oeuvre), total: num(p.cout_total) },
+          marge: num(p.marge), marge_pct: num(p.marge_pct),
+          facturation: { facture: num(p.total_facture), paye: num(p.total_paye), a_recevoir: num((p.total_facture || 0) - (p.total_paye || 0)) },
+          heures_par_employe: (hr.rows as any[]).map((x) => ({ employe: x.employe, heures: num(x.h), cout: num(x.cout) })),
+          nb_factures: (factures as any[]).length,
+          extras: extras.map((e) => ({ nature: e.nature, description: e.description, montant: num(e.montant), statut: e.statut })),
+        };
+      }
+      case "recherche": {
+        const res = await rechercheGlobale(String(input.terme || ""));
+        return { nombre: res.length, resultats: res.slice(0, 20) };
+      }
+      case "inventaire": {
+        const conds: string[] = []; const args: any[] = [];
+        if (input.recherche) { conds.push("(LOWER(nom) LIKE ? OR LOWER(categorie) LIKE ? OR LOWER(emplacement) LIKE ?)"); const l = `%${String(input.recherche).toLowerCase()}%`; args.push(l, l, l); }
+        const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+        const r = await db().execute({ sql: `SELECT nom, categorie, quantite, unite, emplacement, cout_unit FROM inventaire ${where} ORDER BY nom ASC LIMIT 200`, args }).catch(() => ({ rows: [] }));
+        const items = (r.rows as any[]).map((x) => ({ nom: x.nom, categorie: x.categorie, quantite: num(x.quantite), unite: x.unite, emplacement: x.emplacement, valeur: num((x.quantite || 0) * (x.cout_unit || 0)) }));
+        return { nombre: items.length, valeur_totale: num(items.reduce((s, x) => s + x.valeur, 0)), items };
+      }
+      case "vehicules_assurances": {
+        const [veh, ass] = await Promise.all([listerVehicules().catch(() => []), listerAssurances().catch(() => [])]);
+        const dans60j = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+        const renouv = (ass as any[]).filter((a) => a.date_renouvellement && a.date_renouvellement <= dans60j);
+        return {
+          vehicules: (veh as any[]).map((v: any) => ({ nom: v.nom, marque: v.marque || null, annee: v.annee || null, plaque: v.plaque || null })),
+          assurances: (ass as any[]).map((a) => ({ type: a.type, compagnie: a.compagnie, renouvellement: a.date_renouvellement, prime_annuelle: num(a.prime_annuelle) })),
+          renouvellements_60j: renouv.map((a) => ({ type: a.type, compagnie: a.compagnie, date: a.date_renouvellement })),
+        };
       }
       default:
         return { erreur: `Outil inconnu : ${nom}` };
