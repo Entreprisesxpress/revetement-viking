@@ -19,7 +19,13 @@ export default function RentabiliteVue() {
   const { toast } = useToast();
 
   useEffect(() => {
-    fetch("/api/projets").then((r) => r.json()).then((d) => { setProjets(Array.isArray(d) ? d : []); setChargement(false); }).catch(() => setChargement(false));
+    fetch("/api/projets").then((r) => r.json()).then((d) => {
+      const arr = Array.isArray(d) ? d : [];
+      setProjets(arr);
+      setChargement(false);
+      // Si aucun projet ACTIF mais qu'il y a des projets, montre « Tous » (sinon la vue paraît vide).
+      if (arr.length > 0 && !arr.some((p: any) => p.statut === "actif")) setFiltre("tous");
+    }).catch(() => setChargement(false));
   }, []);
 
   const lignes = useMemo(() => {
@@ -113,7 +119,11 @@ export default function RentabiliteVue() {
         {chargement ? (
           <div className="p-8 text-center text-slate-400 text-sm">Chargement…</div>
         ) : lignes.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">Aucun projet {filtre === "actif" ? "actif" : filtre === "complete" ? "complété" : ""}.</div>
+          <div className="p-8 text-center text-slate-400 text-sm">
+            {projets.length === 0
+              ? "Aucun projet enregistré. Crée un projet (ou convertis une soumission) pour voir sa rentabilité ici."
+              : <>Aucun projet {filtre === "actif" ? "actif" : filtre === "complete" ? "complété" : ""} — mais tu as {projets.length} projet(s). Essaie le filtre <button onClick={() => setFiltre("tous")} className="underline text-blue-600 font-semibold">Tous</button>.</>}
+          </div>
         ) : (
           <table className="w-full text-sm min-w-max border-collapse">
             <thead className="bg-slate-100 text-xs">
