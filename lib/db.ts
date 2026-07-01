@@ -1483,11 +1483,24 @@ export async function finances(annee: number): Promise<any> {
     const finM = new Date(annee, m, 1).toISOString().slice(0, 10);
     const facture = (await one<any>(`SELECT COALESCE(SUM(montant), 0) as v FROM factures_projet WHERE date >= ? AND date < ?`, [debut, finM]))?.v || 0;
     const paye = (await one<any>(`SELECT COALESCE(SUM(montant), 0) as v FROM factures_projet WHERE payee = 1 AND date_paiement >= ? AND date_paiement < ?`, [debut, finM]))?.v || 0;
-    // Total des dépenses + part détaxée (factures sans TPS/TVQ) pour le calcul avant-taxes.
-    const depRow = await one<any>(`SELECT COALESCE(SUM(montant), 0) as total, COALESCE(SUM(CASE WHEN detaxe = 1 THEN montant ELSE 0 END), 0) as detaxe FROM depenses_projet WHERE date >= ? AND date < ?`, [debut, finM]);
+    // Dépenses & M.O. : on ne compte QUE les projets COMPLÉTÉS, attribués à leur mois
+    // de complétion — pour faire correspondre les coûts au revenu reconnu (sinon on
+    // compterait les coûts de chantiers en cours dont le revenu n'est pas encore reconnu).
+    const complDansMois = `p.statut = 'complete'
+      AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) >= ?
+      AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) < ?`;
+    const depRow = await one<any>(
+      `SELECT COALESCE(SUM(dp.montant), 0) as total, COALESCE(SUM(CASE WHEN dp.detaxe = 1 THEN dp.montant ELSE 0 END), 0) as detaxe
+       FROM depenses_projet dp JOIN projets p ON p.id = dp.projet_id WHERE ${complDansMois}`,
+      [debut, finM]
+    );
     const depenses = depRow?.total || 0;
     const depensesDetaxe = depRow?.detaxe || 0;
-    const mo = (await one<any>(`SELECT COALESCE(SUM(heures * taux_horaire), 0) as v FROM heures_projet WHERE date >= ? AND date < ?`, [debut, finM]))?.v || 0;
+    const mo = (await one<any>(
+      `SELECT COALESCE(SUM(hp.heures * hp.taux_horaire), 0) as v
+       FROM heures_projet hp JOIN projets p ON p.id = hp.projet_id WHERE ${complDansMois}`,
+      [debut, finM]
+    ))?.v || 0;
     // Revenu reconnu quand le projet est COMPLÉTÉ : valeur du contrat (sinon estimé),
     // comptée au mois de complétion (date de fin réelle, sinon prévue, sinon début/création).
     const revenu = (await one<any>(

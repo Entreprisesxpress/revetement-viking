@@ -520,7 +520,7 @@ export default function Home() {
                 )}
               </>)}
               {detailFin === "depenses" && (<>
-                <p className="text-xs text-slate-500">Tous les coûts de {an} : dépenses (matériaux, fournisseurs) avant taxes + main-d'œuvre.</p>
+                <p className="text-xs text-slate-500">Coûts des projets <strong>complétés</strong> en {an} : dépenses (matériaux/fournisseurs) avant taxes + main-d'œuvre. Les chantiers en cours ne comptent pas encore (leur revenu non plus).</p>
                 <Lc label="Dépenses (taxes incl.)" value={formatCAD(depTi)} />
                 <Lc label="− Taxes (récupérables, CTI/RTI)" value={"− " + formatCAD(depTi - depAt)} couleur="text-slate-500" />
                 <Lc label="= Dépenses (avant taxes)" value={formatCAD(depAt)} />
