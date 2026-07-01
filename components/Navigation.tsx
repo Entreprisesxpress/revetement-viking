@@ -19,7 +19,6 @@ const LINKS: NavLink[] = [
   { href: "/taches", label: "Tâches", icon: "✅" },
   { href: "/jarvis", label: "Jarvis", icon: "🤖" },
   { href: "/clients", label: "CRM", icon: "👥" },
-  { href: "/finances/paye", label: "Paie", icon: "💵" },
   { href: "/finances", label: "Finances", icon: "💰" },
 ];
 const LINKS_SECONDAIRES: NavLink[] = [
