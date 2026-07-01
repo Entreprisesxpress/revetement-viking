@@ -20,7 +20,8 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
   const [fournisseursConnus, setFournisseursConnus] = useState<string[]>([]);
   const [catParFournisseur, setCatParFournisseur] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ projet_id: 0, date: today, montant: "", fournisseur: "", description: "", categorie: CATEGORIES_FALLBACK[0], detaxe: false });
-  const [recu, setRecu] = useState<{ data: string; type: string; nom: string } | null>(null);
+  const [recu, setRecu] = useState<{ data: string; type: string; nom: string } | null>(null); // PDF téléversé directement
+  const [pagesRecu, setPagesRecu] = useState<string[]>([]); // photos d'une même facture → combinées en PDF
   const [scannerOuvert, setScannerOuvert] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -29,31 +30,30 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     if (file.size > 20 * 1024 * 1024) { toast("Fichier > 20 MB", "warning"); return; }
     try {
       const data = await compresserImage(file);
-      const type = file.type === "application/pdf" ? file.type : "image/jpeg";
-      // PDF : on garde tel quel, pas de scan
-      if (type === "application/pdf") {
-        setRecu({ data, type, nom: file.name });
+      // PDF téléversé : on le garde tel quel (remplace les photos éventuelles).
+      if (file.type === "application/pdf") {
+        setRecu({ data, type: file.type, nom: file.name });
+        setPagesRecu([]);
         return;
       }
-      // IMAGE : on applique automatiquement le scan document (cadrage + filtre) — comme Drive
-      // Affiche immédiatement l'original puis remplace par la version scannée quand prête.
-      setRecu({ data, type, nom: file.name });
+      // IMAGE : scan document (cadrage + filtre) puis AJOUT comme page de la facture.
+      let img = data;
       try {
         const { autoCadrer, filtreDocument } = await import("@/lib/imgScanner");
-        const cadree = await autoCadrer(data);
-        const filtree = await filtreDocument(cadree, 1);
-        setRecu({ data: filtree, type: "image/jpeg", nom: file.name + " (scan)" });
-        toast("✨ Photo scannée automatiquement (cadrée + nette)", "success");
-      } catch {
-        // Si le scan échoue, on garde l'image originale (déjà affichée)
-      }
+        img = await filtreDocument(await autoCadrer(data), 1);
+      } catch { /* scan échoué → image originale */ }
+      setRecu(null);
+      setPagesRecu((prev) => [...prev, img]);
     } catch (e: any) {
       toast("Erreur : " + e.message, "error");
     }
   };
 
-  const confirmerScan = (image: string, type: string, donnees?: { montant?: number; date?: string; fournisseur?: string }) => {
-    setRecu({ data: image, type, nom: recu?.nom || "recu-scan.jpg" });
+  const retirerPage = (i: number) => setPagesRecu((prev) => prev.filter((_, idx) => idx !== i));
+
+  const confirmerScan = (image: string, _type: string, donnees?: { montant?: number; date?: string; fournisseur?: string }) => {
+    // Met à jour la 1re page (celle scannée) et pré-remplit le formulaire.
+    setPagesRecu((prev) => (prev.length ? [image, ...prev.slice(1)] : [image]));
     setScannerOuvert(false);
     if (donnees) {
       setForm((f) => ({
@@ -109,17 +109,29 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     }
     setLoading(true);
     try {
+      // Assemble le reçu : PDF téléversé, sinon les photos (≥2 → 1 seul PDF, 1 → image).
+      let recu_data = recu?.data || null;
+      let recu_type = recu?.type || null;
+      if (pagesRecu.length === 1) {
+        recu_data = pagesRecu[0]; recu_type = "image/jpeg";
+      } else if (pagesRecu.length >= 2) {
+        const { imagesVersPdfDataUrl } = await import("@/lib/pdf-images");
+        recu_data = await imagesVersPdfDataUrl(pagesRecu); recu_type = "application/pdf";
+      }
+      const aRecu = !!recu_data;
       const r = await fetch("/api/depenses", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, fournisseur: fournisseurNormalise, projet_id: form.projet_id || null, montant: +form.montant, recu_data: recu?.data || null, recu_type: recu?.type || null }),
+        body: JSON.stringify({ ...form, fournisseur: fournisseurNormalise, projet_id: form.projet_id || null, montant: +form.montant, recu_data, recu_type }),
       });
       if ((await r.json()).ok) {
-        toast(`✓ Dépense ${formatCAD(+form.montant)} ajoutée${recu ? " (reçu joint)" : ""}`, "success");
+        toast(`✓ Dépense ${formatCAD(+form.montant)} ajoutée${aRecu ? (pagesRecu.length >= 2 ? ` (facture ${pagesRecu.length} pages → PDF)` : " (reçu joint)") : ""}`, "success");
         setForm({ projet_id: form.projet_id, date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux", detaxe: false });
-        setRecu(null);
+        setRecu(null); setPagesRecu([]);
         onSuccess?.();
         onClose();
       }
+    } catch (e: any) {
+      toast("Erreur : " + (e?.message || ""), "error");
     } finally { setLoading(false); }
   };
 
@@ -226,19 +238,42 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
             <label className="block text-xs font-medium text-slate-600 mb-1">📎 Reçu (optionnel)</label>
             {recu ? (
               <div className="border-2 border-emerald-300 bg-emerald-50 rounded-lg p-2 flex items-center gap-2">
-                {recu.type.startsWith("image/") ? (
-                  <img src={recu.data} alt="Reçu" className="w-16 h-16 object-cover rounded" />
-                ) : (
-                  <div className="w-16 h-16 bg-slate-200 rounded flex items-center justify-center text-2xl">📄</div>
-                )}
+                <div className="w-16 h-16 bg-slate-200 rounded flex items-center justify-center text-2xl">📄</div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold truncate">{recu.nom}</div>
-                  <div className="text-[10px] text-slate-500">{(recu.data.length * 0.75 / 1024).toFixed(0)} ko</div>
+                  <div className="text-[10px] text-slate-500">PDF · {(recu.data.length * 0.75 / 1024).toFixed(0)} ko</div>
                 </div>
-                {recu.type.startsWith("image/") && (
-                  <button onClick={() => setScannerOuvert(true)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded font-bold" title="Réajuster le cadrage / Lancer l'OCR pour pré-remplir le formulaire">🔎 OCR</button>
-                )}
                 <button onClick={() => setRecu(null)} className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm">✕</button>
+              </div>
+            ) : pagesRecu.length > 0 ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-4 gap-2">
+                  {pagesRecu.map((p, i) => (
+                    <div key={i} className="relative aspect-square">
+                      <img src={p} alt={`Page ${i + 1}`} className="w-full h-full object-cover rounded border" />
+                      <span className="absolute top-0 left-0 bg-black/60 text-white text-[9px] px-1 rounded-br">P{i + 1}</span>
+                      <button onClick={() => retirerPage(i)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 text-[10px] flex items-center justify-center shadow">✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold">
+                    📷 Ajouter une page
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && traiterFichier(e.target.files[0])} />
+                  </label>
+                  <label className="cursor-pointer bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold">
+                    📁 Galerie
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && traiterFichier(e.target.files[0])} />
+                  </label>
+                  {pagesRecu.length === 1 && (
+                    <button onClick={() => setScannerOuvert(true)} className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-2 rounded font-bold" title="OCR pour pré-remplir le formulaire">🔎 OCR</button>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  {pagesRecu.length >= 2
+                    ? `${pagesRecu.length} pages → combinées en 1 seul PDF à l'enregistrement.`
+                    : "Facture trop grande ? Ajoute d'autres photos — elles seront combinées en un seul PDF."}
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
@@ -257,10 +292,10 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
           </div>
         </div>
 
-        {scannerOuvert && recu && recu.type.startsWith("image/") && (
+        {scannerOuvert && pagesRecu[0] && (
           <Suspense fallback={null}>
             <ScannerRecu
-              imageOriginale={recu.data}
+              imageOriginale={pagesRecu[0]}
               onClose={() => setScannerOuvert(false)}
               onConfirmer={confirmerScan}
             />
