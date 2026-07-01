@@ -17,6 +17,7 @@ const LINKS: NavLink[] = [
   { href: "/projets", label: "Projets", icon: "🏗️" },
   { href: "/heures", label: "Horaire", icon: "⏱️" },
   { href: "/taches", label: "Tâches", icon: "✅" },
+  { href: "/jarvis", label: "Jarvis", icon: "🤖" },
   { href: "/clients", label: "CRM", icon: "👥" },
   { href: "/finances/paye", label: "Paie", icon: "💵" },
   { href: "/finances", label: "Finances", icon: "💰" },
