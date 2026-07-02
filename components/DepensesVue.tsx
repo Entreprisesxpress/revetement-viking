@@ -31,6 +31,7 @@ export default function DepensesVue() {
   const [triSens, setTriSens] = useState<TriSens>("desc");
   const [editing, setEditing] = useState<any>(null);
   const [recuOuvert, setRecuOuvert] = useState<{ id: number; type?: string } | null>(null);
+  const [zoom, setZoom] = useState(1);
   const [selection, setSelection] = useState<Set<number>>(new Set());
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const sp = useSearchParams();
@@ -49,6 +50,7 @@ export default function DepensesVue() {
   };
 
   useEffect(() => { charger(); }, []);
+  useEffect(() => { setZoom(1); }, [recuOuvert]); // remet le zoom à 100 % à chaque ouverture
 
   // Arrivée depuis la recherche globale (?depense=ID) : cibler cette dépense —
   // élargir la période pour la rendre visible, filtrer sur son montant, surligner.
@@ -388,22 +390,39 @@ export default function DepensesVue() {
       )}
 
       {/* VISIONNEUSE DE REÇU (avec bouton Retour) */}
-      {recuOuvert && (
-        <div className="fixed inset-0 bg-black/85 z-50 flex flex-col" onClick={() => setRecuOuvert(null)}>
-          <div className="flex items-center justify-between gap-2 p-3 bg-slate-900 text-white flex-shrink-0">
-            <button onClick={() => setRecuOuvert(null)} className="px-4 py-2 bg-white/15 hover:bg-white/25 rounded-lg font-bold text-sm">← Retour</button>
-            <span className="text-sm font-semibold">Reçu</span>
-            <a href={`/api/depenses/${recuOuvert.id}/recu`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-xs underline opacity-80 hover:opacity-100">Ouvrir ↗</a>
+      {recuOuvert && (() => {
+        const estPdf = (recuOuvert.type || "").includes("pdf");
+        return (
+          <div className="fixed inset-0 bg-black/85 z-50 flex flex-col" onClick={() => setRecuOuvert(null)}>
+            <div className="flex items-center justify-between gap-2 p-3 bg-slate-900 text-white flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setRecuOuvert(null)} className="px-4 py-2 bg-white/15 hover:bg-white/25 rounded-lg font-bold text-sm">← Retour</button>
+              {!estPdf && (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setZoom((z) => Math.max(1, +(z - 0.5).toFixed(2)))} className="w-9 h-9 bg-white/15 hover:bg-white/25 rounded-lg font-bold text-lg" aria-label="Dézoomer">−</button>
+                  <span className="text-xs w-12 text-center tabular-nums">{Math.round(zoom * 100)} %</span>
+                  <button onClick={() => setZoom((z) => Math.min(6, +(z + 0.5).toFixed(2)))} className="w-9 h-9 bg-white/15 hover:bg-white/25 rounded-lg font-bold text-lg" aria-label="Zoomer">＋</button>
+                  {zoom !== 1 && <button onClick={() => setZoom(1)} className="px-2 h-9 bg-white/15 hover:bg-white/25 rounded-lg text-xs" aria-label="Réinitialiser">⟳</button>}
+                </div>
+              )}
+              <a href={`/api/depenses/${recuOuvert.id}/recu`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-xs underline opacity-80 hover:opacity-100">Ouvrir ↗</a>
+            </div>
+            <div className="flex-1 overflow-auto flex items-center justify-center p-3" onClick={(e) => e.stopPropagation()}>
+              {estPdf ? (
+                <iframe src={`/api/depenses/${recuOuvert.id}/recu`} className="w-full h-full bg-white rounded" title="Reçu PDF" />
+              ) : (
+                <img
+                  src={`/api/depenses/${recuOuvert.id}/recu`}
+                  alt="Reçu"
+                  onDoubleClick={() => setZoom((z) => (z > 1 ? 1 : 2.5))}
+                  className="max-w-full max-h-full object-contain rounded shadow-lg"
+                  style={{ transform: `scale(${zoom})`, transformOrigin: "center", transition: "transform 0.15s", cursor: zoom > 1 ? "grab" : "zoom-in" }}
+                />
+              )}
+            </div>
+            {!estPdf && <p className="text-center text-white/50 text-[10px] pb-2">Double-clic pour zoomer · glisse pour te déplacer</p>}
           </div>
-          <div className="flex-1 overflow-auto flex items-center justify-center p-3" onClick={(e) => e.stopPropagation()}>
-            {(recuOuvert.type || "").includes("pdf") ? (
-              <iframe src={`/api/depenses/${recuOuvert.id}/recu`} className="w-full h-full bg-white rounded" title="Reçu PDF" />
-            ) : (
-              <img src={`/api/depenses/${recuOuvert.id}/recu`} alt="Reçu" className="max-w-full max-h-full object-contain rounded shadow-lg" />
-            )}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       <FAB onSuccess={charger} />
     </>

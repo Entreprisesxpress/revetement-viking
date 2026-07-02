@@ -209,7 +209,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
             <input
               id="vk-search-input"
               type="search"
-              placeholder="🔍 Rechercher... (Ctrl+K)"
+              placeholder="🔍 Client, projet, dépense (nom ou montant)…"
               value={rechercheQ}
               onChange={(e) => { setRechercheQ(e.target.value); setRechercheOuvert(true); }}
               onFocus={() => setRechercheOuvert(true)}
