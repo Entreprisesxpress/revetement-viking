@@ -41,7 +41,12 @@ export async function POST(req: NextRequest) {
 
   const attendu = motDePasseDe(user);
   if (!attendu) {
-    // Aucun mot de passe configuré (dev local) → accès libre
+    // Aucun mot de passe configuré. En PRODUCTION : on refuse (fail-closed) au lieu
+    // d'émettre un cookie « libre » qui ouvrirait toute l'app. En dev local : accès libre.
+    if (process.env.NODE_ENV === "production") {
+      await journaliser("auth.login_echec", { description: `Auth non configurée côté serveur — ${user}`, ip, user_agent: ua });
+      return NextResponse.json({ error: "Authentification non configurée sur le serveur (mot de passe manquant)." }, { status: 503 });
+    }
     const res = NextResponse.json({ ok: true, user });
     res.cookies.set("xpress_auth", `${user}|`, { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 365 * 10, path: "/" });
     return res;

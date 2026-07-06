@@ -3,8 +3,11 @@ import { creerContratPipeline, listerContratsParClient, marquerContratEnvoye, su
 import { utilisateurActif } from "@/lib/authUser";
 
 function genererToken(): string {
-  // 24 caractères aléatoires base36, suffisamment imprévisible pour un lien public
-  return Array.from({ length: 4 }, () => Math.random().toString(36).slice(2, 10)).join("").slice(0, 32);
+  // Token cryptographiquement fort (le lien de signature de contrat a une valeur juridique).
+  // Math.random() est prévisible (~52 bits, énumérable) → on utilise le CSPRNG Web Crypto.
+  const buf = new Uint8Array(24);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join(""); // 48 hex, 192 bits
 }
 
 export async function GET(req: NextRequest) {

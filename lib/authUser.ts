@@ -39,7 +39,11 @@ export async function utilisateurActif(req: NextRequest | Request): Promise<stri
   if (cookieValue.includes("|")) {
     const [user, sig] = cookieValue.split("|");
     const pwd = motDePasseDe(user);
-    if (!pwd) return user || null; // dev local sans password
+    if (!pwd) {
+      // Pas de mot de passe configuré : toléré en DEV seulement. En PRODUCTION on refuse
+      // (fail-closed) plutôt que de faire confiance au nom d'utilisateur écrit dans le cookie.
+      return process.env.NODE_ENV === "production" ? null : (user || null);
+    }
     const attendu = await signToken(pwd);
     return eq(sig, attendu) ? user : null;
   }

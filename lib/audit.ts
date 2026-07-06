@@ -115,7 +115,8 @@ export async function listerActivites(filtres: { type?: string; ref_type?: strin
   if (filtres.ref_type) { where.push("ref_type = ?"); args.push(filtres.ref_type); }
   if (filtres.ref_id) { where.push("ref_id = ?"); args.push(filtres.ref_id); }
   const w = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const limit = Math.min(filtres.limit || 200, 1000);
+  // Entier borné [1, 1000] garanti avant interpolation dans le SQL (défense en profondeur).
+  const limit = Math.min(Math.max(1, Math.floor(Number(filtres.limit) || 200)), 1000);
   const r = await c.execute({ sql: `SELECT * FROM journal_activite ${w} ORDER BY id DESC LIMIT ${limit}`, args });
   return r.rows as any[];
 }

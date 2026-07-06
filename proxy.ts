@@ -101,11 +101,21 @@ function estAssetPublic(path: string): boolean {
 }
 
 export async function proxy(req: NextRequest) {
-  const password = process.env.APP_PASSWORD;
   const path = req.nextUrl.pathname;
 
-  // Pas de mot de passe configuré (dev local) → on laisse passer mais avec headers
-  if (!password) return avecHeaders(NextResponse.next());
+  // L'auth est « configurée » dès qu'UN mot de passe existe : APP_PASSWORD OU un mot de
+  // passe par utilisateur. Avant, on ne regardait que APP_PASSWORD — donc un déploiement
+  // utilisant seulement FRANCIS_PASSWORD/GABRIEL_PASSWORD laissait passer TOUTE l'app sans
+  // authentification. On couvre maintenant les trois variables.
+  const authConfiguree = !!(
+    process.env.APP_PASSWORD || process.env.FRANCIS_PASSWORD || process.env.GABRIEL_PASSWORD
+  );
+
+  // Aucun mot de passe configuré : accès libre en DEV uniquement. En PRODUCTION on refuse
+  // le fail-open (fail-closed) : l'app reste protégée tant qu'aucun secret n'est configuré.
+  if (!authConfiguree && process.env.NODE_ENV !== "production") {
+    return avecHeaders(NextResponse.next());
+  }
 
   // Routes & assets publics (toujours avec headers de sécurité)
   if (
