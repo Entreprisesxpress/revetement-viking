@@ -18,6 +18,9 @@ export const MODELES = {
   strategie: "claude-sonnet-4-5",
   construction: "claude-sonnet-4-5",
   chat_simple: "claude-haiku-4-5",
+  // Jarvis (assistant d'intelligence d'affaires) → Opus 4.8 : le plus intelligent
+  // pour le raisonnement multi-outils sur les vraies données de l'entreprise.
+  jarvis: "claude-opus-4-8",
 } as const;
 
 // === RÈGLES MÉTIER VIKING — version dynamique (lit DB parametres_ia) ===

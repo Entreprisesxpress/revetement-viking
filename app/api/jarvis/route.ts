@@ -13,12 +13,30 @@ RÈGLES :
 - Utilise TOUJOURS les outils pour obtenir les chiffres réels. Ne devine JAMAIS un montant ou une donnée.
 - Pour une question générale, commence par « apercu_entreprise », puis creuse avec les outils spécifiques au besoin.
 - Tu peux appeler plusieurs outils, en plusieurs tours, avant de répondre.
+- EFFICACITÉ : quand tu as besoin de plusieurs informations INDÉPENDANTES, appelle les outils EN PARALLÈLE (plusieurs outils dans un seul tour) plutôt qu'un à la fois. Ça répond plus vite.
 - Réponds en français du Québec, de façon claire et actionnable. Va droit au but.
 - Formate les montants en dollars CAD (ex: 12 500 $). Utilise des listes/tableaux courts quand c'est utile.
 - Contexte fiscal : taxes TPS 5 % + TVQ 9,975 %. La RENTABILITÉ se calcule AVANT taxes (revenu ÷ 1,14975 − coûts). Le revenu d'un projet = prix de contrat + extras facturés. La main-d'œuvre est un coût.
 - Un projet « complété » est considéré facturé.
 - Tu peux PROPOSER des actions (créer une tâche, compléter un projet, enregistrer une dépense) via les outils « proposer_* ». Ça n'exécute RIEN : ça affiche un bouton que Francis doit confirmer. Ne dis JAMAIS qu'une action est faite — dis « je te propose de… confirme le bouton ci-dessous ».
 - Pour tout le reste, tu es en lecture seule. Si une donnée manque, dis-le franchement plutôt que d'inventer. Termine par une suggestion utile si pertinent.`;
+
+// Marque un point de cache (prompt caching) sur le dernier bloc du dernier message,
+// et retire les points de cache des messages précédents. Résultat : chaque tour de la
+// boucle relit tout l'historique croissant depuis le cache (~0,1× du prix), au lieu de
+// le re-payer plein tarif. On garde un seul point de cache « roulant » côté messages.
+function appliquerCacheMessages(messages: any[]) {
+  for (const m of messages) {
+    if (Array.isArray(m.content)) {
+      for (const b of m.content) if (b && typeof b === "object") delete b.cache_control;
+    }
+  }
+  const last = messages[messages.length - 1];
+  if (last && Array.isArray(last.content) && last.content.length) {
+    const b = last.content[last.content.length - 1];
+    if (b && typeof b === "object") b.cache_control = { type: "ephemeral" };
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,34 +64,52 @@ export async function POST(req: NextRequest) {
     const actionsProposees: any[] = [];
     let reponse = "";
 
+    // Prompt système en blocs : la partie stable (SYSTEME + définitions d'outils, via
+    // l'ordre tools→system) est mise en cache ; la date + l'utilisateur (volatils) sont
+    // placés APRÈS le point de cache pour ne pas invalider le préfixe partagé.
+    const systemBlocks = [
+      { type: "text", text: SYSTEME, cache_control: { type: "ephemeral" } },
+      { type: "text", text: `Date du jour : ${auj}. Tu parles à : ${user}.` },
+    ];
+
     // Boucle tool-use : Claude demande des outils → on exécute → on renvoie → il répond.
     for (let tour = 0; tour < 8; tour++) {
-      const resp = await client.messages.create({
-        model: MODELES.strategie, // Sonnet : raisonnement + tool use
-        max_tokens: 3072,
-        system: `${SYSTEME}\n\nDate du jour : ${auj}. Tu parles à : ${user}.`,
+      appliquerCacheMessages(messages); // point de cache roulant sur l'historique
+
+      // Streaming interne : protège contre les timeouts HTTP sur les tours longs
+      // (Opus + raisonnement). On récupère le message complet à la fin.
+      const stream = client.messages.stream({
+        model: MODELES.jarvis, // Opus 4.8 : le plus intelligent
+        max_tokens: 4096,
+        thinking: { type: "adaptive" }, // le modèle décide quand raisonner en profondeur
+        system: systemBlocks as any,
         tools: OUTILS_JARVIS as any,
         messages,
       });
+      const resp = await stream.finalMessage();
 
       messages.push({ role: "assistant", content: resp.content });
 
       if (resp.stop_reason === "tool_use") {
-        const toolResults: any[] = [];
-        for (const bloc of resp.content) {
-          if ((bloc as any).type === "tool_use") {
-            const tu = bloc as any;
+        // Exécute EN PARALLÈLE tous les outils demandés dans ce tour (au lieu de séquentiel).
+        const demandes = resp.content.filter((b: any) => b.type === "tool_use") as any[];
+        const resultats = await Promise.all(
+          demandes.map(async (tu) => {
             outilsUtilises.push(tu.name);
             const resultat = await executerOutilJarvis(tu.name, tu.input || {});
-            if (OUTILS_ACTION.has(tu.name) && (resultat as any)?.propose && (resultat as any).action) {
-              actionsProposees.push((resultat as any).action);
-            }
-            toolResults.push({
-              type: "tool_result",
-              tool_use_id: tu.id,
-              content: JSON.stringify(resultat).slice(0, 60000),
-            });
+            return { tu, resultat };
+          }),
+        );
+        const toolResults: any[] = [];
+        for (const { tu, resultat } of resultats) {
+          if (OUTILS_ACTION.has(tu.name) && (resultat as any)?.propose && (resultat as any).action) {
+            actionsProposees.push((resultat as any).action);
           }
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: tu.id,
+            content: JSON.stringify(resultat).slice(0, 60000),
+          });
         }
         messages.push({ role: "user", content: toolResults });
         continue;
