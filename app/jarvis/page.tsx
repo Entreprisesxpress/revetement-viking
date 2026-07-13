@@ -6,7 +6,8 @@ import MicVocal from "@/components/MicVocal";
 
 interface ActionProp { type: string; params: any; resume: string; _statut?: "fait" | "erreur"; }
 interface PtGraph { label: string; value: number; }
-interface Msg { role: "user" | "assistant"; content: string; outils?: string[]; erreur?: boolean; actions?: ActionProp[]; chart?: PtGraph[]; chartTitre?: string; }
+interface CoutIA { total_usd?: number; mois_usd?: number; }
+interface Msg { role: "user" | "assistant"; content: string; outils?: string[]; erreur?: boolean; actions?: ActionProp[]; chart?: PtGraph[]; chartTitre?: string; statut?: string; cout?: CoutIA; }
 
 // Mini graphique à barres (marge mensuelle, etc.) — barres au-dessus/dessous de zéro.
 function MiniGraph({ data, titre }: { data: PtGraph[]; titre?: string }) {
@@ -66,7 +67,10 @@ const SUGGESTIONS = [
 const NOM_OUTIL: Record<string, string> = {
   apercu_entreprise: "📊 Aperçu", finances_mensuelles: "📅 Finances", projets: "🏗️ Projets",
   depenses: "💸 Dépenses", heures: "⏱️ Heures", taches: "✅ Tâches", clients: "👥 Clients",
-  soumissions_stats: "📋 Soumissions", extras: "💲 Extras",
+  soumissions_stats: "📋 Soumissions", extras: "💲 Extras", factures_impayees: "🧾 Factures",
+  paie: "💵 Paie", client_details: "👤 Client", projet_details: "🔍 Projet", recherche: "🔎 Recherche",
+  inventaire: "📦 Inventaire", vehicules_assurances: "🚚 Véhicules",
+  proposer_creer_tache: "✅ Tâche", proposer_completer_projet: "🏁 Projet", proposer_creer_depense: "💸 Dépense",
 };
 
 // Rendu léger : gras **texte**, puces "- ", sauts de ligne.
@@ -103,11 +107,20 @@ export default function JarvisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Met à jour le dernier message (le bulle assistant en cours de streaming).
+  const majDernier = (patch: (m: Msg) => Partial<Msg>) =>
+    setMessages((prev) => {
+      if (!prev.length) return prev;
+      const last = prev[prev.length - 1];
+      return [...prev.slice(0, -1), { ...last, ...patch(last) }];
+    });
+
   const envoyer = async (q?: string) => {
     const question = (q ?? input).trim();
     if (!question || busy) return;
     const histo = messages.map((m) => ({ role: m.role, content: m.content }));
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    // Ajoute la question + une bulle assistant vide qu'on remplit en direct.
+    setMessages((prev) => [...prev, { role: "user", content: question }, { role: "assistant", content: "", statut: "Analyse en cours…" }]);
     setInput("");
     setBusy(true);
     try {
@@ -115,11 +128,36 @@ export default function JarvisPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, historique: histo }),
       });
-      const d = await r.json();
-      if (d.ok) setMessages((prev) => [...prev, { role: "assistant", content: d.reponse, outils: d.outils, actions: Array.isArray(d.actions) ? d.actions : [] }]);
-      else setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ " + (d.error || "Erreur"), erreur: true }]);
+      if (!r.ok || !r.body) {
+        const d = await r.json().catch(() => ({}));
+        majDernier(() => ({ content: "⚠️ " + (d.error || `Erreur ${r.status}`), erreur: true, statut: undefined }));
+        return;
+      }
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", contenu = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const blocs = buf.split("\n\n");
+        buf = blocs.pop() || "";
+        for (const bloc of blocs) {
+          const ev = /event:\s*(.+)/.exec(bloc)?.[1]?.trim();
+          const dm = /data:\s*([\s\S]+)/.exec(bloc)?.[1];
+          if (!ev || dm == null) continue;
+          let data: any; try { data = JSON.parse(dm); } catch { continue; }
+          if (ev === "text") { contenu += data.delta || ""; majDernier(() => ({ content: contenu, statut: undefined })); }
+          else if (ev === "statut") majDernier((m) => (m.content ? {} : { statut: "🔎 " + (data.names || []).map((n: string) => NOM_OUTIL[n] || n).join(", ") }));
+          else if (ev === "outils") majDernier(() => ({ outils: data.names }));
+          else if (ev === "actions") majDernier((m) => ({ actions: [...(m.actions || []), ...(data.actions || [])] }));
+          else if (ev === "cout") majDernier(() => ({ cout: data }));
+          else if (ev === "erreur") majDernier(() => ({ content: "⚠️ " + (data.error || "Erreur"), erreur: true, statut: undefined }));
+        }
+      }
+      if (!contenu) majDernier((m) => (m.erreur ? {} : { content: "Je n'ai pas réussi à formuler une réponse.", statut: undefined }));
     } catch (e: any) {
-      setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ " + (e?.message || "Erreur réseau"), erreur: true }]);
+      majDernier(() => ({ content: "⚠️ " + (e?.message || "Erreur réseau"), erreur: true, statut: undefined }));
     } finally { setBusy(false); }
   };
 
@@ -172,7 +210,16 @@ export default function JarvisPage() {
                 m.role === "user" ? "bg-emerald-600 text-white rounded-br-sm"
                 : m.erreur ? "bg-red-50 border border-red-200 text-red-800 rounded-bl-sm"
                 : "bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm"}`}>
-                {m.role === "assistant" && !m.erreur ? <Texte t={m.content} /> : <div className="whitespace-pre-wrap">{m.content}</div>}
+                {m.role === "assistant" && !m.erreur ? (
+                  m.content ? <Texte t={m.content} /> : (
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" />
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.15s]" />
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce [animation-delay:0.3s]" />
+                      <span className="ml-1 text-xs">{m.statut || "Jarvis analyse tes données…"}</span>
+                    </div>
+                  )
+                ) : <div className="whitespace-pre-wrap">{m.content}</div>}
                 {m.chart && <MiniGraph data={m.chart} titre={m.chartTitre} />}
                 {m.actions && m.actions.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-slate-100 space-y-2">
@@ -193,11 +240,16 @@ export default function JarvisPage() {
                     {m.outils.map((o) => <span key={o} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{NOM_OUTIL[o] || o}</span>)}
                   </div>
                 )}
+                {m.cout && (m.cout.total_usd || 0) > 0 && (
+                  <div className="mt-1 text-[9px] text-slate-300 text-right" title="Coût estimé de cette réponse (Claude Opus 4.8)">
+                    ≈ {(m.cout.total_usd || 0).toFixed(3)} $ US{m.cout.mois_usd != null ? ` · ${(m.cout.mois_usd).toFixed(2)} $ US ce mois` : ""}
+                  </div>
+                )}
               </div>
             </div>
           ))}
 
-          {busy && (
+          {busy && !(messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.erreur) && (
             <div className="flex justify-start">
               <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 text-sm text-slate-500 shadow-sm flex items-center gap-2">
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" />
