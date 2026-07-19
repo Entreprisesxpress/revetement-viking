@@ -65,7 +65,9 @@ export async function utilisateurDuCookie(cookieValue?: string): Promise<string 
 
   // Format v2 : "v2|user|exp|sig"
   if (cookieValue.startsWith(VERSION_V2 + "|")) {
-    const [, user, expStr, sig] = cookieValue.split("|");
+    const parts = cookieValue.split("|");
+    if (parts.length !== 4) return null; // format strict : aucun segment en trop
+    const [, user, expStr, sig] = parts;
     if (!user || !expStr || !sig) return null;
     const exp = Number(expStr);
     if (!Number.isFinite(exp) || exp < Date.now()) return null; // expiré

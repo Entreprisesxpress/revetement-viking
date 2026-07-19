@@ -466,7 +466,12 @@ async function doInitDb() {
     ref_type TEXT, ref_id TEXT,
     description TEXT,
     avant TEXT, apres TEXT,
-    ip TEXT, user_agent TEXT
+    ip TEXT, user_agent TEXT,
+    -- IMPORTANT : colonne incluse ici (et pas seulement via l'ALTER plus haut, qui
+    -- s'exécute AVANT ce CREATE). Sur une base neuve l'ALTER échoue silencieusement,
+    -- la table naissait sans « utilisateur » → toute journalisation échouait, ce qui
+    -- désactivait aussi le rate-limit du login (il compte les lignes de ce journal).
+    utilisateur TEXT
   )`);
   await tryExec("CREATE INDEX IF NOT EXISTS idx_journal_date ON journal_activite(date DESC)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_journal_type ON journal_activite(type)");
