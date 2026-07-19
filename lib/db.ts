@@ -962,15 +962,23 @@ export interface Projet {
 }
 export interface ProjetAvecTotaux extends Projet {
   client_nom?: string; total_heures: number; cout_main_oeuvre: number;
-  total_depenses: number; total_facture: number; total_paye: number;
+  total_depenses: number; total_depenses_detaxe?: number; total_depenses_avant_taxes?: number;
+  total_facture: number; total_paye: number;
   cout_total: number; marge: number; marge_pct: number; pct_budget_consomme: number;
   revenu?: number; revenu_avant_taxes?: number; extras_factures?: number;
 }
 
 function calculerTotaux(r: any): ProjetAvecTotaux {
   // Logique centralisée + testée dans lib/calculs.ts
-  const m = calculerMargeProjet(r);
-  return { ...r, ...m };
+  // RENTABILITÉ AVANT TAXES : le revenu est ramené avant taxes, donc les dépenses
+  // DOIVENT l'être aussi (sinon on soustrait des montants taxes incluses d'un revenu
+  // hors taxes → marge sous-estimée d'environ 13 % des dépenses taxables).
+  // Les factures détaxées n'ont pas de taxes à retirer. Même règle que l'écran Finances.
+  const total_depenses_avant_taxes = depensesAvantTaxes(r.total_depenses || 0, r.total_depenses_detaxe || 0);
+  const m = calculerMargeProjet({ ...r, total_depenses: total_depenses_avant_taxes });
+  // `total_depenses` reste le montant réellement payé (taxes incluses) pour l'affichage ;
+  // la marge, elle, est calculée sur `total_depenses_avant_taxes`.
+  return { ...r, ...m, total_depenses_avant_taxes };
 }
 
 // Colonnes projets sans facture_finale_data (blob potentiel de plusieurs MB).
@@ -984,6 +992,7 @@ const PROJ_SQL = `SELECT p.id, p.numero, p.client_id, p.nom, p.adresse_chantier,
   COALESCE((SELECT SUM(heures) FROM heures_projet WHERE projet_id = p.id), 0) as total_heures,
   COALESCE((SELECT SUM(heures * taux_horaire) FROM heures_projet WHERE projet_id = p.id), 0) as cout_main_oeuvre,
   COALESCE((SELECT SUM(montant) FROM depenses_projet WHERE projet_id = p.id), 0) as total_depenses,
+  COALESCE((SELECT SUM(montant) FROM depenses_projet WHERE projet_id = p.id AND detaxe = 1), 0) as total_depenses_detaxe,
   COALESCE((SELECT SUM(montant) FROM factures_projet WHERE projet_id = p.id), 0) as total_facture,
   COALESCE((SELECT SUM(montant) FROM factures_projet WHERE projet_id = p.id AND payee = 1), 0) as total_paye,
   COALESCE((SELECT SUM(montant) FROM extras WHERE projet_id = p.id AND statut = 'charge'), 0) as extras_factures
@@ -1508,12 +1517,19 @@ export async function finances(annee: number): Promise<any> {
     ))?.v || 0;
     // Revenu reconnu quand le projet est COMPLÉTÉ : valeur du contrat (sinon estimé),
     // comptée au mois de complétion (date de fin réelle, sinon prévue, sinon début/création).
+    // Le revenu inclut aussi les EXTRAS FACTURÉS au client (même règle qu'au niveau
+    // projet) : un extra chargé est un revenu réel, sinon le CA et la marge du mois
+    // sont sous-estimés du montant des extras.
     const revenu = (await one<any>(
-      `SELECT COALESCE(SUM(COALESCE(prix_contrat, budget_estime, 0)), 0) as v
-       FROM projets
-       WHERE statut = 'complete'
-         AND COALESCE(date_fin_reelle, date_fin_prevue, date_debut, date_creation) >= ?
-         AND COALESCE(date_fin_reelle, date_fin_prevue, date_debut, date_creation) < ?`,
+      `SELECT COALESCE(SUM(
+                COALESCE(p.prix_contrat, p.budget_estime, 0)
+                + COALESCE((SELECT SUM(e.montant) FROM extras e
+                            WHERE e.projet_id = p.id AND e.statut = 'charge'), 0)
+              ), 0) as v
+       FROM projets p
+       WHERE p.statut = 'complete'
+         AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) >= ?
+         AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) < ?`,
       [debut, finM]
     ))?.v || 0;
     // Marge nette RÉELLE = tout AVANT taxes. Revenu et dépenses sont saisis taxes
