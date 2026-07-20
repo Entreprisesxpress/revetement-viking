@@ -46,7 +46,9 @@ export default function RentabiliteVue() {
       const extras = +p.extras_factures || 0;
       const revenu = prix + extras;                        // taxes incluses
       const revenuAT = +p.revenu_avant_taxes || (revenu / FACTEUR_TAXES);
-      const dep = +p.total_depenses || 0;
+      // Dépenses AVANT TAXES : c'est la base réellement utilisée par la marge.
+      // (Afficher le brut ici ferait que Dépenses + M.O. ≠ Coût total dans le tableau.)
+      const dep = p.total_depenses_avant_taxes != null ? +p.total_depenses_avant_taxes : (+p.total_depenses || 0);
       const mo = +p.cout_main_oeuvre || 0;
       const cout = +p.cout_total || (dep + mo);
       const marge = +p.marge || (revenuAT - cout);

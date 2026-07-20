@@ -24,7 +24,9 @@ function ligneOf(p: any) {
   const prix = (+p.prix_contrat || +p.budget_estime || 0);
   const extras = +p.extras_factures || 0;
   const revenuAT = +p.revenu_avant_taxes || ((prix + extras) / FACTEUR);
-  const cout = +p.cout_total || ((+p.total_depenses || 0) + (+p.cout_main_oeuvre || 0));
+  // Repli aligné sur la marge : dépenses AVANT taxes (pas le montant brut payé).
+  const depAT = p.total_depenses_avant_taxes != null ? +p.total_depenses_avant_taxes : (+p.total_depenses || 0);
+  const cout = +p.cout_total || (depAT + (+p.cout_main_oeuvre || 0));
   const marge = +p.marge || (revenuAT - cout);
   return { nom: p.nom, statut: p.statut, prix, extras, revenuAT, cout, marge, margePct: revenuAT > 0 ? (marge / revenuAT) * 100 : 0 };
 }

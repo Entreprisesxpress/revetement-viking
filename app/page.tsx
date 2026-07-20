@@ -84,7 +84,9 @@ export default function Home() {
       const liste = (Array.isArray(tous) ? tous : [])
         .map((p: any) => {
           const dc = p.date_fin_reelle || p.date_fin_prevue || p.date_debut || p.date_creation || "";
-          const valeur = (p.prix_contrat || p.budget_estime || 0);
+          // Inclut les extras facturés : la tuile CA les compte aussi, sinon le détail
+          // « voir les projets qui composent le CA » ne totalise pas la tuile.
+          const valeur = (p.prix_contrat || p.budget_estime || 0) + (p.extras_factures || 0);
           return { nom: p.nom || "Projet", date: String(dc).slice(0, 10), revenu_at: valeur / 1.14975, an: String(dc).slice(0, 4) };
         })
         .filter((p: any) => p.an === String(an) && p.revenu_at > 0)

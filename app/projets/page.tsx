@@ -254,7 +254,10 @@ export default function ProjetsPage() {
                 </div>
 
                 {p.marge !== undefined && valeurContrat(p) > 0 && (() => {
-                  const revenu = p.revenu || valeurContrat(p);
+                  // Rentabilité AVANT TAXES : les taxes perçues ne sont pas un revenu.
+                  // `cout_total` est déjà avant taxes ; on doit donc comparer au revenu
+                  // avant taxes (sinon le profit net est surestimé d'environ 13 %).
+                  const revenu = p.revenu_avant_taxes ?? ((p.revenu || valeurContrat(p)) / 1.14975);
                   const fraisFixes = Math.round(revenu * 0.15);
                   const profitNet = revenu - p.cout_total - fraisFixes;
                   const pctNet = revenu > 0 ? (profitNet / revenu) * 100 : 0;

@@ -91,6 +91,13 @@ section("6. RENTABILITÉ DU PROJET (le calcul critique)");
     check("coût total", money(p.cout_total), 3500);
     check("MARGE (22000 − 3500)", money(p.marge), 18500);
     check("marge %", money(p.marge_pct), 84.09, 0.05);
+    // COHÉRENCE : la somme des colonnes affichées doit donner le coût total.
+    check("cohérence dépensesAT + M.O. = coût total",
+      money((p.total_depenses_avant_taxes || 0) + (p.cout_main_oeuvre || 0)), money(p.cout_total));
+    // « Profit net » (règle métier : −15 % de frais fixes structurels), AVANT taxes.
+    const fraisFixes = Math.round(p.revenu_avant_taxes * 0.15);           // 3 300
+    check("frais fixes 15 % sur revenu AVANT taxes", fraisFixes, 3300);
+    check("profit net = 22000 − 3500 − 3300", money(p.revenu_avant_taxes - p.cout_total - fraisFixes), 15200);
   }
 }
 

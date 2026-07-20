@@ -421,7 +421,11 @@ ${VIKING_EMAIL}
 
         {/* RENTABILITÉ TEMPS RÉEL — inclut 15% frais fixes structurels (admin/véhicules/assurance/loyer) */}
         {(() => {
-          const revenu = projet.revenu || 0;
+          // Rentabilité AVANT TAXES (les taxes perçues ne sont pas un revenu, et
+          // `cout_total` est déjà avant taxes). `revenuAffiche` reste le montant du
+          // contrat taxes incluses, c'est ce que le client paie.
+          const revenuAffiche = projet.revenu || 0;
+          const revenu = projet.revenu_avant_taxes ?? (revenuAffiche / 1.14975);
           const fraisFixes = Math.round(revenu * 0.15);
           const coutTotalAvecFixes = projet.cout_total + fraisFixes;
           const margeReelle = revenu - coutTotalAvecFixes;
@@ -430,7 +434,7 @@ ${VIKING_EMAIL}
         <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-lg p-5 shadow-lg">
           <h2 className="text-sm font-semibold text-slate-300 uppercase mb-3">💰 Rentabilité temps réel <span className="text-[10px] font-normal text-slate-400">— inclut 15% frais fixes</span></h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Stat label={projet.prix_contrat ? "Prix contrat" : "Budget initial"} value={formatCAD(revenu)} sub={projet.prix_contrat && projet.budget_estime && projet.prix_contrat !== projet.budget_estime ? `Budget est. : ${formatCAD(projet.budget_estime)}` : ""} />
+            <Stat label={projet.prix_contrat ? "Prix contrat" : "Budget initial"} value={formatCAD(revenuAffiche)} sub={`Avant taxes : ${formatCAD(revenu)}`} />
             <Stat label="Coût total" value={formatCAD(coutTotalAvecFixes)} couleur={coutTotalAvecFixes > revenu ? "text-red-300" : "text-amber-200"} sub={`Direct ${formatCAD(projet.cout_total)} + Fixes ${formatCAD(fraisFixes)}`} />
             <Stat label="Profit net" value={formatCAD(margeReelle)} couleur={margeReelle < 0 ? "text-red-300" : "text-emerald-300"} sub={`${margeReellePct.toFixed(0)}% net`} />
             <Stat label="Restant" value={formatCAD(revenu - coutTotalAvecFixes)} couleur={revenu - coutTotalAvecFixes < 0 ? "text-red-300" : "text-slate-200"} />
