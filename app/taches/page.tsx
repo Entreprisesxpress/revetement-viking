@@ -123,9 +123,11 @@ export default function TachesPage() {
             <option value="">— Personne</option>
             {PERSONNES.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
-          <div className="flex gap-1">
-            <button onClick={() => setEditing({ ...t, recurrence: t.recurrence || "", description: t.description || "", date_due: t.date_due || "", priorite: t.priorite ?? 3, assigne_a: t.assigne_a || "" })} className="text-xs text-slate-500 hover:text-emerald-700" title="Modifier">✏️</button>
-            <button onClick={() => supprimer(t)} className="text-xs text-slate-400 hover:text-red-600" title="Supprimer">🗑</button>
+          {/* Zones tactiles ≥ 40 px et bien espacées : sur mobile, ✏️ et 🗑 collés
+              faisaient 16 px et 8 px de large → risque de supprimer en voulant modifier. */}
+          <div className="flex gap-2">
+            <button onClick={() => setEditing({ ...t, recurrence: t.recurrence || "", description: t.description || "", date_due: t.date_due || "", priorite: t.priorite ?? 3, assigne_a: t.assigne_a || "" })} className="text-sm text-slate-500 hover:text-emerald-700 w-10 h-10 flex items-center justify-center rounded-lg hover:bg-slate-100" title="Modifier" aria-label="Modifier la tâche">✏️</button>
+            <button onClick={() => supprimer(t)} className="text-sm text-slate-400 hover:text-red-600 w-10 h-10 flex items-center justify-center rounded-lg hover:bg-red-50" title="Supprimer" aria-label="Supprimer la tâche">🗑</button>
           </div>
         </div>
       </div>

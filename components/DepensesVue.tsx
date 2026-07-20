@@ -199,7 +199,9 @@ export default function DepensesVue() {
 
         {/* Recherche et filtres */}
         <section className="bg-white rounded-lg shadow p-3 space-y-2">
-          <input type="search" placeholder="🔍 Rechercher (fournisseur, description, projet, date, montant…)" value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full px-3 py-2 border rounded text-sm" />
+          {/* text-base (16 px) sur mobile : en dessous de 16 px, iOS zoome tout seul
+              quand on tape dans le champ, puis il faut dézoomer à la main. */}
+          <input type="search" placeholder="🔍 Rechercher (fournisseur, description, projet, date, montant…)" value={recherche} onChange={(e) => setRecherche(e.target.value)} className="w-full px-3 py-2 border rounded text-base sm:text-sm" />
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div>
               <label className="block text-[10px] font-medium text-slate-600 mb-1">Depuis</label>

@@ -118,9 +118,13 @@ export default function ProjetsPage() {
 
   // Considère "en_cours" et "actif" comme des projets en activité
   const estActif = (p: any) => p.statut === 'actif' || p.statut === 'en_cours';
+  // Valeur du contrat : même précédence que le calcul de marge (lib/calculs.ts).
+  // Avant, l'affichage ne regardait que budget_estime → un projet saisi avec seulement
+  // un prix de contrat affichait « 0 $ » et son bloc de marge disparaissait.
+  const valeurContrat = (p: any) => p.prix_contrat || p.budget_estime || 0;
   const stats = {
     actifs: projets.filter(estActif).length,
-    budget_total: projets.filter(estActif).reduce((s, p) => s + (p.budget_estime || 0), 0),
+    budget_total: projets.filter(estActif).reduce((s, p) => s + valeurContrat(p), 0),
     cout_total: projets.filter(estActif).reduce((s, p) => s + (p.cout_total || 0), 0),
     facture_total: projets.filter(estActif).reduce((s, p) => s + (p.total_facture || 0), 0),
     paye_total: projets.filter(estActif).reduce((s, p) => s + (p.total_paye || 0), 0),
@@ -230,10 +234,10 @@ export default function ProjetsPage() {
                 {p.adresse_chantier && <div className="text-xs text-slate-600">📍 {p.adresse_chantier}</div>}
 
                 {/* Barre budget vs coût */}
-                {p.budget_estime > 0 && (
+                {valeurContrat(p) > 0 && (
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span>Budget : <strong>{formatCAD(p.budget_estime)}</strong></span>
+                      <span>Budget : <strong>{formatCAD(valeurContrat(p))}</strong></span>
                       <span className={p.pct_budget_consomme > 90 ? "text-red-600 font-bold" : p.pct_budget_consomme > 75 ? "text-amber-600" : "text-slate-600"}>{p.pct_budget_consomme.toFixed(0)}%</span>
                     </div>
                     <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -249,8 +253,8 @@ export default function ProjetsPage() {
                   <div><span className="text-slate-500">Payé :</span> <strong className="text-emerald-700">{formatCAD(p.total_paye)}</strong></div>
                 </div>
 
-                {p.marge !== undefined && p.budget_estime > 0 && (() => {
-                  const revenu = p.revenu || p.budget_estime || 0;
+                {p.marge !== undefined && valeurContrat(p) > 0 && (() => {
+                  const revenu = p.revenu || valeurContrat(p);
                   const fraisFixes = Math.round(revenu * 0.15);
                   const profitNet = revenu - p.cout_total - fraisFixes;
                   const pctNet = revenu > 0 ? (profitNet / revenu) * 100 : 0;
