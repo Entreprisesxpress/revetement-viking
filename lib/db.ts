@@ -1423,122 +1423,132 @@ export async function soumissionsARelancer(): Promise<any[]> {
 export async function rechercheGlobale(q: string): Promise<{ type: string; id: number | string; titre: string; sous: string }[]> {
   if (!q.trim()) return [];
   const like = `%${q.toLowerCase()}%`;
-  const out: any[] = [];
-  const clients = await all<any>(`SELECT id, nom, telephone FROM clients WHERE LOWER(nom) LIKE ? OR LOWER(courriel) LIKE ? OR telephone LIKE ? LIMIT 5`, [like, like, like]);
-  for (const c of clients) out.push({ type: "client", id: c.id, titre: c.nom, sous: c.telephone || "" });
-  const projets = await all<any>(`SELECT id, nom, adresse_chantier FROM projets WHERE LOWER(nom) LIKE ? OR LOWER(adresse_chantier) LIKE ? LIMIT 5`, [like, like]);
-  for (const p of projets) out.push({ type: "projet", id: p.id, titre: p.nom, sous: p.adresse_chantier || "" });
-  const soums = await all<any>(`SELECT numero, client_nom, total FROM soumissions WHERE LOWER(numero) LIKE ? OR LOWER(client_nom) LIKE ? LIMIT 5`, [like, like]);
-  for (const s of soums) out.push({ type: "soumission", id: s.numero, titre: s.numero, sous: s.client_nom || "" });
-  // Dépenses : par MONTANT (ex. "45" ou "45,33"), sinon par fournisseur/description.
-  try {
-    const vus = new Set<number>();
-    const ajouterDep = (d: any) => {
-      if (vus.has(d.id)) return; vus.add(d.id);
-      out.push({ type: "depense", id: d.id, montant: d.montant,
-        titre: `💸 ${(+d.montant).toFixed(2)} $ — ${d.fournisseur || "?"}`,
-        sous: `${d.categorie || ""}${d.projet_nom ? " · " + d.projet_nom : ""} · ${String(d.date).slice(0, 10)}` });
-    };
-    const m = q.replace(",", ".").match(/\d+(\.\d+)?/);
-    if (m) {
-      const n = Number(m[0]);
-      const depMontant = await all<any>(
-        `SELECT dp.id, dp.montant, dp.fournisseur, dp.date, dp.categorie, dp.projet_id, p.nom as projet_nom
-         FROM depenses_projet dp LEFT JOIN projets p ON p.id = dp.projet_id
-         WHERE dp.montant = ? OR CAST(dp.montant AS TEXT) LIKE ?
-         ORDER BY ABS(dp.montant - ?) ASC, dp.date DESC LIMIT 6`,
-        [n, `${m[0]}%`, n]
-      );
-      for (const d of depMontant) ajouterDep(d);
-    }
-    const depTxt = await all<any>(
+  const m = q.replace(",", ".").match(/\d+(\.\d+)?/);
+  const n = m ? Number(m[0]) : null;
+
+  // Les 8 recherches partent EN PARALLÈLE (avant : séquentielles → ~8 allers-retours
+  // Turso par frappe). allSettled : une table absente sur une vieille base ne casse
+  // pas les autres résultats. L'ordre d'affichage est reconstruit après coup.
+  const vide: any[] = [];
+  const [clients, projets, soums, depMontant, depTxt, comms, taches, fichiers] = (await Promise.allSettled([
+    all<any>(`SELECT id, nom, telephone FROM clients WHERE LOWER(nom) LIKE ? OR LOWER(courriel) LIKE ? OR telephone LIKE ? LIMIT 5`, [like, like, like]),
+    all<any>(`SELECT id, nom, adresse_chantier FROM projets WHERE LOWER(nom) LIKE ? OR LOWER(adresse_chantier) LIKE ? LIMIT 5`, [like, like]),
+    all<any>(`SELECT numero, client_nom, total FROM soumissions WHERE LOWER(numero) LIKE ? OR LOWER(client_nom) LIKE ? LIMIT 5`, [like, like]),
+    // Dépenses : par MONTANT (ex. "45" ou "45,33")…
+    n == null ? Promise.resolve(vide) : all<any>(
+      `SELECT dp.id, dp.montant, dp.fournisseur, dp.date, dp.categorie, dp.projet_id, p.nom as projet_nom
+       FROM depenses_projet dp LEFT JOIN projets p ON p.id = dp.projet_id
+       WHERE dp.montant = ? OR CAST(dp.montant AS TEXT) LIKE ?
+       ORDER BY ABS(dp.montant - ?) ASC, dp.date DESC LIMIT 6`,
+      [n, `${m![0]}%`, n]
+    ),
+    // …sinon par fournisseur/description.
+    all<any>(
       `SELECT dp.id, dp.montant, dp.fournisseur, dp.date, dp.categorie, dp.projet_id, p.nom as projet_nom
        FROM depenses_projet dp LEFT JOIN projets p ON p.id = dp.projet_id
        WHERE LOWER(dp.fournisseur) LIKE ? OR LOWER(dp.description) LIKE ?
        ORDER BY dp.date DESC LIMIT 4`,
       [like, like]
-    );
-    for (const d of depTxt) ajouterDep(d);
-  } catch { /* table absente sur anciennes bases */ }
-  // Recherche étendue : commentaires pipeline + sous-tâches + fichiers attachés
-  try {
-    const comms = await all<any>(
+    ),
+    // Recherche étendue : commentaires pipeline + sous-tâches + fichiers attachés
+    all<any>(
       `SELECT cc.id, cc.client_id, cc.texte, cc.auteur, cl.nom as client_nom
        FROM client_commentaires cc LEFT JOIN clients cl ON cl.id = cc.client_id
        WHERE LOWER(cc.texte) LIKE ? LIMIT 4`,
       [like]
-    );
-    for (const c of comms) out.push({ type: "commentaire", id: c.client_id, titre: `💬 ${String(c.texte).slice(0, 60)}…`, sous: `${c.auteur || "—"} → ${c.client_nom || "?"}` });
-    const taches = await all<any>(
+    ),
+    all<any>(
       `SELECT ct.id, ct.client_id, ct.titre, ct.complete, cl.nom as client_nom
        FROM client_taches ct LEFT JOIN clients cl ON cl.id = ct.client_id
        WHERE LOWER(ct.titre) LIKE ? LIMIT 4`,
       [like]
-    );
-    for (const t of taches) out.push({ type: "sous-tâche", id: t.client_id, titre: `${t.complete ? "✅" : "☐"} ${t.titre}`, sous: t.client_nom || "?" });
-    const fichiers = await all<any>(
+    ),
+    all<any>(
       `SELECT cf.id, cf.client_id, cf.nom, cl.nom as client_nom
        FROM client_fichiers cf LEFT JOIN clients cl ON cl.id = cf.client_id
        WHERE LOWER(cf.nom) LIKE ? LIMIT 4`,
       [like]
-    );
-    for (const f of fichiers) out.push({ type: "fichier", id: f.client_id, titre: `📎 ${f.nom}`, sous: f.client_nom || "?" });
-  } catch { /* tables peuvent ne pas exister sur anciennes bases */ }
+    ),
+  ])).map((r) => (r.status === "fulfilled" ? r.value : vide));
+
+  const out: any[] = [];
+  for (const c of clients) out.push({ type: "client", id: c.id, titre: c.nom, sous: c.telephone || "" });
+  for (const p of projets) out.push({ type: "projet", id: p.id, titre: p.nom, sous: p.adresse_chantier || "" });
+  for (const s of soums) out.push({ type: "soumission", id: s.numero, titre: s.numero, sous: s.client_nom || "" });
+  const vus = new Set<number>();
+  const ajouterDep = (d: any) => {
+    if (vus.has(d.id)) return; vus.add(d.id);
+    out.push({ type: "depense", id: d.id, montant: d.montant,
+      titre: `💸 ${(+d.montant).toFixed(2)} $ — ${d.fournisseur || "?"}`,
+      sous: `${d.categorie || ""}${d.projet_nom ? " · " + d.projet_nom : ""} · ${String(d.date).slice(0, 10)}` });
+  };
+  for (const d of depMontant) ajouterDep(d);
+  for (const d of depTxt) ajouterDep(d);
+  for (const c of comms) out.push({ type: "commentaire", id: c.client_id, titre: `💬 ${String(c.texte).slice(0, 60)}…`, sous: `${c.auteur || "—"} → ${c.client_nom || "?"}` });
+  for (const t of taches) out.push({ type: "sous-tâche", id: t.client_id, titre: `${t.complete ? "✅" : "☐"} ${t.titre}`, sous: t.client_nom || "?" });
+  for (const f of fichiers) out.push({ type: "fichier", id: f.client_id, titre: `📎 ${f.nom}`, sous: f.client_nom || "?" });
   return out;
 }
 export async function finances(annee: number): Promise<any> {
-  // Cache 30 s invalidé par toute écriture (cacheLecture) : finances() fait ~60 requêtes
-  // (12 mois × 5). Les ouvertures répétées du dashboard/finances deviennent instantanées,
-  // et le cache se rafraîchit dès qu'on saisit heures/dépense/projet.
+  // Cache 30 s invalidé par toute écriture (cacheLecture). En plus du cache, le calcul
+  // est fait en 5 requêtes GROUP BY mois LANCÉES EN PARALLÈLE, au lieu de 60 requêtes
+  // séquentielles (12 mois × 5). Sur Turso en prod, chaque requête est un aller-retour
+  // réseau (~20-50 ms) : le chargement à froid passait ~1,5-3 s → ~1 aller-retour.
   return cacheLecture(`finances:${annee}`, 30000, async () => {
-  const mois: any[] = [];
-  for (let m = 1; m <= 12; m++) {
-    const debut = `${annee}-${String(m).padStart(2, "0")}-01`;
-    const finM = new Date(annee, m, 1).toISOString().slice(0, 10);
-    const facture = (await one<any>(`SELECT COALESCE(SUM(montant), 0) as v FROM factures_projet WHERE date >= ? AND date < ?`, [debut, finM]))?.v || 0;
-    const paye = (await one<any>(`SELECT COALESCE(SUM(montant), 0) as v FROM factures_projet WHERE payee = 1 AND date_paiement >= ? AND date_paiement < ?`, [debut, finM]))?.v || 0;
+  const prefixe = `${annee}-%`;
+  // Mois de complétion d'un projet (date fin réelle, sinon prévue, sinon début/création).
+  // substr(...,1,7) = « AAAA-MM » ; fonctionne pour les dates courtes et les ISO complets.
+  const moisCompl = `substr(COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation), 1, 7)`;
+  const [rFact, rPaye, rDep, rMo, rRev] = await Promise.all([
+    all<any>(`SELECT substr(date, 1, 7) ym, COALESCE(SUM(montant), 0) v
+              FROM factures_projet WHERE date LIKE ? GROUP BY ym`, [prefixe]),
+    all<any>(`SELECT substr(date_paiement, 1, 7) ym, COALESCE(SUM(montant), 0) v
+              FROM factures_projet WHERE payee = 1 AND date_paiement LIKE ? GROUP BY ym`, [prefixe]),
     // Dépenses & M.O. : on ne compte QUE les projets COMPLÉTÉS, attribués à leur mois
     // de complétion — pour faire correspondre les coûts au revenu reconnu (sinon on
     // compterait les coûts de chantiers en cours dont le revenu n'est pas encore reconnu).
-    const complDansMois = `p.statut = 'complete'
-      AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) >= ?
-      AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) < ?`;
-    const depRow = await one<any>(
-      `SELECT COALESCE(SUM(dp.montant), 0) as total, COALESCE(SUM(CASE WHEN dp.detaxe = 1 THEN dp.montant ELSE 0 END), 0) as detaxe
-       FROM depenses_projet dp JOIN projets p ON p.id = dp.projet_id WHERE ${complDansMois}`,
-      [debut, finM]
-    );
-    const depenses = depRow?.total || 0;
-    const depensesDetaxe = depRow?.detaxe || 0;
-    const mo = (await one<any>(
-      `SELECT COALESCE(SUM(hp.heures * hp.taux_horaire), 0) as v
-       FROM heures_projet hp JOIN projets p ON p.id = hp.projet_id WHERE ${complDansMois}`,
-      [debut, finM]
-    ))?.v || 0;
-    // Revenu reconnu quand le projet est COMPLÉTÉ : valeur du contrat (sinon estimé),
-    // comptée au mois de complétion (date de fin réelle, sinon prévue, sinon début/création).
-    // Le revenu inclut aussi les EXTRAS FACTURÉS au client (même règle qu'au niveau
-    // projet) : un extra chargé est un revenu réel, sinon le CA et la marge du mois
-    // sont sous-estimés du montant des extras.
-    const revenu = (await one<any>(
-      `SELECT COALESCE(SUM(
+    all<any>(`SELECT ${moisCompl} ym, COALESCE(SUM(dp.montant), 0) v,
+                     COALESCE(SUM(CASE WHEN dp.detaxe = 1 THEN dp.montant ELSE 0 END), 0) detaxe
+              FROM depenses_projet dp JOIN projets p ON p.id = dp.projet_id
+              WHERE p.statut = 'complete' AND ${moisCompl} LIKE ? GROUP BY ym`, [prefixe]),
+    all<any>(`SELECT ${moisCompl} ym, COALESCE(SUM(hp.heures * hp.taux_horaire), 0) v
+              FROM heures_projet hp JOIN projets p ON p.id = hp.projet_id
+              WHERE p.statut = 'complete' AND ${moisCompl} LIKE ? GROUP BY ym`, [prefixe]),
+    // Revenu reconnu à la complétion : contrat (sinon estimé) + EXTRAS FACTURÉS
+    // (même règle qu'au niveau projet — un extra chargé est un revenu réel).
+    all<any>(`SELECT ${moisCompl} ym, COALESCE(SUM(
                 COALESCE(p.prix_contrat, p.budget_estime, 0)
                 + COALESCE((SELECT SUM(e.montant) FROM extras e
                             WHERE e.projet_id = p.id AND e.statut = 'charge'), 0)
-              ), 0) as v
-       FROM projets p
-       WHERE p.statut = 'complete'
-         AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) >= ?
-         AND COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation) < ?`,
-      [debut, finM]
-    ))?.v || 0;
+              ), 0) v
+              FROM projets p
+              WHERE p.statut = 'complete' AND ${moisCompl} LIKE ? GROUP BY ym`, [prefixe]),
+  ]);
+  const parMois = (rows: any[]) => {
+    const m = new Map<string, any>();
+    for (const r of rows) if (r?.ym) m.set(String(r.ym), r);
+    return m;
+  };
+  const mFact = parMois(rFact), mPaye = parMois(rPaye), mDep = parMois(rDep), mMo = parMois(rMo), mRev = parMois(rRev);
+
+  const mois: any[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const ym = `${annee}-${String(m).padStart(2, "0")}`;
+    const depenses = +(mDep.get(ym)?.v || 0);
+    const depensesDetaxe = +(mDep.get(ym)?.detaxe || 0);
+    const mo = +(mMo.get(ym)?.v || 0);
+    const revenu = +(mRev.get(ym)?.v || 0);
     // Marge nette RÉELLE = tout AVANT taxes. Revenu et dépenses sont saisis taxes
     // incluses ; on les ramène avant taxes (÷ 1,14975). La MO (salaires) n'a pas de
     // taxe. marge = revenu_avant_taxes − depenses_avant_taxes − MO.
     const revenu_avant_taxes = revenuAvantTaxes(revenu);
     // Les factures détaxées n'ont pas de taxes à retirer : on ne ramène que la part taxable.
     const depenses_avant_taxes = depensesAvantTaxes(depenses, depensesDetaxe);
-    mois.push({ mois: m, facture, paye, depenses, depenses_avant_taxes, mo, contrats: revenu, revenu, revenu_avant_taxes, marge: revenu_avant_taxes - depenses_avant_taxes - mo });
+    mois.push({
+      mois: m, facture: +(mFact.get(ym)?.v || 0), paye: +(mPaye.get(ym)?.v || 0),
+      depenses, depenses_avant_taxes, mo, contrats: revenu, revenu, revenu_avant_taxes,
+      marge: revenu_avant_taxes - depenses_avant_taxes - mo,
+    });
   }
   return { annee, mois };
   });

@@ -20,7 +20,8 @@ export async function GET(_req: NextRequest) {
     for (const p of projets) {
       if (p.statut !== "complete") continue;
       const finN = String(p.date_fin_reelle || p.date_fin_prevue || p.date_debut || p.date_creation || "").slice(0, 7);
-      if (finN === moisCourant) revenu_mois += (+(p.prix_contrat as any) || +(p.budget_estime as any) || 0);
+      // Inclut les extras facturés — même règle que le CA mensuel de la page Finances.
+      if (finN === moisCourant) revenu_mois += (+(p.prix_contrat as any) || +(p.budget_estime as any) || 0) + (+((p as any).extras_factures) || 0);
     }
 
     // Marge moyenne sur les projets ACTIFS (rentabilité en cours, avant taxes).

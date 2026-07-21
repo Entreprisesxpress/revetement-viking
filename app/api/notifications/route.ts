@@ -12,38 +12,39 @@ async function alertesBusiness(user: string | null) {
   const auj = new Date().toISOString().slice(0, 10);
   const il_y_a_30j = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
-  // Factures impayées > 30 jours
-  const fIm = await c.execute({
-    sql: `SELECT fp.id, fp.numero, fp.montant, fp.date, p.nom AS projet_nom, p.id AS projet_id
-          FROM factures_projet fp LEFT JOIN projets p ON p.id = fp.projet_id
-          WHERE (fp.payee = 0 OR fp.payee IS NULL) AND fp.date < ? ORDER BY fp.date ASC LIMIT 20`,
-    args: [il_y_a_30j],
-  }).catch(() => ({ rows: [] }));
-
-  // Projets en retard
-  const pR = await c.execute({
-    sql: `SELECT id, nom, date_fin_prevue FROM projets WHERE statut = 'actif' AND date_fin_prevue IS NOT NULL AND date_fin_prevue < ? ORDER BY date_fin_prevue ASC LIMIT 20`,
-    args: [auj],
-  }).catch(() => ({ rows: [] }));
-
-  // Tâches à échéance (mes tâches, dans 3 jours ou en retard)
   const dans3j = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-  const tEch = user ? await c.execute({
-    sql: `SELECT t.id, t.titre, t.date_echeance, c.id AS client_id, c.nom AS client_nom
-          FROM client_taches t LEFT JOIN clients c ON c.id = t.client_id
-          WHERE t.assignee = ? AND (t.complete IS NULL OR t.complete = 0) AND t.date_echeance IS NOT NULL AND t.date_echeance <= ?
-          ORDER BY t.date_echeance ASC LIMIT 20`,
-    args: [user, dans3j],
-  }).catch(() => ({ rows: [] })) : { rows: [] };
-
-  // Tâches générales (module Tâches) à échéance ou en retard, assignées à l'utilisateur.
-  const tGen = user ? await c.execute({
-    sql: `SELECT id, titre, date_due AS date_echeance, NULL AS client_id, NULL AS client_nom
-          FROM taches_client
-          WHERE assigne_a = ? AND statut != 'complete' AND date_due IS NOT NULL AND date_due <= ?
-          ORDER BY date_due ASC LIMIT 20`,
-    args: [user, dans3j],
-  }).catch(() => ({ rows: [] })) : { rows: [] };
+  // Les 4 requêtes partent en parallèle (avant : séquentielles → 4 allers-retours
+  // Turso à chaque poll de la cloche).
+  const [fIm, pR, tEch, tGen] = await Promise.all([
+    // Factures impayées > 30 jours
+    c.execute({
+      sql: `SELECT fp.id, fp.numero, fp.montant, fp.date, p.nom AS projet_nom, p.id AS projet_id
+            FROM factures_projet fp LEFT JOIN projets p ON p.id = fp.projet_id
+            WHERE (fp.payee = 0 OR fp.payee IS NULL) AND fp.date < ? ORDER BY fp.date ASC LIMIT 20`,
+      args: [il_y_a_30j],
+    }).catch(() => ({ rows: [] })),
+    // Projets en retard
+    c.execute({
+      sql: `SELECT id, nom, date_fin_prevue FROM projets WHERE statut = 'actif' AND date_fin_prevue IS NOT NULL AND date_fin_prevue < ? ORDER BY date_fin_prevue ASC LIMIT 20`,
+      args: [auj],
+    }).catch(() => ({ rows: [] })),
+    // Tâches à échéance (mes tâches, dans 3 jours ou en retard)
+    user ? c.execute({
+      sql: `SELECT t.id, t.titre, t.date_echeance, c.id AS client_id, c.nom AS client_nom
+            FROM client_taches t LEFT JOIN clients c ON c.id = t.client_id
+            WHERE t.assignee = ? AND (t.complete IS NULL OR t.complete = 0) AND t.date_echeance IS NOT NULL AND t.date_echeance <= ?
+            ORDER BY t.date_echeance ASC LIMIT 20`,
+      args: [user, dans3j],
+    }).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
+    // Tâches générales (module Tâches) à échéance ou en retard, assignées à l'utilisateur.
+    user ? c.execute({
+      sql: `SELECT id, titre, date_due AS date_echeance, NULL AS client_id, NULL AS client_nom
+            FROM taches_client
+            WHERE assigne_a = ? AND statut != 'complete' AND date_due IS NOT NULL AND date_due <= ?
+            ORDER BY date_due ASC LIMIT 20`,
+      args: [user, dans3j],
+    }).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
+  ]);
 
   return {
     factures_impayees: fIm.rows,
