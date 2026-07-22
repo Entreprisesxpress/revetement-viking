@@ -30,7 +30,15 @@ export function avancerDateRecurrence(iso: string | null, rec: string): string {
   if (rec === "quotidien") dt.setDate(dt.getDate() + 1);
   else if (rec === "hebdo") dt.setDate(dt.getDate() + 7);
   else if (rec === "2sem") dt.setDate(dt.getDate() + 14);
-  else if (rec === "mensuel") dt.setMonth(dt.getMonth() + 1);
+  else if (rec === "mensuel") {
+    // Fin de mois : setMonth() seul déborde (31 janv + 1 mois = 3 MARS, février
+    // sauté !). On borne au dernier jour du mois cible : 31 janv → 28/29 fév,
+    // 31 mars → 30 avril, 15 déc → 15 janv.
+    const jour = dt.getDate();
+    dt.setDate(1);
+    dt.setMonth(dt.getMonth() + 1);
+    dt.setDate(Math.min(jour, new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()));
+  }
   else return base;
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }

@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
   if (!body.description || !body.description.trim()) {
     return NextResponse.json({ error: "description requise" }, { status: 400 });
   }
+  if (body.montant != null && body.montant !== "" && !isFinite(Number(body.montant))) {
+    return NextResponse.json({ error: "montant invalide" }, { status: 400 });
+  }
   const user = await utilisateurActif(req);
   const id = await ajouterExtra({
     projet_id: body.projet_id ? +body.projet_id : null,

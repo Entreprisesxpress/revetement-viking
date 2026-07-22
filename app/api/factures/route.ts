@@ -15,9 +15,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    if (!body.projet_id || !body.montant || !body.date) {
-      return NextResponse.json({ error: "projet_id, montant et date requis" }, { status: 400 });
+    // Montant : NOMBRE fini exigé (« abc » passait). Négatif toléré (note de crédit).
+    const montant = Number(body.montant);
+    if (!body.projet_id || !body.montant || !isFinite(montant) || !body.date) {
+      return NextResponse.json({ error: "projet_id, montant (nombre) et date requis" }, { status: 400 });
     }
+    body.montant = montant;
     const id = await ajouterFactureProjet(body);
     return NextResponse.json({ ok: true, id });
   } catch (e) { return fail(e); }

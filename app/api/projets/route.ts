@@ -5,6 +5,13 @@ import { aujourdhuiMontreal } from "@/lib/date";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 
+// Statuts reconnus par l'app (filtres, CA, dashboard). Un statut hors liste rendait
+// le projet invisible des filtres ET du CA — silencieusement.
+const STATUTS_PROJET = new Set(["actif", "a_venir", "en_cours", "en_pause", "complete", "annule"]);
+function statutInvalide(statut: any): boolean {
+  return statut !== undefined && statut !== null && !STATUTS_PROJET.has(String(statut));
+}
+
 function ok(data: any, init?: ResponseInit) {
   // no-store : les chiffres (marge, coûts) doivent toujours être frais après
   // ajout d'heures/dépenses. Pas de cache navigateur ni CDN.
@@ -57,6 +64,7 @@ export async function POST(req: NextRequest) {
       });
       return ok({ ok: true, id });
     }
+    if (statutInvalide(body.statut)) return NextResponse.json({ error: `statut invalide : ${body.statut}` }, { status: 400 });
     if (!body.client_id && body.client_nom) {
       body.client_id = await trouverOuCreerClient(body.client_nom);
     }
@@ -71,6 +79,7 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+    if (statutInvalide(body.statut)) return NextResponse.json({ error: `statut invalide : ${body.statut}` }, { status: 400 });
     const user = await utilisateurActif(req);
     const avant = await getProjet(+body.id);
     const nouvelleCompletion = body.statut === "complete" && avant?.statut !== "complete";

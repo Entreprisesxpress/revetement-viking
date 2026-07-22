@@ -79,6 +79,15 @@ describe("avancerDateRecurrence", () => {
   it("quotidien : +1 jour", () => { expect(avancerDateRecurrence("2026-06-20", "quotidien")).toBe("2026-06-21"); });
   it("hebdo : +7 jours", () => { expect(avancerDateRecurrence("2026-06-20", "hebdo")).toBe("2026-06-27"); });
   it("2sem : +14 jours", () => { expect(avancerDateRecurrence("2026-06-20", "2sem")).toBe("2026-07-04"); });
+  it("mensuel fin de mois : borné au dernier jour (pas de débordement)", () => {
+    expect(avancerDateRecurrence("2026-01-31", "mensuel")).toBe("2026-02-28"); // pas 3 mars !
+    expect(avancerDateRecurrence("2028-01-31", "mensuel")).toBe("2028-02-29"); // bissextile
+    expect(avancerDateRecurrence("2026-03-31", "mensuel")).toBe("2026-04-30");
+    expect(avancerDateRecurrence("2026-08-31", "mensuel")).toBe("2026-09-30");
+  });
+  it("mensuel jour normal : même jour le mois suivant", () => {
+    expect(avancerDateRecurrence("2026-12-15", "mensuel")).toBe("2027-01-15"); // passage d'année
+  });
   it("mensuel : +1 mois", () => { expect(avancerDateRecurrence("2026-06-20", "mensuel")).toBe("2026-07-20"); });
   it("hebdo traverse la fin de mois", () => { expect(avancerDateRecurrence("2026-06-28", "hebdo")).toBe("2026-07-05"); });
   it("mensuel traverse la fin d'année", () => { expect(avancerDateRecurrence("2026-12-15", "mensuel")).toBe("2027-01-15"); });

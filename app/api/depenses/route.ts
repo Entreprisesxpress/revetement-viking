@@ -17,9 +17,13 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  if (!body.montant || !body.date) {
-    return NextResponse.json({ error: "montant et date requis" }, { status: 400 });
+  // Montant : NOMBRE fini exigé (« abc » passait et corrompait les totaux).
+  // Négatif toléré : note de crédit / remboursement fournisseur.
+  const montant = Number(body.montant);
+  if (!body.montant || !isFinite(montant) || !body.date) {
+    return NextResponse.json({ error: "montant (nombre) et date requis" }, { status: 400 });
   }
+  body.montant = montant;
   const user = await utilisateurActif(req);
   const id = await ajouterDepenseProjet({ ...body, ajoute_par: user || undefined });
   await journaliser("depense.ajoutee", {
@@ -33,6 +37,11 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  if (body.montant !== undefined) {
+    const montant = Number(body.montant);
+    if (!isFinite(montant)) return NextResponse.json({ error: "montant invalide" }, { status: 400 });
+    body.montant = montant;
+  }
   const user = await utilisateurActif(req);
   // Verrouillage optimiste (B7) : 409 si la dépense a changé depuis son chargement.
   const res = await modifierDepenseProjet(+body.id, body, body.version);

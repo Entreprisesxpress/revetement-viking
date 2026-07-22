@@ -16,7 +16,12 @@ function valider(body: any): string | null {
   if (body.heures !== undefined && body.heures !== null) {
     const h = Number(body.heures);
     if (!isFinite(h)) return "heures doit être un nombre";
+    if (h < 0) return "heures négatives non permises (modifie ou supprime l'entrée existante à corriger)";
     if (h > 24) return "heures > 24 sur une seule entrée (utiliser 2 entrées séparées pour 2 jours)";
+  }
+  if (body.taux_horaire !== undefined && body.taux_horaire !== null && body.taux_horaire !== "") {
+    const t = Number(body.taux_horaire);
+    if (!isFinite(t) || t < 0) return "taux horaire invalide";
   }
   return null;
 }
