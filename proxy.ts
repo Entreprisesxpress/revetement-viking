@@ -80,6 +80,7 @@ export async function proxy(req: NextRequest) {
     path.startsWith("/contrat/") ||                            // page publique de signature du contrat pipeline
     path.startsWith("/projet/") ||                             // mode présentation client (token HMAC)
     path === "/api/projet-public" ||                           // endpoint mode présentation
+    (path === "/api/lead-web" && req.method === "POST") ||     // formulaires du site web (exige LEAD_WEBHOOK_SECRET)
     /^\/api\/contrats-pipeline\/[^/]+(\/pdf)?$/.test(path)     // GET infos + GET PDF + POST signature (token = secret)
   ) {
     return avecHeaders(NextResponse.next());
