@@ -41,4 +41,17 @@ on a 2-storey house`);
   it("texte vide → objet vide (pas de plantage)", () => {
     expect(parserTexteFormulaire("")).toEqual({});
   });
+
+  it("courriel TRANSFÉRÉ : ne prend JAMAIS la signature de l'entreprise (cas réel)", () => {
+    const r = parserTexteFormulaire(`*Francis Quinchon*
+*Entreprises Xpress Inc.*
+*T : **438-407-8890 *| info@entreprisesxpress.ca
+---------- Message transféré ---------
+De : Julie Ares <julie@murmurinterieurs.com>
+Objet : Demande de soumission-Projet SDB
+Elizabeth Lockhart Lamontagne elizabethlockhartlamontagne@gmail.com
+Élizabeth Lockhart Lamontagne 514-433-5237`);
+    expect(r.courriel).toBe("julie@murmurinterieurs.com"); // premier courriel EXTERNE
+    expect(r.telephone).toBe("514-433-5237");              // premier téléphone EXTERNE
+  });
 });

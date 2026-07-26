@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "non autorisé" }, { status: 401 });
   }
   const ip = ipDe(req);
-  if (await rateLimitDepasse("lead.web", ip, 60, 60)) {
+  // Compte les entrées « client.cree » (écrites plus bas à CHAQUE requête acceptée) :
+  // compter un type jamais journalisé rendrait la limite inopérante.
+  if (await rateLimitDepasse("client.cree", ip, 60, 60)) {
     return NextResponse.json({ error: "trop de requêtes" }, { status: 429 });
   }
 

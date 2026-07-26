@@ -51,18 +51,25 @@ export function parserTexteFormulaire(texte: string): Record<string, string> {
       }
     }
   }
-  // Filets : courriel/téléphone détectés n'importe où dans le texte
+  // Filets : courriel/téléphone détectés n'importe où dans le texte.
+  // IMPORTANT : on saute les coordonnées de L'ENTREPRISE — dans un courriel
+  // transféré, la signature de Francis apparaît en premier et le lead créé
+  // serait… l'entreprise elle-même (cas réel observé dans la boîte).
+  const COURRIEL_INTERNE = /entreprisesxpress\.ca|revetementviking/i;
+  const TELS_INTERNES = new Set(["4384078890"]); // T. d'Entreprises Xpress
   if (!out.courriel) {
-    const m = String(texte).match(/[\w.+-]+@[\w-]+\.[\w.]+/);
-    if (m) out.courriel = m[0];
+    const tous = String(texte).match(/[\w.+-]+@[\w-]+\.[\w.]+/g) || [];
+    const externe = tous.find((c) => !COURRIEL_INTERNE.test(c));
+    if (externe) out.courriel = externe;
   } else {
     // Nettoyage : ne garde que la partie qui ressemble vraiment à un courriel.
     const m = out.courriel.match(/[\w.+-]+@[\w-]+\.[\w.]+/);
     if (m) out.courriel = m[0];
   }
   if (!out.telephone) {
-    const m = String(texte).match(/(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
-    if (m) out.telephone = m[0].trim();
+    const tous = String(texte).match(/(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [];
+    const externe = tous.find((t) => !TELS_INTERNES.has(t.replace(/\D/g, "").slice(-10)));
+    if (externe) out.telephone = externe.trim();
   }
   return out;
 }
