@@ -17,46 +17,55 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  if (!body.description || !body.description.trim()) {
-    return NextResponse.json({ error: "description requise" }, { status: 400 });
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: "requête invalide" }, { status: 400 });
+    if (!body.description || !body.description.trim()) {
+      return NextResponse.json({ error: "description requise" }, { status: 400 });
+    }
+    // Virgule décimale québécoise acceptée (« 88,50 »).
+    const num = (v: any) => Number(String(v ?? "").replace(",", ".").trim());
+    const montantVal = body.montant != null && body.montant !== "" ? num(body.montant) : null;
+    const heuresVal = body.heures != null && body.heures !== "" ? num(body.heures) : null;
+    if ((montantVal !== null && !isFinite(montantVal)) || (heuresVal !== null && !isFinite(heuresVal))) {
+      return NextResponse.json({ error: "montant ou heures invalide" }, { status: 400 });
+    }
+    const user = await utilisateurActif(req);
+    const id = await ajouterExtra({
+      projet_id: body.projet_id ? +body.projet_id : null,
+      date: body.date || new Date().toISOString().slice(0, 10),
+      nature: body.nature || "montant",
+      description: body.description.trim(),
+      montant: montantVal,
+      heures: heuresVal,
+      photo_data: body.photo_data || null,
+      thumb_data: body.thumb_data || null,
+      saisi_par: user || undefined,
+    });
+
+    // Notifications NON bloquantes (une notif/audit qui échoue ne doit pas faire
+    // croire à un échec de l'ajout → risque de double extra au 2e essai).
+    (async () => {
+      let projetNom = "";
+      if (body.projet_id) { try { projetNom = (await getProjet(+body.projet_id))?.nom || ""; } catch {} }
+      journaliser("extra.ajoute", {
+        ref_type: "extra", ref_id: id, utilisateur: user || undefined,
+        description: `${body.nature || "extra"} · ${projetNom || "projet ?"} · ${body.description.slice(0, 60)}`,
+        ip: ipDe(req),
+      }).catch(() => {});
+      const montantTxt = body.montant ? ` (${(+body.montant).toLocaleString("fr-CA")} $)` : body.heures ? ` (${body.heures} h)` : "";
+      envoyerPushUtilisateur("Francis", {
+        title: "💲 Extra à facturer",
+        body: `${user || "Quelqu'un"} a ajouté un extra${projetNom ? ` sur ${projetNom}` : ""}${montantTxt} : ${body.description.slice(0, 80)}`,
+        url: "/extras", tag: "extra",
+      }).catch(() => {});
+    })().catch(() => {});
+
+    return NextResponse.json({ ok: true, id });
+  } catch (e: any) {
+    console.error("[/api/extras POST]", e);
+    return NextResponse.json({ error: e?.message || "Erreur serveur lors de l'enregistrement" }, { status: 500 });
   }
-  if (body.montant != null && body.montant !== "" && !isFinite(Number(body.montant))) {
-    return NextResponse.json({ error: "montant invalide" }, { status: 400 });
-  }
-  const user = await utilisateurActif(req);
-  const id = await ajouterExtra({
-    projet_id: body.projet_id ? +body.projet_id : null,
-    date: body.date || new Date().toISOString().slice(0, 10),
-    nature: body.nature || "montant",
-    description: body.description.trim(),
-    montant: body.montant != null && body.montant !== "" ? +body.montant : null,
-    heures: body.heures != null && body.heures !== "" ? +body.heures : null,
-    photo_data: body.photo_data || null,
-    thumb_data: body.thumb_data || null,
-    saisi_par: user || undefined,
-  });
-
-  // Contexte projet pour la notif
-  let projetNom = "";
-  if (body.projet_id) { try { projetNom = (await getProjet(+body.projet_id))?.nom || ""; } catch {} }
-
-  await journaliser("extra.ajoute", {
-    ref_type: "extra", ref_id: id, utilisateur: user || undefined,
-    description: `${body.nature || "extra"} · ${projetNom || "projet ?"} · ${body.description.slice(0, 60)}`,
-    ip: ipDe(req),
-  });
-
-  // Notifie Francis (gestion) qu'un extra est à facturer — best-effort.
-  const montantTxt = body.montant ? ` (${(+body.montant).toLocaleString("fr-CA")} $)` : body.heures ? ` (${body.heures} h)` : "";
-  envoyerPushUtilisateur("Francis", {
-    title: "💲 Extra à facturer",
-    body: `${user || "Quelqu'un"} a ajouté un extra${projetNom ? ` sur ${projetNom}` : ""}${montantTxt} : ${body.description.slice(0, 80)}`,
-    url: "/extras",
-    tag: "extra",
-  }).catch(() => {});
-
-  return NextResponse.json({ ok: true, id });
 }
 
 export async function PATCH(req: NextRequest) {

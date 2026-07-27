@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    // Montant : NOMBRE fini exigé (« abc » passait). Négatif toléré (note de crédit).
-    const montant = Number(body.montant);
+    // Montant : NOMBRE fini exigé (« abc » passait). Virgule décimale acceptée.
+    // Négatif toléré (note de crédit).
+    const montant = Number(String(body.montant ?? "").replace(",", ".").trim());
     if (!body.projet_id || !body.montant || !isFinite(montant) || !body.date) {
       return NextResponse.json({ error: "projet_id, montant (nombre) et date requis" }, { status: 400 });
     }

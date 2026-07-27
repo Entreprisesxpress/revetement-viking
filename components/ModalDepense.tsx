@@ -108,7 +108,10 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
   const projet = projets.find((p) => p.id === form.projet_id);
 
   const enregistrer = async () => {
-    if (!form.montant || +form.montant <= 0) { toast("Montant requis", "warning"); return; }
+    // Accepte la VIRGULE décimale (clavier québécois) : « 88,50 » devenait NaN → null
+    // → dépense refusée en silence. C'était la cause du « ça marche pas du 1er coup ».
+    const montantNum = Number(String(form.montant).replace(",", ".").trim());
+    if (!isFinite(montantNum) || montantNum <= 0) { toast("Montant requis (ex : 88.50)", "warning"); return; }
     // Normaliser le fournisseur en cherchant un match case-insensitive parmi les connus
     let fournisseurNormalise = form.fournisseur.trim();
     if (fournisseurNormalise) {
@@ -129,17 +132,26 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
       const aRecu = !!recu_data;
       const r = await fetch("/api/depenses", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, fournisseur: fournisseurNormalise, projet_id: form.projet_id || null, montant: +form.montant, recu_data, recu_type }),
+        body: JSON.stringify({ ...form, fournisseur: fournisseurNormalise, projet_id: form.projet_id || null, montant: montantNum, recu_data, recu_type }),
       });
-      if ((await r.json()).ok) {
-        toast(`✓ Dépense ${formatCAD(+form.montant)} ajoutée${aRecu ? (pagesRecu.length >= 2 ? ` (facture ${pagesRecu.length} pages → PDF)` : " (reçu joint)") : ""}`, "success");
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        toast(`✓ Dépense ${formatCAD(montantNum)} ajoutée${aRecu ? (pagesRecu.length >= 2 ? ` (facture ${pagesRecu.length} pages → PDF)` : " (reçu joint)") : ""}`, "success");
         setForm({ projet_id: form.projet_id, date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux", detaxe: false });
         setRecu(null); setPagesRecu([]);
         onSuccess?.();
         onClose();
+      } else {
+        // ÉCHEC VISIBLE : avant, un échec ne montrait RIEN (le bouton repassait à
+        // « Enregistrer » sans message → « ça n'a pas marché et je comprenais pas »).
+        // On garde le modal ouvert avec le formulaire intact pour réessayer sans re-saisir.
+        const msg = r.status === 401 ? "Session expirée — reconnecte-toi et réessaie."
+          : (d.message || d.error || `Échec de l'enregistrement (erreur ${r.status}). Réessaie.`);
+        toast("❌ " + msg, "error");
       }
     } catch (e: any) {
-      toast("Erreur : " + (e?.message || ""), "error");
+      // Erreur réseau : le formulaire reste intact, l'utilisateur peut réessayer.
+      toast("❌ Problème de connexion — vérifie ton réseau et réessaie.", "error");
     } finally { setLoading(false); }
   };
 

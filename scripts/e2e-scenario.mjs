@@ -60,6 +60,9 @@ const d1 = await api("/api/depenses", { method: "POST", body: JSON.stringify({ p
 check("dépense taxable 1149,75 $", d1.status, 200);
 const d2 = await api("/api/depenses", { method: "POST", body: JSON.stringify({ projet_id: projetId, montant: 500, date: "2026-07-06", fournisseur: "Fournisseur Detaxe", categorie: "permis", detaxe: 1 }) });
 check("dépense détaxée 500 $", d2.status, 200);
+// Régression « premier coup » : montant avec VIRGULE (clavier québécois) accepté.
+const dv = await api("/api/depenses", { method: "POST", body: JSON.stringify({ montant: "12,34", date: "2026-07-06", fournisseur: "Virgule Test" }) });
+check("dépense avec virgule « 12,34 » acceptée", dv.status, 200);
 
 section("4. Main-d'œuvre : 2 × 20 h × 50 $/h = 2 000 $ (max 24 h par entrée)");
 const h1 = await api("/api/heures", { method: "POST", body: JSON.stringify({ projet_id: projetId, date: "2026-07-07", heures: 20, employe: "Gabriel", taux_horaire: 50, description: "Pose 1" }) });

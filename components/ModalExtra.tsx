@@ -60,12 +60,18 @@ export default function ModalExtra({ ouvert, onClose, onSuccess, projetIdInitial
           photo_data: photo?.data || null, thumb_data: photo?.thumb || null,
         }),
       });
-      if ((await r.json()).ok) {
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
         toast("✓ Extra enregistré — la gestion sera notifiée pour le facturer", "success");
         setDescription(""); setMontant(""); setHeures(""); setPhoto(null); setNature("montant");
         onSuccess?.();
         onClose();
-      } else toast("Erreur", "error");
+      } else {
+        // Échec explicite (avant : « Erreur » sans détail) — modal gardé ouvert pour réessayer.
+        toast("❌ " + (r.status === 401 ? "Session expirée — reconnecte-toi." : (d.message || d.error || `Échec (erreur ${r.status}). Réessaie.`)), "error");
+      }
+    } catch {
+      toast("❌ Problème de connexion — réessaie.", "error");
     } finally { setBusy(false); }
   };
 

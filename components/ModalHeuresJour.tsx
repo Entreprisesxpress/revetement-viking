@@ -131,7 +131,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
   const empsActifs = employes.filter((e) => empSelectionnes.has(e.id));
   // Calcul auto des heures à partir de heure_debut/fin si présents et heures vide
   const heuresEffectives = (l: LigneJour): number => {
-    if (l.heures) return +l.heures || 0;
+    // Virgule décimale acceptée (« 7,5 ») : +"7,5" donnait NaN → 0 h en silence.
+    if (l.heures) return Number(String(l.heures).replace(",", ".").trim()) || 0;
     return calculerHeures(l.heure_debut, l.heure_fin, l.dejeuner_retire);
   };
   const totalHeures = lignes.reduce((s, l) => s + heuresEffectives(l), 0);
