@@ -77,6 +77,11 @@ export async function GET(req: NextRequest) {
       user,
       total,
       relances: relancesSoum.length,
+      // Items cliquables des soumissions à relancer (avant : seulement un compteur gris
+      // en pied de menu → badge « 1 » sans notification visible dans la cloche).
+      relances_soum_items: (relancesSoum as any[]).slice(0, 10).map((s) => ({
+        numero: s.numero, client_nom: s.client_nom, total: s.total, date_envoi: s.date_envoi,
+      })),
       drive_erreurs: photosErr,
       taches_ouvertes: tachesOuvertes.length,
       mentions: mentions.length,

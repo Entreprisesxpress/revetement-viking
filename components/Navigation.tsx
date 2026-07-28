@@ -44,7 +44,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   const pathname = usePathname();
   const router = useRouter();
   const [menuOuvert, setMenuOuvert] = useState(false);
-  const [notifs, setNotifs] = useState<{ user?: string; total: number; relances: number; drive_erreurs: number; taches_ouvertes: number; mentions: number; mes_relances: number; mentions_items: any[]; relances_items: any[]; factures_impayees?: number; factures_impayees_items?: any[]; projets_en_retard?: number; projets_en_retard_items?: any[]; taches_echeance?: number; taches_echeance_items?: any[] }>({ total: 0, relances: 0, drive_erreurs: 0, taches_ouvertes: 0, mentions: 0, mes_relances: 0, mentions_items: [], relances_items: [], factures_impayees_items: [], projets_en_retard_items: [], taches_echeance_items: [] });
+  const [notifs, setNotifs] = useState<{ user?: string; total: number; relances: number; relances_soum_items?: any[]; drive_erreurs: number; taches_ouvertes: number; mentions: number; mes_relances: number; mentions_items: any[]; relances_items: any[]; factures_impayees?: number; factures_impayees_items?: any[]; projets_en_retard?: number; projets_en_retard_items?: any[]; taches_echeance?: number; taches_echeance_items?: any[] }>({ total: 0, relances: 0, relances_soum_items: [], drive_erreurs: 0, taches_ouvertes: 0, mentions: 0, mes_relances: 0, mentions_items: [], relances_items: [], factures_impayees_items: [], projets_en_retard_items: [], taches_echeance_items: [] });
   const [notifsOuvert, setNotifsOuvert] = useState(false);
   const [profilOuvert, setProfilOuvert] = useState(false);
   const [profil, setProfil] = useState<{ username?: string; nom_affichage?: string; photo_data?: string } | null>(null);
@@ -326,15 +326,29 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                     })}
                   </div>
                 )}
+                {/* Soumissions à relancer (envoyées > 7 j sans réponse) — cliquables */}
+                {(notifs.relances_soum_items?.length || 0) > 0 && (
+                  <div className="p-2 border-t">
+                    <div className="text-[10px] font-bold uppercase text-blue-700 px-2 py-1">📋 Soumissions à relancer ({notifs.relances})</div>
+                    {notifs.relances_soum_items!.map((s: any) => (
+                      <a key={s.numero} href="/soumissions" className="block px-3 py-2 hover:bg-blue-50 rounded text-sm border-l-2 border-blue-400 mb-1">
+                        <div className="flex justify-between"><strong className="truncate">{s.client_nom || s.numero}</strong><span className="text-[10px] text-blue-700 font-bold">{Math.round(s.total || 0).toLocaleString("fr-CA")} $</span></div>
+                        <div className="text-xs text-slate-500">Envoyée le {String(s.date_envoi).slice(0, 10)} · pas de réponse</div>
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {/* Erreurs de synchro Drive — ligne cliquable vers la page de sync */}
+                {notifs.drive_erreurs > 0 && (
+                  <div className="p-2 border-t">
+                    <a href="/sync" className="block px-3 py-2 hover:bg-slate-50 rounded text-sm border-l-2 border-slate-400">
+                      <strong>☁️ {notifs.drive_erreurs} photo{notifs.drive_erreurs > 1 ? "s" : ""} à resynchroniser</strong>
+                      <div className="text-xs text-slate-500">La sauvegarde Drive a échoué — appuie pour réessayer</div>
+                    </a>
+                  </div>
+                )}
                 {notifs.total === 0 && (
                   <div className="p-6 text-center text-sm text-slate-500">🎉 Rien à signaler.</div>
-                )}
-                {/* Compteurs autres */}
-                {(notifs.relances > 0 || notifs.drive_erreurs > 0) && (
-                  <div className="p-2 border-t text-xs text-slate-600 space-y-1">
-                    {notifs.relances > 0 && <div>📋 Soumissions à relancer : <strong>{notifs.relances}</strong></div>}
-                    {notifs.drive_erreurs > 0 && <div>☁️ Erreurs Drive : <strong>{notifs.drive_erreurs}</strong></div>}
-                  </div>
                 )}
               </div>
             )}
