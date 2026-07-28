@@ -5,6 +5,14 @@ import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 
+// Parse « AAAA-MM-JJ » comme minuit LOCAL (pas UTC). new Date("2026-05-18") = minuit
+// UTC → affiché « 17 mai » à Montréal (UTC−4). Ici on garde le bon jour.
+function dateLocale(iso: string): Date {
+  const s = String(iso || "").slice(0, 10);
+  const [y, m, d] = s.split("-").map(Number);
+  return (y && m && d) ? new Date(y, m - 1, d) : new Date(iso);
+}
+
 // Vue Paie (suivi bi-hebdo + banque d'heures) — réutilisée par /finances/paye et l'onglet Finances.
 export default function PaieVue() {
   const [periodes, setPeriodes] = useState<any[]>([]);
@@ -189,11 +197,11 @@ export default function PaieVue() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-slate-900">{p.employe}</h3>
                       <span className={`text-xs px-2 py-0.5 rounded font-semibold ${p.paye ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}>
-                        {p.paye ? `✓ Payé ${p.date_paiement ? new Date(p.date_paiement).toLocaleDateString("fr-CA", { day: "numeric", month: "short" }) : ""}` : "À payer"}
+                        {p.paye ? `✓ Payé ${p.date_paiement ? dateLocale(p.date_paiement).toLocaleDateString("fr-CA", { day: "numeric", month: "short" }) : ""}` : "À payer"}
                       </span>
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      Période : <strong>{new Date(p.debut).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" })}</strong> → <strong>{new Date(p.fin).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" })}</strong>
+                      Période : <strong>{dateLocale(p.debut).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" })}</strong> → <strong>{dateLocale(p.fin).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" })}</strong>
                     </div>
                   </div>
                   <div className="flex gap-1">

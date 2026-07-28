@@ -626,8 +626,14 @@ export interface SoumissionDB {
 export async function genererNumero(): Promise<string> {
   const d = new Date();
   const ymd = d.toISOString().slice(0, 10).replace(/-/g, "");
-  const r = await one<{ n: number }>("SELECT COUNT(*) as n FROM soumissions WHERE numero LIKE ?", [`XP-${ymd}-%`]);
-  const seq = String((r?.n || 0) + 1).padStart(3, "0");
+  // MAX du suffixe, PAS COUNT : avec COUNT, supprimer une soumission du milieu
+  // faisait retomber sur un numéro déjà pris → la nouvelle ÉCRASAIT l'ancienne
+  // (branche UPDATE de sauvegarder). MAX+1 reste monotone même après suppression.
+  const r = await one<{ mx: string }>("SELECT MAX(numero) as mx FROM soumissions WHERE numero LIKE ?", [`XP-${ymd}-%`]);
+  let n = 0;
+  const m = r?.mx ? String(r.mx).match(/-(\d+)$/) : null;
+  if (m) n = parseInt(m[1], 10) || 0;
+  const seq = String(n + 1).padStart(3, "0");
   return `XP-${ymd}-${seq}`;
 }
 
@@ -667,7 +673,10 @@ export async function changerStatut(numero: string, statut: Statut) {
     statut === "refusee" ? "date_refus" :
     statut === "facturee" ? "date_facturation" : null;
   if (dateCol) {
-    await run(`UPDATE soumissions SET statut=?, ${dateCol}=? WHERE numero=?`, [statut, now, numero]);
+    // COALESCE : on garde la 1re date (ex. date_envoi). Avant, re-cliquer « envoyée »
+    // réécrivait date_envoi = aujourd'hui → le cron de relance (seuil 7 j) repartait à
+    // zéro et une soumission traînante n'était jamais relancée.
+    await run(`UPDATE soumissions SET statut=?, ${dateCol}=COALESCE(${dateCol}, ?) WHERE numero=?`, [statut, now, numero]);
   } else {
     await run(`UPDATE soumissions SET statut=? WHERE numero=?`, [statut, numero]);
   }
@@ -786,7 +795,7 @@ export async function ajouterClient(c: any): Promise<number> {
     `INSERT INTO clients (nom, courriel, telephone, adresse, notes, statut, source, tags, pipeline_stage, assignee, date_relance, projet_lien_id, date_creation)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      c.nom,
+      String(c.nom ?? "").trim(), // trim : un espace parasite créait des doublons (la recherche compare TRIM)
       c.courriel || null,
       c.telephone || null,
       c.adresse || null,
@@ -812,11 +821,17 @@ export async function modifierClient(id: number, c: Partial<ClientType>) {
   await run(`UPDATE clients SET ${sets} WHERE id = ?`, [...valeurs, id]);
 }
 export async function supprimerClient(id: number) {
+  // Suppression en cascade : aucune contrainte FK n'existe, donc on nettoie à la main.
+  // Sinon sous-tâches, commentaires et surtout FICHIERS (blobs base64) restaient en
+  // base indéfiniment sous un client_id mort → base qui gonfle + stats faussées.
+  for (const t of ["interactions_client", "client_taches", "client_commentaires", "client_fichiers", "taches_client", "pipeline_contrats"]) {
+    await run(`DELETE FROM ${t} WHERE client_id = ?`, [id]).catch(() => {});
+  }
   await run("DELETE FROM clients WHERE id = ?", [id]);
 }
 export async function trouverOuCreerClient(nom: string, infos?: Partial<ClientType>): Promise<number> {
   if (!nom?.trim()) return 0;
-  const existant = await one<{ id: number }>("SELECT id FROM clients WHERE LOWER(nom) = LOWER(?)", [nom.trim()]);
+  const existant = await one<{ id: number }>("SELECT id FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?)", [nom.trim()]);
   if (existant) return existant.id;
   return await ajouterClient({ nom: nom.trim(), ...infos } as ClientType);
 }
@@ -1921,13 +1936,15 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
     return exist;
   }
 
-  // 2. Grouper par (employe, période bi-hebdo)
-  const groupes = new Map<string, { employe: string; debut: string; fin: string; taux: number; heures: { date: string; heures: number }[] }>();
+  // 2. Grouper par (employe, période bi-hebdo). On garde le taux PAR entrée : un
+  //    employé peut avoir des taux différents dans la même quinzaine (augmentation
+  //    en cours de période, ou taux distinct selon le chantier).
+  const groupes = new Map<string, { employe: string; debut: string; fin: string; heures: { date: string; heures: number; taux: number }[] }>();
   for (const h of heures) {
     const p = periodeBiHebdo(h.date);
     const key = `${h.employe}|${p.debut}`;
-    if (!groupes.has(key)) groupes.set(key, { employe: h.employe, debut: p.debut, fin: p.fin, taux: h.taux_horaire, heures: [] });
-    groupes.get(key)!.heures.push({ date: h.date, heures: h.heures });
+    if (!groupes.has(key)) groupes.set(key, { employe: h.employe, debut: p.debut, fin: p.fin, heures: [] });
+    groupes.get(key)!.heures.push({ date: h.date, heures: h.heures || 0, taux: h.taux_horaire || 0 });
   }
 
   // 3. BANQUE D'HEURES — traitement CHRONOLOGIQUE par employé.
@@ -1945,6 +1962,12 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
     let banque = 0; // solde courant de la banque (heures accumulées non payées)
     for (const g of liste as any[]) {
       const travaillees = g.heures.reduce((s: number, e: any) => s + (e.heures || 0), 0);
+      // Taux MOYEN PONDÉRÉ par les heures : respecte les taux réels par entrée.
+      // Avant, on payait toute la quinzaine à UN taux (celui de la 1re entrée vue) →
+      // un employé avec 40 h @ 50 $ + 40 h @ 60 $ était payé 80 h × 60 $ au lieu de
+      // 40×50 + 40×60. Pour un taux unique (cas normal), la moyenne = ce taux.
+      const montantHeures = g.heures.reduce((s: number, e: any) => s + (e.heures || 0) * (e.taux || 0), 0);
+      const taux = travaillees > 0 ? montantHeures / travaillees : 0;
       const base = Math.min(travaillees, SEUIL);          // heures payées d'office (max 80)
       const surplus = Math.max(0, travaillees - SEUIL);   // surplus → accumulé en banque
       const dispoAvant = banque;                          // banque disponible AVANT cette période
@@ -1963,7 +1986,7 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
       banque = dispoAvant + surplus - appliquee;          // solde résultant
 
       // Taux normal sur les heures payées — AUCUNE prime ×1.5, l'overtime $ n'existe pas
-      const brut = payees * g.taux;
+      const brut = payees * taux;
       const dasMontant = brut * 0.15;
       const net = brut - dasMontant;
 
@@ -1971,7 +1994,7 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
         if (!existant.paye) {
           await run(
             `UPDATE paies_periodes SET heures_normales=?, heures_sup=0, heures_travaillees=?, banque_dispo=?, banque_appliquee=?, banque_solde=?, taux_horaire=?, montant_brut=?, das_montant=?, montant_net=? WHERE id=?`,
-            [payees, travaillees, dispoAvant, appliquee, banque, g.taux, brut, dasMontant, net, existant.id]
+            [payees, travaillees, dispoAvant, appliquee, banque, taux, brut, dasMontant, net, existant.id]
           );
         } else {
           // Période payée : on ne touche pas la paie, mais on rafraîchit les champs d'affichage de la banque.
@@ -1980,7 +2003,7 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
       } else {
         await run(
           `INSERT INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_dispo, banque_appliquee, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, ?)`,
-          [g.employe, g.debut, g.fin, payees, travaillees, dispoAvant, banque, g.taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
+          [g.employe, g.debut, g.fin, payees, travaillees, dispoAvant, banque, taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
         );
       }
     }

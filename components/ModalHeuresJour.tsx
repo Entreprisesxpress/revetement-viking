@@ -161,7 +161,9 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     for (const l of valides) {
       const p = projets.find((x) => x.id === l.projet_id);
       if (p?.budget_estime > 0) {
-        const ajout = +l.heures * coutEmployes;
+        // heuresEffectives : gère la virgule ET la saisie début/fin. Avant, +l.heures
+        // donnait NaN (virgule) ou 0 (heures calculées) → alerte budget jamais montrée.
+        const ajout = heuresEffectives(l) * coutEmployes;
         const nouveauCout = p.cout_total + ajout;
         const pct = (nouveauCout / p.budget_estime) * 100;
         if (pct > 100) toast(`⚠️ ${p.nom} : budget DÉPASSÉ (${pct.toFixed(0)}%)`, "error");

@@ -32,6 +32,13 @@ export async function PATCH(req: NextRequest) {
   // Si on modifie la quantité, journaliser le mouvement
   if (typeof b.delta === "number" && b.delta !== 0) {
     const par = (await utilisateurActif(req)) || "?";
+    // Garde stock : refuse une sortie plus grande que le stock (avant : quantité négative
+    // acceptée en silence, ex. 3 en stock − 10 = −7).
+    if (b.delta < 0) {
+      const cur = await c().execute({ sql: "SELECT quantite FROM inventaire WHERE id = ?", args: [b.id] });
+      const q = Number((cur.rows[0] as any)?.quantite || 0);
+      if (q + b.delta < 0) return NextResponse.json({ error: `Stock insuffisant : ${q} en inventaire, retrait de ${-b.delta} demandé.` }, { status: 400 });
+    }
     await c().execute({ sql: "UPDATE inventaire SET quantite = quantite + ?, date_modif = ? WHERE id = ?", args: [b.delta, new Date().toISOString(), b.id] });
     await c().execute({
       sql: "INSERT INTO inventaire_mouvements (inventaire_id, delta, type, note, par, date_creation) VALUES (?,?,?,?,?,?)",
