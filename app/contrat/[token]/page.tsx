@@ -64,20 +64,13 @@ export default function SignatureContratPage() {
     if (!nom.trim()) { alert("Veuillez saisir votre nom complet."); return; }
     setBusy(true);
     try {
+      // Le PDF signé est régénéré côté serveur à partir du contrat autoritaire en base
+      // (voir app/api/contrats-pipeline/[token]/route.ts) — le navigateur envoie seulement
+      // la signature dessinée, jamais un PDF déjà composé.
       const signatureUrl = canvasRef.current!.toDataURL("image/png");
-      // Régénère le PDF côté navigateur avec la signature embarquée
-      const { genererContratBlob } = await import("@/lib/pdf-contrat");
-      const data = { ...meta.data, signature_client: { nom: nom.trim(), date: new Date().toLocaleDateString("fr-CA") }, signature_client_image: signatureUrl };
-      const blob = await genererContratBlob(data);
-      const pdfSigne = await new Promise<string>((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = () => res(reader.result as string);
-        reader.onerror = rej;
-        reader.readAsDataURL(blob);
-      });
       const r = await fetch(`/api/contrats-pipeline/${token}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signature_dataurl: signatureUrl, signature_nom: nom.trim(), pdf_signe: pdfSigne }),
+        body: JSON.stringify({ signature_dataurl: signatureUrl, signature_nom: nom.trim() }),
       });
       const d = await r.json();
       if (d.ok) setSigne(true);

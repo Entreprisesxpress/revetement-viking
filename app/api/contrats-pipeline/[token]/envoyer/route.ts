@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getContratPipelineParId, getClient, marquerContratEnvoye } from "@/lib/db";
 import { sendEmail, emailEstConfigure } from "@/lib/email";
+import { publicOrigin } from "@/lib/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +20,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     return NextResponse.json({ ok: false, raison: "email_non_configure" });
   }
 
-  const origin = req.headers.get("origin") || `https://${req.headers.get("host")}`;
-  const lien = `${origin}/contrat/${co.token}`;
+  const lien = `${publicOrigin(req)}/contrat/${co.token}`;
   const sujet = body.subject || `Contrat à signer — Revêtement Viking Inc. (${co.numero})`;
   const corps = body.text || `Bonjour ${cl?.nom || ""},
 

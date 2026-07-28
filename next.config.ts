@@ -12,10 +12,13 @@ const nextConfig: NextConfig = {
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
   },
 
-  // Tree-shake agressif sur libs lourdes — Next ne charge que les exports utilisés
-  experimental: {
-    optimizePackageImports: ["@react-pdf/renderer"],
-  },
+  // NOTE : @react-pdf/renderer est volontairement ABSENT de optimizePackageImports.
+  // Il est maintenant aussi utilisé côté SERVEUR (régénération du PDF de contrat signé,
+  // voir app/api/contrats-pipeline/[token]/route.ts) et le tree-shaking agressif de cette
+  // option casse son moteur de rendu au runtime côté serveur ("Cannot read properties of
+  // undefined (reading 'S')" — l'ajouter ici et à serverExternalPackages entre aussi en
+  // conflit direct sous Turbopack). Si le bundle client redevient un problème, isoler cette
+  // lib dans un chunk dédié plutôt que ré-ajouter l'option.
 
   // En-têtes globaux.
   // Note : on NE surcharge PAS /_next/static — Next applique déjà le cache

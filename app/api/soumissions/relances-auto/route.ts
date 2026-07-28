@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, getParametre, setParametre } from "@/lib/db";
 import { sendEmail, emailEstConfigure } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,12 @@ export async function GET(req: NextRequest) {
 
   const dest = process.env.FRANCIS_EMAIL || process.env.GABRIEL_EMAIL;
   if (!dest) return NextResponse.json({ ok: false, raison: "aucun_dest" });
+
+  // Dédup par jour : un retrigger du cron (retry Vercel, appel manuel) le même jour ne
+  // renvoie pas le même récap une 2e fois.
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const cleGuard = `relance_soum_envoi_${aujourdhui}`;
+  if (await getParametre(cleGuard)) return NextResponse.json({ ok: true, nb: 0, deja_envoye: true });
 
   const il_y_a_7j = new Date(); il_y_a_7j.setDate(il_y_a_7j.getDate() - 7);
   const seuil = il_y_a_7j.toISOString().slice(0, 10);
@@ -39,6 +45,7 @@ export async function GET(req: NextRequest) {
     subject: `[Viking] ${liste.length} soumission(s) à relancer (>7 jours)`,
     text: `Bonjour Francis,\n\nVoici les soumissions envoyées sans réponse depuis plus de 7 jours :\n\n${lignes}\n\nOuvrir : https://app.revetementviking.com/soumissions?statut=envoyee\n\n— Revêtement Viking Inc.`,
   });
+  await setParametre(cleGuard, String(liste.length));
 
   return NextResponse.json({ ok: true, nb: liste.length });
 }

@@ -4,24 +4,44 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 
 function ValiderBackup() {
+  const [texteBackup, setTexteBackup] = useState<string | null>(null);
   const [resultat, setResultat] = useState<any>(null);
   const [chargement, setChargement] = useState(false);
+  const [restaure, setRestaure] = useState(false);
+
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setChargement(true);
+    setRestaure(false);
     try {
       const txt = await file.text();
+      setTexteBackup(txt);
       const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: txt });
       setResultat(await r.json());
     } catch (err: any) { setResultat({ ok: false, error: err.message }); }
     finally { setChargement(false); }
   };
+
+  const restaurerReellement = async () => {
+    if (!texteBackup) return;
+    const n = resultat?.total ?? "?";
+    if (!window.confirm(`Restaurer réellement ce backup (${n} enregistrements) ? Aucune donnée existante ne sera modifiée ou supprimée — seules les lignes manquantes seront ajoutées.`)) return;
+    setChargement(true);
+    try {
+      const body = JSON.stringify({ ...JSON.parse(texteBackup), confirmer: true });
+      const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      setResultat(await r.json());
+      setRestaure(true);
+    } catch (err: any) { setResultat({ ok: false, error: err.message }); }
+    finally { setChargement(false); }
+  };
+
   return (
     <div className="text-sm">
       <p className="text-slate-700 mb-2">Vérifier la validité d'un fichier de backup (.json) avant restauration éventuelle :</p>
       <input type="file" accept="application/json,.json" onChange={onFile} className="text-xs border rounded p-1.5" />
-      {chargement && <div className="text-slate-500 mt-2 text-xs">⏳ Analyse...</div>}
+      {chargement && <div className="text-slate-500 mt-2 text-xs">⏳ {restaure ? "Restauration…" : "Analyse…"}</div>}
       {resultat && (
         <div className={`mt-2 p-3 rounded text-xs ${resultat.ok ? "bg-emerald-50 border border-emerald-300 text-emerald-900" : "bg-red-50 border border-red-300 text-red-900"}`}>
           <div className="font-bold mb-1">{resultat.message || resultat.error}</div>
@@ -31,9 +51,21 @@ function ValiderBackup() {
               {Object.entries(resultat.compte).map(([k, v]: any) => <li key={k}>{k}: <strong>{v as number}</strong></li>)}
             </ul>
           )}
+          {resultat.resultat && (
+            <ul className="text-[10px] mt-1 grid grid-cols-3 gap-x-2">
+              {Object.entries(resultat.resultat).map(([k, v]: any) => (
+                <li key={k}>{k}: <strong className="text-emerald-700">+{v.inseres}</strong> · {v.ignores} déjà présent(s){v.erreur ? <span className="text-red-700"> · erreur</span> : ""}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
-      <p className="text-[10px] text-slate-500 mt-2">📋 Validation seulement — aucune écriture en base. La restauration réelle sera ajoutée prochainement.</p>
+      {resultat?.mode === "validation-seulement" && resultat.ok && !restaure && (
+        <button onClick={restaurerReellement} className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold">
+          ⚠️ Restaurer réellement
+        </button>
+      )}
+      <p className="text-[10px] text-slate-500 mt-2">📋 Restauration additive et idempotente : seules les lignes manquantes (id absent en base) sont ajoutées, rien n'est jamais écrasé ni supprimé.</p>
     </div>
   );
 }

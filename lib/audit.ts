@@ -34,6 +34,7 @@ export type ActiviteType =
   | "extra.supprime"
   | "paye.marquee_payee"
   | "backup.execute"
+  | "backup.restaure"
   | "drive.connecte"
   | "drive.deconnecte"
   | "auth.login_ok"

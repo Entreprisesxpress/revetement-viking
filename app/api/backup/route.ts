@@ -1,6 +1,6 @@
 // Backup complet de la DB → Drive (Viking/Backups/backup-YYYY-MM-DD-HHMM.json)
 import { NextRequest, NextResponse } from "next/server";
-import { lister, listerClients, listerProjets, listerEmployes, listerToutesHeures, listerToutesDepenses, listerContrats, listerPaiePeriodes, listerJobsBiblio, toutesHeuresPourExport } from "@/lib/db";
+import { soumissionsPourBackup, listerClients, listerProjets, employesPourBackup, heuresPourBackup, listerToutesDepenses, contratsPourBackup, paiesPourBackup, listerJobsBiblio, toutesHeuresPourExport } from "@/lib/db";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier, sauvegarderClasseurCSV } from "@/lib/drive";
 
 export const dynamic = "force-dynamic";
@@ -38,16 +38,18 @@ async function exporterHeuresVersSheet(): Promise<{ ok: boolean; lignes?: number
 
 async function effectuerBackup(): Promise<{ ok: boolean; nom?: string; webViewLink?: string; tailles?: any; error?: string; heures_sheet?: any }> {
   if (!(await driveEstActif())) return { ok: false, error: "Drive non actif — connecte Drive avant de lancer un backup." };
-  // Récupère toutes les tables principales (sans les blobs photos — trop lourd)
+  // Récupère toutes les tables principales (sans les blobs photos — trop lourd).
+  // Exports "PourBackup" = colonnes réelles complètes, sans troncature ni jointure,
+  // pour qu'une restauration ultérieure (/api/restore) soit fidèle.
   const [soumissions, clients, projets, employes, heures, depenses, contrats, paies, biblio] = await Promise.all([
-    lister().catch(() => []),
+    soumissionsPourBackup().catch(() => []),
     listerClients().catch(() => []),
     listerProjets().catch(() => []),
-    listerEmployes().catch(() => []),
-    listerToutesHeures().catch(() => []),
+    employesPourBackup().catch(() => []),
+    heuresPourBackup().catch(() => []),
     listerToutesDepenses().catch(() => []),
-    listerContrats().catch(() => []),
-    listerPaiePeriodes(undefined, 100).catch(() => []),
+    contratsPourBackup().catch(() => []),
+    paiesPourBackup().catch(() => []),
     listerJobsBiblio().catch(() => []),
   ]);
   const dump = {

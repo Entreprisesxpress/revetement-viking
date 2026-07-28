@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { relancesDues } from "@/lib/db";
+import { relancesDues, getParametre, setParametre } from "@/lib/db";
 import { sendEmail, emailEstConfigure } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,10 @@ export async function GET(req: NextRequest) {
   for (const [user, liste] of parUser) {
     const dest = COURRIELS[user];
     if (!dest) continue;
+    // Dédup par jour et par destinataire : un retrigger du cron (retry Vercel, appel manuel)
+    // le même jour ne renvoie pas le même récap une 2e fois.
+    const cleGuard = `relance_pipeline_envoi_${user}_${today}`;
+    if (await getParametre(cleGuard)) continue;
     const lignes = liste.map((c) => {
       const retard = c.date_relance < today ? ` (⚠️ en retard de ${joursDepuis(c.date_relance, today)} j)` : " (aujourd'hui)";
       const coords = [c.telephone, c.courriel].filter(Boolean).join(" · ");
@@ -52,7 +56,7 @@ https://app.revetementviking.com/clients
 
 — Revêtement Viking Inc.`;
     const r = await sendEmail({ to: dest, subject: sujet, text: corps });
-    if (r.ok) envoyes++;
+    if (r.ok) { envoyes++; await setParametre(cleGuard, String(liste.length)); }
   }
   return NextResponse.json({ ok: true, envoyes, relances: dus.length });
 }

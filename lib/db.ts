@@ -2132,3 +2132,82 @@ export async function deleteOAuthTokens(provider: string): Promise<void> {
 
 // Export factice pour compatibilité ascendante (certains anciens fichiers importaient `db`)
 export function db() { return getLibsqlClient(); }
+
+// === EXPORT BRUT POUR BACKUP ===
+// Colonnes réelles complètes (SELECT *), sans troncature ni jointure — contrairement aux
+// listers d'affichage (lister(), listerContrats(), listerToutesHeures()…) qui coupent à
+// 200-5000 lignes et/ou joignent des champs calculés. Nécessaire pour qu'une restauration
+// ultérieure soit fidèle (ex. payload_json des soumissions, sans quoi une soumission
+// restaurée n'a plus ses lignes/prix).
+export async function soumissionsPourBackup(): Promise<any[]> {
+  return await all<any>("SELECT * FROM soumissions ORDER BY date_creation DESC");
+}
+export async function heuresPourBackup(): Promise<any[]> {
+  return await all<any>("SELECT * FROM heures_projet ORDER BY date DESC, id DESC");
+}
+export async function contratsPourBackup(): Promise<any[]> {
+  return await all<any>("SELECT * FROM contrats ORDER BY date_emission DESC");
+}
+export async function employesPourBackup(): Promise<any[]> {
+  // Contrairement à listerEmployes() : inclut aussi les employés inactifs (actif=0),
+  // sinon un backup perd silencieusement le roster des employés partis.
+  return await all<any>("SELECT * FROM employes ORDER BY nom ASC");
+}
+export async function paiesPourBackup(): Promise<any[]> {
+  return await all<any>("SELECT * FROM paies_periodes ORDER BY debut DESC");
+}
+
+// === RESTAURATION DEPUIS UN BACKUP JSON (réparation après sinistre) ===
+// Additive et idempotente : INSERT OR IGNORE en conservant les id d'origine, donc ne modifie
+// ni ne supprime jamais une ligne déjà présente — rejouable sans risque. Les colonnes sont
+// filtrées dynamiquement via PRAGMA table_info pour ignorer les champs de jointure/calculés
+// présents dans certains exports (client_nom, total_heures, projet_nom…).
+const TABLES_RESTAURATION: Record<string, string> = {
+  soumissions: "soumissions",
+  clients: "clients",
+  projets: "projets",
+  employes: "employes",
+  heures: "heures_projet",
+  depenses: "depenses_projet",
+  contrats: "contrats",
+  paies: "paies_periodes",
+  biblio: "bibliotheque_jobs",
+};
+
+export interface ResultatRestaurationTable { inseres: number; ignores: number; total: number; erreur?: string }
+
+export async function restaurerBackup(dump: any): Promise<Record<string, ResultatRestaurationTable>> {
+  await initDb();
+  const client = getLibsqlClient();
+  const resultat: Record<string, ResultatRestaurationTable> = {};
+  for (const [champ, table] of Object.entries(TABLES_RESTAURATION)) {
+    const lignes: any[] = Array.isArray(dump?.[champ]) ? dump[champ] : [];
+    resultat[champ] = { inseres: 0, ignores: 0, total: lignes.length };
+    if (!lignes.length) continue;
+    const infoCols = await exec(`PRAGMA table_info(${table})`);
+    const colsReelles = new Set((infoCols.rows as any[]).map((r) => String(r.name)));
+    const stmts: { sql: string; args: any[] }[] = [];
+    for (const ligne of lignes) {
+      if (!ligne || typeof ligne !== "object" || ligne.id == null) continue;
+      const cols = Object.keys(ligne).filter((k) => colsReelles.has(k));
+      if (!cols.length) continue;
+      stmts.push({
+        sql: `INSERT OR IGNORE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+        args: cols.map((k) => ligne[k] ?? null),
+      });
+    }
+    if (!stmts.length) continue;
+    try {
+      // Un batch par table : une erreur sur une table n'empêche pas la restauration des autres.
+      const resSets = await client.batch(stmts, "write");
+      for (const rs of resSets) {
+        if (Number(rs.rowsAffected || 0) > 0) resultat[champ].inseres++;
+        else resultat[champ].ignores++;
+      }
+    } catch (e: any) {
+      resultat[champ].erreur = e?.message || String(e);
+    }
+    _lastWrite = Date.now();
+  }
+  return resultat;
+}
