@@ -2186,28 +2186,93 @@ export async function deleteOAuthTokens(provider: string): Promise<void> {
 // Export factice pour compatibilité ascendante (certains anciens fichiers importaient `db`)
 export function db() { return getLibsqlClient(); }
 
-// === EXPORT BRUT POUR BACKUP ===
-// Colonnes réelles complètes (SELECT *), sans troncature ni jointure — contrairement aux
-// listers d'affichage (lister(), listerContrats(), listerToutesHeures()…) qui coupent à
-// 200-5000 lignes et/ou joignent des champs calculés. Nécessaire pour qu'une restauration
-// ultérieure soit fidèle (ex. payload_json des soumissions, sans quoi une soumission
-// restaurée n'a plus ses lignes/prix).
-export async function soumissionsPourBackup(): Promise<any[]> {
-  return await all<any>("SELECT * FROM soumissions ORDER BY date_creation DESC");
+// ============================================================================
+// SAUVEGARDE / RESTAURATION — une seule liste, partagée par les deux sens.
+// ============================================================================
+// Avant, /api/backup listait ses tables à la main et /api/restore avait sa propre liste :
+// les deux ont dérivé et 9 tables seulement sur 38 étaient sauvegardées. Manquaient entre
+// autres les CONTRATS SIGNÉS (valeur juridique), les factures et les extras. Une seule
+// source ici, donc plus de dérive possible.
+//
+// `champ` = clé dans le fichier JSON. NE JAMAIS RENOMMER un champ existant : les anciens
+// fichiers de sauvegarde deviendraient illisibles. On ne fait qu'ajouter.
+export const TABLES_SAUVEGARDE: { champ: string; table: string; tri?: string; sansColonnes?: string[] }[] = [
+  // — les 9 d'origine (noms de champs figés pour rester compatible avec les vieux fichiers)
+  { champ: "soumissions", table: "soumissions", tri: "date_creation DESC" },
+  { champ: "clients", table: "clients", tri: "nom ASC" },
+  { champ: "projets", table: "projets", tri: "id ASC" },
+  { champ: "employes", table: "employes", tri: "nom ASC" },   // inactifs inclus
+  { champ: "heures", table: "heures_projet", tri: "date DESC, id DESC" },
+  // Les photos de reçus sont écartées : c'est la table la plus nombreuse, et joindre une
+  // image à chaque dépense ferait exploser la taille du fichier. Les montants, eux, restent.
+  { champ: "depenses", table: "depenses_projet", tri: "date DESC", sansColonnes: ["recu_data"] },
+  { champ: "contrats", table: "contrats", tri: "date_emission DESC" },
+  { champ: "paies", table: "paies_periodes", tri: "debut DESC" },
+  { champ: "biblio", table: "bibliotheque_jobs", tri: "date_ajout DESC" },
+  // — ajoutées : elles manquaient toutes à la sauvegarde
+  // Le PDF SIGNÉ et son empreinte sont conservés (pièce juridique irremplaçable) ; le
+  // brouillon est écarté, il se régénère depuis data_json.
+  { champ: "contrats_signes", table: "pipeline_contrats", tri: "date_creation DESC", sansColonnes: ["pdf_brouillon"] },
+  { champ: "factures", table: "factures_projet", tri: "date DESC" },
+  { champ: "extras", table: "extras", tri: "id DESC" },
+  { champ: "assurances", table: "assurances", tri: "id ASC" },
+  { champ: "vehicules", table: "vehicules", tri: "nom ASC" },
+  { champ: "inventaire", table: "inventaire", tri: "id ASC" },
+  { champ: "inventaire_mouvements", table: "inventaire_mouvements", tri: "id ASC" },
+  { champ: "taches", table: "taches_client", tri: "id ASC" },
+  { champ: "client_taches", table: "client_taches", tri: "id ASC" },
+  { champ: "interactions", table: "interactions_client", tri: "id ASC" },
+  { champ: "client_commentaires", table: "client_commentaires", tri: "id ASC" },
+  { champ: "outils", table: "outils", tri: "id ASC" },
+  { champ: "catalogue", table: "catalogue_materiaux", tri: "id ASC" },
+  { champ: "categories_depense", table: "categories_depense", tri: "id ASC" },
+  { champ: "rendements", table: "rendements_reels", tri: "id ASC" },
+  { champ: "notes_rapides", table: "notes_rapides", tri: "id ASC" },
+  { champ: "cameras", table: "cameras", tri: "id ASC" },
+  { champ: "parametres", table: "parametres_app" },
+  { champ: "parametres_ia", table: "parametres_ia" },
+  { champ: "profils", table: "utilisateur_profil", tri: "id ASC" },
+];
+
+/** Volontairement HORS sauvegarde — chaque exclusion doit avoir sa raison ici. */
+export const TABLES_EXCLUES_SAUVEGARDE: Record<string, string> = {
+  oauth_tokens: "SECRETS (jetons Google Drive) — le fichier de sauvegarde est justement déposé sur Drive, ils n'ont rien à y faire",
+  photos_chantier: "blobs d'images — alourdiraient la sauvegarde de plusieurs centaines de Mo",
+  bibliotheque_photos: "blobs d'images",
+  client_fichiers: "blobs de fichiers clients",
+  documents_ia: "blobs de documents de référence",
+  prix_cache_v2: "cache régénérable",
+  push_subscriptions: "propre à chaque appareil, se recrée à la reconnexion",
+  journal_activite: "journal d'audit volumineux, propre à l'instance",
+  ia_feedback: "données secondaires d'apprentissage",
+};
+
+/** Export brut d'une table : colonnes réelles complètes, sans troncature ni jointure —
+ *  contrairement aux listers d'affichage qui coupent à 200-5000 lignes et joignent des
+ *  champs calculés. Indispensable pour que la restauration soit fidèle (ex. payload_json
+ *  des soumissions, sans quoi une soumission restaurée perd ses lignes et ses prix). */
+export async function exporterTable(table: string, tri?: string, sansColonnes?: string[]): Promise<any[]> {
+  let cols = "*";
+  if (sansColonnes?.length) {
+    const info = await exec(`PRAGMA table_info(${table})`);
+    const noms = (info.rows as any[]).map((r) => String(r.name)).filter((n) => !sansColonnes.includes(n));
+    if (noms.length) cols = noms.join(", ");
+  }
+  return await all<any>(`SELECT ${cols} FROM ${table}${tri ? ` ORDER BY ${tri}` : ""}`);
 }
-export async function heuresPourBackup(): Promise<any[]> {
-  return await all<any>("SELECT * FROM heures_projet ORDER BY date DESC, id DESC");
-}
-export async function contratsPourBackup(): Promise<any[]> {
-  return await all<any>("SELECT * FROM contrats ORDER BY date_emission DESC");
-}
-export async function employesPourBackup(): Promise<any[]> {
-  // Contrairement à listerEmployes() : inclut aussi les employés inactifs (actif=0),
-  // sinon un backup perd silencieusement le roster des employés partis.
-  return await all<any>("SELECT * FROM employes ORDER BY nom ASC");
-}
-export async function paiesPourBackup(): Promise<any[]> {
-  return await all<any>("SELECT * FROM paies_periodes ORDER BY debut DESC");
+
+/** Construit le contenu complet d'une sauvegarde : { champ: lignes[] } + le compte par champ.
+ *  Une table absente (schéma plus ancien) donne un tableau vide au lieu de tout faire échouer. */
+export async function contenuSauvegarde(): Promise<{ donnees: Record<string, any[]>; counts: Record<string, number> }> {
+  await initDb();
+  const donnees: Record<string, any[]> = {};
+  const counts: Record<string, number> = {};
+  for (const { champ, table, tri, sansColonnes } of TABLES_SAUVEGARDE) {
+    const lignes = await exporterTable(table, tri, sansColonnes).catch(() => [] as any[]);
+    donnees[champ] = lignes;
+    counts[champ] = lignes.length;
+  }
+  return { donnees, counts };
 }
 
 // === RESTAURATION DEPUIS UN BACKUP JSON (réparation après sinistre) ===
@@ -2215,17 +2280,6 @@ export async function paiesPourBackup(): Promise<any[]> {
 // ni ne supprime jamais une ligne déjà présente — rejouable sans risque. Les colonnes sont
 // filtrées dynamiquement via PRAGMA table_info pour ignorer les champs de jointure/calculés
 // présents dans certains exports (client_nom, total_heures, projet_nom…).
-const TABLES_RESTAURATION: Record<string, string> = {
-  soumissions: "soumissions",
-  clients: "clients",
-  projets: "projets",
-  employes: "employes",
-  heures: "heures_projet",
-  depenses: "depenses_projet",
-  contrats: "contrats",
-  paies: "paies_periodes",
-  biblio: "bibliotheque_jobs",
-};
 
 export interface ResultatRestaurationTable { inseres: number; ignores: number; total: number; erreur?: string }
 
@@ -2233,7 +2287,7 @@ export async function restaurerBackup(dump: any): Promise<Record<string, Resulta
   await initDb();
   const client = getLibsqlClient();
   const resultat: Record<string, ResultatRestaurationTable> = {};
-  for (const [champ, table] of Object.entries(TABLES_RESTAURATION)) {
+  for (const { champ, table } of TABLES_SAUVEGARDE) {
     const lignes: any[] = Array.isArray(dump?.[champ]) ? dump[champ] : [];
     resultat[champ] = { inseres: 0, ignores: 0, total: lignes.length };
     if (!lignes.length) continue;
@@ -2241,7 +2295,9 @@ export async function restaurerBackup(dump: any): Promise<Record<string, Resulta
     const colsReelles = new Set((infoCols.rows as any[]).map((r) => String(r.name)));
     const stmts: { sql: string; args: any[] }[] = [];
     for (const ligne of lignes) {
-      if (!ligne || typeof ligne !== "object" || ligne.id == null) continue;
+      // Pas d'exigence d'`id` : certaines tables ont une autre clé primaire (parametres_app
+      // est clé/valeur). On se contente d'exiger un objet ayant au moins une colonne connue.
+      if (!ligne || typeof ligne !== "object" || Array.isArray(ligne)) continue;
       const cols = Object.keys(ligne).filter((k) => colsReelles.has(k));
       if (!cols.length) continue;
       stmts.push({

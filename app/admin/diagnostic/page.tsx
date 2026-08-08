@@ -4,10 +4,18 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import ZoneDepot from "@/components/ZoneDepot";
 
+// Enveloppe minimale exigée par /api/restore pour juger un fichier valide : chaque envoi
+// partiel la fournit vide, seule la table du morceau porte des données.
+const ENVELOPPE_VIDE = {
+  soumissions: [], clients: [], projets: [], employes: [], heures: [],
+  depenses: [], contrats: [], paies: [], biblio: [],
+};
+
 function ValiderBackup() {
   const [texteBackup, setTexteBackup] = useState<string | null>(null);
   const [resultat, setResultat] = useState<any>(null);
   const [chargement, setChargement] = useState(false);
+  const [progression, setProgression] = useState("");
   const [restaure, setRestaure] = useState(false);
 
   const traiterFichier = async (file?: File) => {
@@ -25,17 +33,45 @@ function ValiderBackup() {
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => traiterFichier(e.target.files?.[0]);
 
   const restaurerReellement = async () => {
-    if (!texteBackup) return;
+    if (!texteBackup || chargement) return;
     const n = resultat?.total ?? "?";
     if (!window.confirm(`Restaurer réellement ce backup (${n} enregistrements) ? Aucune donnée existante ne sera modifiée ou supprimée — seules les lignes manquantes seront ajoutées.`)) return;
     setChargement(true);
     try {
-      const body = JSON.stringify({ ...JSON.parse(texteBackup), confirmer: true });
-      const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-      setResultat(await r.json());
+      const dump = JSON.parse(texteBackup);
+      // Restauration UNE TABLE À LA FOIS : l'hébergeur plafonne la taille d'une requête
+      // (~4,5 Mo), donc envoyer le fichier entier échouait sur une vraie sauvegarde. Chaque
+      // table part dans sa propre requête ; la restauration étant additive et rejouable,
+      // un découpage ne change rien au résultat.
+      const champs = Object.keys(dump).filter((k) => Array.isArray(dump[k]) && dump[k].length > 0);
+      const cumul: any = {};
+      const echecs: string[] = [];
+      for (const champ of champs) {
+        setProgression(`${champ}…`);
+        // Chaque envoi rejoue l'enveloppe minimale + une seule table de données.
+        const morceau: any = { ...ENVELOPPE_VIDE, confirmer: true, [champ]: dump[champ] };
+        try {
+          const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(morceau) });
+          const d = await r.json().catch(() => ({} as any));
+          if (!r.ok) { echecs.push(`${champ} : ${d?.error || `erreur ${r.status}`}`); continue; }
+          if (d.resultat?.[champ]) cumul[champ] = d.resultat[champ];
+        } catch (e: any) {
+          echecs.push(`${champ} : ${e?.message || "réseau"}`);
+        }
+      }
+      const inseres = Object.values(cumul).reduce((s: number, v: any) => s + (v?.inseres || 0), 0);
+      setResultat({
+        ok: echecs.length === 0,
+        mode: "restauration",
+        meta: { date_backup: dump.date_backup, version: dump.version },
+        resultat: cumul,
+        message: echecs.length
+          ? `⚠ Restauration partielle — ${inseres} ligne(s) insérée(s). Échecs : ${echecs.join(" · ")}`
+          : `✓ Restauration terminée — ${inseres} nouvelle(s) ligne(s) insérée(s). Aucune donnée existante n'a été modifiée ou supprimée.`,
+      });
       setRestaure(true);
     } catch (err: any) { setResultat({ ok: false, error: err.message }); }
-    finally { setChargement(false); }
+    finally { setChargement(false); setProgression(""); }
   };
 
   return (
@@ -44,7 +80,7 @@ function ValiderBackup() {
       <ZoneDepot onFichiers={(files) => traiterFichier(files[0])} accept="application/json,.json" multiple={false} messageSurvol="📂 Dépose le fichier de backup" className="inline-block">
         <input type="file" accept="application/json,.json" onChange={onFile} className="text-xs border rounded p-1.5" />
       </ZoneDepot>
-      {chargement && <div className="text-slate-500 mt-2 text-xs">⏳ {restaure ? "Restauration…" : "Analyse…"}</div>}
+      {chargement && <div className="text-slate-500 mt-2 text-xs">⏳ {progression ? `Restauration — ${progression}` : "Analyse…"}</div>}
       {resultat && (
         <div className={`mt-2 p-3 rounded text-xs ${resultat.ok ? "bg-emerald-50 border border-emerald-300 text-emerald-900" : "bg-red-50 border border-red-300 text-red-900"}`}>
           <div className="font-bold mb-1">{resultat.message || resultat.error}</div>
@@ -64,7 +100,7 @@ function ValiderBackup() {
         </div>
       )}
       {resultat?.mode === "validation-seulement" && resultat.ok && !restaure && (
-        <button onClick={restaurerReellement} className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold">
+        <button onClick={restaurerReellement} disabled={chargement} className="mt-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded text-xs font-bold">
           ⚠️ Restaurer réellement
         </button>
       )}

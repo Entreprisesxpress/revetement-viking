@@ -40,11 +40,14 @@ export async function GET(req: NextRequest) {
     return `• ${s.client_nom || "?"} — ${s.numero} — ${total} — envoyée il y a ${jours} jours${s.client_courriel ? ` (${s.client_courriel})` : ""}`;
   }).join("\n");
 
-  await sendEmail({
+  const envoi = await sendEmail({
     to: dest,
     subject: `[Viking] ${liste.length} soumission(s) à relancer (>7 jours)`,
     text: `Bonjour Francis,\n\nVoici les soumissions envoyées sans réponse depuis plus de 7 jours :\n\n${lignes}\n\nOuvrir : https://app.revetementviking.com/soumissions?statut=envoyee\n\n— Revêtement Viking Inc.`,
   });
+  // Le garde du jour ne se pose QUE si l'envoi a réussi : sinon une panne SMTP faisait
+  // sauter le récap pour la journée entière, sans réessai et sans que ça se voie.
+  if (!envoi.ok) return NextResponse.json({ ok: false, error: envoi.error || envoi.raison, nb: liste.length });
   await setParametre(cleGuard, String(liste.length));
 
   return NextResponse.json({ ok: true, nb: liste.length });

@@ -60,8 +60,18 @@ export default function InventairePage() {
   const ajusterQte = async (item: any, delta: number) => {
     const note = prompt(`${delta > 0 ? "Ajouter" : "Retirer"} ${Math.abs(delta)} ${item.unite} de "${item.nom}" — note (optionnel)`);
     if (note === null) return;
-    await fetch("/api/inventaire", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, delta, note: note || null }) });
-    toast(`${delta > 0 ? "+" : ""}${delta} ${item.unite}`, "success");
+    // La réponse DOIT être lue : sinon un refus « Stock insuffisant » (400) affichait
+    // quand même un toast vert et l'utilisateur croyait que sa saisie était perdue.
+    try {
+      const r = await fetch("/api/inventaire", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, delta, note: note || null }) });
+      if (r.ok) toast(`${delta > 0 ? "+" : ""}${delta} ${item.unite}`, "success");
+      else {
+        const d = await r.json().catch(() => ({} as any));
+        toast(d?.error || "Mouvement refusé", "warning");
+      }
+    } catch {
+      toast("Réseau indisponible — mouvement non enregistré", "error");
+    }
     charger();
   };
 

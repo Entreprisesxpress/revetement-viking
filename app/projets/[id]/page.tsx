@@ -1230,6 +1230,10 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const traiterContrat = async (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
+    // Un contrat signé est une pièce de référence : ne jamais la remplacer sans le demander
+    // (le glisser-déposer couvre toute la carte, y compris quand un document est déjà joint).
+    if ((projet.contrat_signe_data || projet.a_contrat_signe) &&
+        !confirm("Un contrat signé est déjà joint à ce projet. Le remplacer par ce fichier ?")) return;
     const reader = new FileReader();
     reader.onload = async () => {
       await fetch("/api/projets", {
@@ -1244,6 +1248,8 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const traiterFacture = async (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
+    if ((projet.facture_finale_data || projet.a_facture_finale) &&
+        !confirm("Une facture est déjà jointe à ce projet. La remplacer par ce fichier ?")) return;
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;

@@ -64,6 +64,7 @@ export default function EmployesPage() {
   const traiterSpecimen = (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB", "warning"); return; }
+    if (form.specimen_cheque_data && !confirm("Un spécimen est déjà joint. Le remplacer ?")) return;
     const reader = new FileReader();
     reader.onload = () => setForm({ ...form, specimen_cheque_data: reader.result, specimen_cheque_type: file.type });
     reader.readAsDataURL(file);

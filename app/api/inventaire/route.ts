@@ -37,14 +37,19 @@ export async function PATCH(req: NextRequest) {
   // Si on modifie la quantité, journaliser le mouvement
   if (typeof b.delta === "number" && b.delta !== 0) {
     const par = (await utilisateurActif(req)) || "?";
-    // Garde stock : refuse une sortie plus grande que le stock (avant : quantité négative
-    // acceptée en silence, ex. 3 en stock − 10 = −7).
-    if (b.delta < 0) {
+    // Garde stock ATOMIQUE : la condition est dans le WHERE, donc deux retraits simultanés
+    // ne peuvent pas passer tous les deux (un « SELECT puis compare puis UPDATE » laissait
+    // filer le stock en négatif quand deux personnes retiraient en même temps).
+    const maj = await c().execute({
+      sql: "UPDATE inventaire SET quantite = quantite + ?, date_modif = ? WHERE id = ? AND quantite + ? >= 0",
+      args: [b.delta, new Date().toISOString(), b.id, b.delta],
+    });
+    if (!maj.rowsAffected) {
       const cur = await c().execute({ sql: "SELECT quantite FROM inventaire WHERE id = ?", args: [b.id] });
+      if (!cur.rows.length) return NextResponse.json({ error: "item introuvable" }, { status: 404 });
       const q = Number((cur.rows[0] as any)?.quantite || 0);
-      if (q + b.delta < 0) return NextResponse.json({ error: `Stock insuffisant : ${q} en inventaire, retrait de ${-b.delta} demandé.` }, { status: 400 });
+      return NextResponse.json({ error: `Stock insuffisant : ${q} en inventaire, retrait de ${-b.delta} demandé.` }, { status: 400 });
     }
-    await c().execute({ sql: "UPDATE inventaire SET quantite = quantite + ?, date_modif = ? WHERE id = ?", args: [b.delta, new Date().toISOString(), b.id] });
     await c().execute({
       sql: "INSERT INTO inventaire_mouvements (inventaire_id, delta, type, note, par, date_creation) VALUES (?,?,?,?,?,?)",
       args: [b.id, b.delta, b.delta > 0 ? "entree" : "sortie", b.note || null, par, new Date().toISOString()],
@@ -61,19 +66,14 @@ export async function PATCH(req: NextRequest) {
   // même si l'utilisateur n'a touché qu'au nom : sans ce garde, ouvrir la fiche puis
   // enregistrer écrasait en silence un retrait fait entre-temps par quelqu'un d'autre,
   // et sans laisser la moindre ligne dans inventaire_mouvements.
-  let ajustement: { avant: number; apres: number } | null = null;
+  // `!= null` et non `!== undefined` : un `quantite_connue: null` sérialisé ne doit pas
+  // devenir 0 et déclencher un faux conflit.
+  const verrouActif = b.quantite !== undefined && b.quantite_connue != null;
+  let avant: number | null = null;
   if (b.quantite !== undefined) {
     const cur = await c().execute({ sql: "SELECT quantite FROM inventaire WHERE id = ?", args: [b.id] });
     if (!cur.rows.length) return NextResponse.json({ error: "item introuvable" }, { status: 404 });
-    const actuelle = Number((cur.rows[0] as any).quantite || 0);
-    const voulue = +b.quantite;
-    if (b.quantite_connue !== undefined && Number(b.quantite_connue) !== actuelle) {
-      return NextResponse.json({
-        error: `La quantité a changé pendant que tu modifiais la fiche : elle est passée de ${b.quantite_connue} à ${actuelle}. Rouvre la fiche pour repartir de la bonne valeur.`,
-        conflit: true, quantite_actuelle: actuelle,
-      }, { status: 409 });
-    }
-    if (voulue !== actuelle) ajustement = { avant: actuelle, apres: voulue };
+    avant = Number((cur.rows[0] as any).quantite || 0);
   }
 
   const champs = ["nom", "categorie", "quantite", "unite", "emplacement", "photo_data", "photo_type", "notes", "cout_unit"];
@@ -82,7 +82,20 @@ export async function PATCH(req: NextRequest) {
   if (!sets.length) return NextResponse.json({ error: "rien a modifier" }, { status: 400 });
   sets.push("date_modif = ?"); args.push(new Date().toISOString());
   args.push(b.id);
-  await c().execute({ sql: `UPDATE inventaire SET ${sets.join(", ")} WHERE id = ?`, args });
+  // Le témoin est vérifié DANS le WHERE : deux fiches ouvertes en parallèle ne peuvent pas
+  // enregistrer toutes les deux, contrairement à une comparaison faite en mémoire.
+  let sql = `UPDATE inventaire SET ${sets.join(", ")} WHERE id = ?`;
+  if (verrouActif) { sql += " AND quantite = ?"; args.push(Number(b.quantite_connue)); }
+  const maj = await c().execute({ sql, args });
+  if (verrouActif && !maj.rowsAffected) {
+    const cur = await c().execute({ sql: "SELECT quantite FROM inventaire WHERE id = ?", args: [b.id] });
+    const actuelle = Number((cur.rows[0] as any)?.quantite ?? 0);
+    return NextResponse.json({
+      error: `La quantité a changé pendant que tu modifiais la fiche : elle est passée de ${b.quantite_connue} à ${actuelle}. Rouvre la fiche pour repartir de la bonne valeur.`,
+      conflit: true, quantite_actuelle: actuelle,
+    }, { status: 409 });
+  }
+  const ajustement = (avant != null && +b.quantite !== avant) ? { avant, apres: +b.quantite } : null;
 
   // Un changement de quantité par l'écran d'édition laisse maintenant une trace, au même
   // titre qu'une entrée/sortie — sinon un saut de stock restait inexplicable.

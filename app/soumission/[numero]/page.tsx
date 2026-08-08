@@ -47,8 +47,12 @@ export default function SoumissionPublique() {
   if (!data) return <Centre><p className="text-slate-500">Chargement…</p></Centre>;
 
   const dejaTraitee = data.statut === "acceptee" || data.statut === "facturee" || data.statut === "refusee" || fait;
-  const sousTotal = data.total || 0; // total déjà calculé
-  // Affichage taxes informatif si activé
+  // `data.total` est le total TAXES INCLUSES (calculerSoumission fait déjà
+  // sousTotalAvantTaxes + TPS + TVQ). Il faut donc DÉCOMPOSER ce montant, pas y rajouter
+  // les taxes une 2e fois — sinon le client signait un montant gonflé de 14,975 %
+  // (11 497,50 $ affichés 13 219,25 $).
+  const totalTTC = data.total || 0;
+  const sousTotal = data.appliquerTaxes ? totalTTC / (1 + TPS + TVQ) : totalTTC;
   const tps = data.appliquerTaxes ? sousTotal * TPS : 0;
   const tvq = data.appliquerTaxes ? sousTotal * TVQ : 0;
 
@@ -103,7 +107,7 @@ export default function SoumissionPublique() {
             )}
             <div className="flex justify-between items-center pt-2 border-t border-slate-300">
               <span className="font-bold text-lg">Total{data.appliquerTaxes ? " avec taxes" : ""}</span>
-              <span className="font-bold text-xl text-emerald-700">{cad(sousTotal + tps + tvq)}</span>
+              <span className="font-bold text-xl text-emerald-700">{cad(totalTTC)}</span>
             </div>
           </div>
 

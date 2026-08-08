@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listerEmployes, ajouterEmploye, modifierEmploye, supprimerEmploye, getEmploye } from "@/lib/db";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
@@ -17,6 +18,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "nom et taux_horaire requis" }, { status: 400 });
   }
   const id = await ajouterEmploye({ nom: b.nom.trim(), taux_horaire: +b.taux_horaire, das_pct: b.das_pct ?? 0.15 });
+  // ajouterEmploye n'insère que les colonnes de base : sans ce complément, une case
+  // « Reçoit un talon » décochée à la création était ignorée (défaut SQL = 1).
+  const extras: any = {};
+  for (const k of ["recoit_talon", "telephone", "courriel", "adresse", "date_naissance", "nas",
+                   "date_embauche", "poste", "contact_urgence_nom", "contact_urgence_lien",
+                   "contact_urgence_tel", "specimen_cheque_data", "specimen_cheque_type", "notes"]) {
+    if (b[k] !== undefined && b[k] !== "") extras[k] = b[k];
+  }
+  if (Object.keys(extras).length) await modifierEmploye(id, extras);
   return NextResponse.json({ ok: true, id });
 }
 

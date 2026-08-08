@@ -1,6 +1,6 @@
 // Backup complet de la DB → Drive (Viking/Backups/backup-YYYY-MM-DD-HHMM.json)
 import { NextRequest, NextResponse } from "next/server";
-import { soumissionsPourBackup, listerClients, listerProjets, employesPourBackup, heuresPourBackup, listerToutesDepenses, contratsPourBackup, paiesPourBackup, listerJobsBiblio, toutesHeuresPourExport } from "@/lib/db";
+import { contenuSauvegarde, TABLES_EXCLUES_SAUVEGARDE, toutesHeuresPourExport } from "@/lib/db";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier, sauvegarderClasseurCSV } from "@/lib/drive";
 
 export const dynamic = "force-dynamic";
@@ -38,37 +38,26 @@ async function exporterHeuresVersSheet(): Promise<{ ok: boolean; lignes?: number
 
 async function effectuerBackup(): Promise<{ ok: boolean; nom?: string; webViewLink?: string; tailles?: any; error?: string; heures_sheet?: any }> {
   if (!(await driveEstActif())) return { ok: false, error: "Drive non actif — connecte Drive avant de lancer un backup." };
-  // Récupère toutes les tables principales (sans les blobs photos — trop lourd).
-  // Exports "PourBackup" = colonnes réelles complètes, sans troncature ni jointure,
-  // pour qu'une restauration ultérieure (/api/restore) soit fidèle.
-  const [soumissions, clients, projets, employes, heures, depenses, contrats, paies, biblio] = await Promise.all([
-    soumissionsPourBackup().catch(() => []),
-    listerClients().catch(() => []),
-    listerProjets().catch(() => []),
-    employesPourBackup().catch(() => []),
-    heuresPourBackup().catch(() => []),
-    listerToutesDepenses().catch(() => []),
-    contratsPourBackup().catch(() => []),
-    paiesPourBackup().catch(() => []),
-    listerJobsBiblio().catch(() => []),
-  ]);
+  // Toutes les tables métier, pilotées par la liste unique TABLES_SAUVEGARDE de lib/db.ts
+  // (la même que celle utilisée par /api/restore, donc impossible qu'elles divergent).
+  // Les exclusions volontaires — blobs, cache, et surtout les jetons OAuth — sont listées
+  // avec leur raison dans TABLES_EXCLUES_SAUVEGARDE et reportées dans le fichier.
+  const { donnees, counts } = await contenuSauvegarde();
   const dump = {
-    version: 1,
+    version: 2,
     date_backup: new Date().toISOString(),
     app: "Revêtement Viking",
-    counts: {
-      soumissions: soumissions.length, clients: clients.length, projets: projets.length,
-      employes: employes.length, heures: heures.length, depenses: depenses.length,
-      contrats: contrats.length, paies: paies.length, biblio: biblio.length,
-    },
-    soumissions, clients, projets, employes, heures, depenses, contrats, paies, biblio,
+    counts,
+    exclus: TABLES_EXCLUES_SAUVEGARDE,
+    ...donnees,
   };
   const json = JSON.stringify(dump, null, 2);
   const dataUrl = `data:application/json;base64,${Buffer.from(json).toString("base64")}`;
   const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
   const nom = `backup-${ts}.json`;
+  const total = Object.values(counts).reduce((s, n) => s + n, 0);
   const dossierId = await trouverOuCreerSousDossier("Backups");
-  const r = await uploaderFichier({ nom, dataUrl, dossierId, description: `Backup DB · ${dump.counts.soumissions} soum · ${dump.counts.projets} projets · ${dump.counts.clients} clients` });
+  const r = await uploaderFichier({ nom, dataUrl, dossierId, description: `Backup DB · ${total} enregistrements · ${counts.projets || 0} projets · ${counts.clients || 0} clients · ${counts.contrats_signes || 0} contrats signés` });
   // Back-up lisible des heures dans un Google Sheet dédié (best-effort, ne bloque pas).
   const heuresSheet = await exporterHeuresVersSheet();
   return { ok: true, nom, webViewLink: r.webViewLink, tailles: dump.counts, heures_sheet: heuresSheet };

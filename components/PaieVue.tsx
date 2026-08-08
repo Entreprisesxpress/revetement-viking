@@ -51,7 +51,11 @@ export default function PaieVue() {
    *  (/employes). Un employé absent de la liste (ex. désactivé) n'en reçoit pas non plus. */
   const aDroitAuTalon = (nomEmploye: string): boolean => {
     const e = employes.find((x) => x.nom === nomEmploye);
-    return !!e && (e.recoit_talon ?? 1) !== 0;
+    // Employé inconnu de la liste (désactivé après une fin d'emploi, ou nom corrigé
+    // depuis) : on garde le talon accessible. Un talon de paie doit rester réimprimable
+    // après le départ ; seule une case explicitement décochée le retire.
+    if (!e) return true;
+    return (e.recoit_talon ?? 1) !== 0;
   };
 
   const telechargerTalon = async (p: any) => {

@@ -4,13 +4,16 @@
 // idempotente (INSERT OR IGNORE conservant les id d'origine) — ne modifie ni ne supprime
 // jamais une ligne déjà présente. Rejouable sans risque.
 import { NextRequest, NextResponse } from "next/server";
-import { restaurerBackup } from "@/lib/db";
+import { restaurerBackup, TABLES_SAUVEGARDE } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
-const CHAMPS_ATTENDUS = ["soumissions", "clients", "projets", "employes", "heures", "depenses", "contrats", "paies", "biblio"];
+// Champs EXIGÉS pour juger un fichier valide : uniquement ceux de la v1, pour qu'une
+// vieille sauvegarde reste restaurable. Les champs ajoutés depuis (contrats signés,
+// factures, extras…) sont restaurés s'ils sont présents, sans être obligatoires.
+const CHAMPS_REQUIS = ["soumissions", "clients", "projets", "employes", "heures", "depenses", "contrats", "paies", "biblio"];
 const TAILLE_MAX = 200 * 1024 * 1024; // 200 Mo — filet contre un payload aberrant
 
 export async function POST(req: NextRequest) {
@@ -27,9 +30,13 @@ export async function POST(req: NextRequest) {
 
     const erreurs: string[] = [];
     const compte: Record<string, number> = {};
-    for (const c of CHAMPS_ATTENDUS) {
+    for (const c of CHAMPS_REQUIS) {
       if (!Array.isArray(b[c])) erreurs.push(`Champ manquant ou non-array : ${c}`);
       else compte[c] = b[c].length;
+    }
+    // Champs optionnels (sauvegardes v2+) : comptés s'ils sont là, jamais exigés.
+    for (const { champ } of TABLES_SAUVEGARDE) {
+      if (!CHAMPS_REQUIS.includes(champ) && Array.isArray(b[champ])) compte[champ] = b[champ].length;
     }
     const meta = { date_backup: b.date_backup || "—", version: b.version || 0, app: b.app || "—" };
     const total = Object.values(compte).reduce((s, n) => s + n, 0);

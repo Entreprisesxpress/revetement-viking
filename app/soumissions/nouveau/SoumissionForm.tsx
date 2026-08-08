@@ -435,8 +435,20 @@ export default function SoumissionForm() {
           data: { client, lignes, fraisActifs, fraisGestion, appliquerTaxes, hoverExtraction },
         }),
       });
+      // Le toast de succès était HORS du if : une session expirée (401) ou une erreur 500
+      // affichait « Sauvegardée : undefined » en vert et l'utilisateur quittait la page
+      // convaincu que son travail était enregistré.
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({} as any));
+        toast(`Échec de la sauvegarde : ${err?.error || `erreur ${r.status}`} — ton brouillon est conservé`, "error");
+        return;
+      }
       const d = await r.json();
-      if (d.numero) {
+      if (!d?.numero) {
+        toast("Échec de la sauvegarde — ton brouillon est conservé", "error");
+        return;
+      }
+      {
         setNumeroSoumission(d.numero);
         effacerBrouillon();
         // === FEEDBACK LOOP IA ===
@@ -449,6 +461,8 @@ export default function SoumissionForm() {
         }
       }
       toast(`Sauvegardée : ${d.numero}`, "success");
+    } catch (e: any) {
+      toast(`Échec de la sauvegarde (${e?.message || "réseau"}) — ton brouillon est conservé`, "error");
     } finally { setChargementSave(false); }
   };
 
