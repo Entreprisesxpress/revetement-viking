@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 300,
       messages: [{ role: "user", content: contenu }],
     });
+    journaliserCoutReponse("facture-ocr", MODELES.vision_photos, response);
     const text = response.content.filter((c) => c.type === "text").map((c: any) => c.text).join("\n").trim();
     const jsonText = text.replace(/^```json\s*|\s*```$/g, "").trim();
     let r: any;

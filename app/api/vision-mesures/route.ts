@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 const SYSTEME = `Tu es un expert en estimation de revêtement extérieur résidentiel pour Revêtement Viking (Québec).
 
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: "user", content }],
     });
 
+    journaliserCoutReponse("vision-mesures", MODELES.vision_photos, response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)

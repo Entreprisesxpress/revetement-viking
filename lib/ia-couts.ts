@@ -1,19 +1,59 @@
-// Journal des coûts IA — enregistre les tokens et le coût estimé de chaque appel Jarvis.
+// Journal des coûts IA — tokens et coût estimé de CHAQUE appel au modèle.
 import { db, initDb } from "@/lib/db";
 
-// Tarifs Claude Opus 4.8 (USD par 1M tokens) — cache écriture = 1,25× input, lecture = 0,1×.
-const PRIX = { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 };
+// Tarifs USD par 1M de tokens, PAR MODÈLE. L'app en utilise trois niveaux (Haiku, Sonnet,
+// Opus) : appliquer le tarif Opus à un appel Haiku surestimait la dépense de 5×, et
+// l'inverse la sous-estimait d'autant.
+// Convention Anthropic : écriture de cache = 1,25× l'entrée, lecture de cache = 0,1×.
+type Tarif = { input: number; output: number; cacheWrite: number; cacheRead: number };
+const tarif = (input: number, output: number): Tarif => ({ input, output, cacheWrite: input * 1.25, cacheRead: input * 0.1 });
+
+const PRIX_PAR_MODELE: Record<string, Tarif> = {
+  "claude-opus-4-8": tarif(5, 25),
+  "claude-opus-4-7": tarif(5, 25),
+  "claude-sonnet-4-5": tarif(3, 15),
+  "claude-sonnet-4-6": tarif(3, 15),
+  "claude-haiku-4-5": tarif(1, 5),
+};
+// Modèle inconnu : on prend le tarif le plus élevé, pour ne jamais sous-estimer la facture.
+const PRIX_DEFAUT = tarif(5, 25);
+
+function tarifDe(model?: string): Tarif {
+  if (!model) return PRIX_DEFAUT;
+  if (PRIX_PAR_MODELE[model]) return PRIX_PAR_MODELE[model];
+  // Tolère les identifiants datés (« claude-haiku-4-5-20251001 »).
+  const base = Object.keys(PRIX_PAR_MODELE).find((k) => model.startsWith(k));
+  return base ? PRIX_PAR_MODELE[base] : PRIX_DEFAUT;
+}
 
 export interface UsageIA { input?: number; output?: number; cacheWrite?: number; cacheRead?: number; }
 
-/** Coût USD d'un usage de tokens. */
-export function coutUSD(u: UsageIA): number {
+/** Coût USD d'un usage de tokens, au tarif du modèle appelé. */
+export function coutUSD(u: UsageIA, model?: string): number {
+  const p = tarifDe(model);
   const c =
-    (u.input || 0) * PRIX.input +
-    (u.output || 0) * PRIX.output +
-    (u.cacheWrite || 0) * PRIX.cacheWrite +
-    (u.cacheRead || 0) * PRIX.cacheRead;
+    (u.input || 0) * p.input +
+    (u.output || 0) * p.output +
+    (u.cacheWrite || 0) * p.cacheWrite +
+    (u.cacheRead || 0) * p.cacheRead;
   return c / 1_000_000;
+}
+
+/** Extrait l'usage d'une réponse de l'API (formes create() et stream()). */
+export function usageDeReponse(resp: any): UsageIA {
+  const u: any = resp?.usage || {};
+  return {
+    input: u.input_tokens || 0,
+    output: u.output_tokens || 0,
+    cacheWrite: u.cache_creation_input_tokens || 0,
+    cacheRead: u.cache_read_input_tokens || 0,
+  };
+}
+
+/** À appeler après CHAQUE appel au modèle. Best-effort : n'attend pas et n'échoue jamais,
+ *  pour ne jamais retarder ni casser la réponse rendue à l'utilisateur. */
+export function journaliserCoutReponse(outil: string, model: string, resp: any, user?: string | null): void {
+  enregistrerCoutIA({ outil, model, usage: usageDeReponse(resp), user }).catch(() => {});
 }
 
 async function assurerTable(): Promise<void> {
@@ -31,7 +71,7 @@ async function assurerTable(): Promise<void> {
 
 /** Enregistre un appel IA (best-effort — ne fait jamais échouer l'appel). Retourne le coût USD. */
 export async function enregistrerCoutIA(p: { outil: string; model: string; usage: UsageIA; user?: string | null }): Promise<number> {
-  const cout = coutUSD(p.usage);
+  const cout = coutUSD(p.usage, p.model);
   try {
     await assurerTable();
     await db().execute({

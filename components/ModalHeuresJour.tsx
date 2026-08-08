@@ -220,9 +220,20 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
         }
       }
       const totalPhotos = valides.reduce((s, l) => s + l.photos.length, 0);
-      if (photosInserts.length > 0) await Promise.all(photosInserts);
+      // Les heures sont DÉJÀ enregistrées à ce stade : si une photo échoue, il ne faut ni
+      // annoncer un succès complet, ni laisser l'exception remonter (la modale restait
+      // alors ouverte sans message, et re-cliquer créait des heures en double).
+      let photosOk = 0;
+      if (photosInserts.length > 0) {
+        const res = await Promise.allSettled(photosInserts);
+        photosOk = res.filter((x) => x.status === "fulfilled" && (x.value as Response)?.ok).length;
+      }
+      const photosEchouees = totalPhotos - photosOk;
 
-      toast(`✓ ${totalHeures} h × ${empsActifs.length} employé(s)${totalPhotos > 0 ? ` + ${totalPhotos} photo(s)` : ""} (${formatCAD(totalCout)})`, "success");
+      toast(`✓ ${totalHeures} h × ${empsActifs.length} employé(s)${photosOk > 0 ? ` + ${photosOk} photo(s)` : ""} (${formatCAD(totalCout)})`, "success");
+      if (photosEchouees > 0) {
+        toast(`⚠️ ${photosEchouees} photo(s) NON enregistrée(s) — tes heures sont sauvées, reprends les photos depuis la fiche du projet`, "error");
+      }
       setLignes([{ projet_id: projets[0]?.id || 0, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
       onSuccess?.();
       onClose();

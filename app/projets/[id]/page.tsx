@@ -11,6 +11,7 @@ import MeteoProjet from "@/components/MeteoProjet";
 import ZoneDepot from "@/components/ZoneDepot";
 import FacturesProjet from "@/components/FacturesProjet";
 import { estProjetActif } from "@/lib/statuts-projet";
+import { envoyer, nombreSaisi } from "@/lib/envoi";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -143,11 +144,11 @@ export default function ProjetDetail() {
     if (!hForm.heures) { toast("Heures requises", "warning"); return; }
     if (!hForm.employe) { toast("Sélectionne un employé", "warning"); return; }
     if (!hForm.taux_horaire) { toast("Taux horaire manquant", "warning"); return; }
-    const r = await fetch("/api/heures", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projet_id: id, date: hForm.date, heures: +hForm.heures, description: hForm.description, employe: hForm.employe, taux_horaire: +hForm.taux_horaire }),
+    const r = await envoyer("/api/heures", {
+      corps: { projet_id: id, date: hForm.date, heures: nombreSaisi(hForm.heures), description: hForm.description, employe: hForm.employe, taux_horaire: nombreSaisi(hForm.taux_horaire) },
     });
-    if ((await r.json()).ok) {
+    if (!r.ok) { toast(`Heures NON enregistrées : ${r.erreur}`, "error"); return; }
+    {
       toast(`${hForm.heures} h ajoutées pour ${hForm.employe}`, "success");
       setHForm({ ...hForm, heures: "", description: "" });
       charger();
@@ -165,12 +166,12 @@ export default function ProjetDetail() {
 
   const ajouterDepense = async () => {
     if (!dForm.montant) { toast("Montant requis", "warning"); return; }
-    const r = await fetch("/api/depenses", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projet_id: id, date: dForm.date, montant: +dForm.montant, fournisseur: dForm.fournisseur, description: dForm.description, categorie: dForm.categorie }),
+    const r = await envoyer("/api/depenses", {
+      corps: { projet_id: id, date: dForm.date, montant: nombreSaisi(dForm.montant), fournisseur: dForm.fournisseur, description: dForm.description, categorie: dForm.categorie },
     });
-    if ((await r.json()).ok) {
-      toast(`Dépense ${formatCAD(+dForm.montant)} ajoutée`, "success");
+    if (!r.ok) { toast(`Dépense NON enregistrée : ${r.erreur}`, "error"); return; }
+    {
+      toast(`Dépense ${formatCAD(nombreSaisi(dForm.montant))} ajoutée`, "success");
       setDForm({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
       charger();
     }

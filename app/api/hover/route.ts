@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 const PROMPT_HOVER = `Tu es un expert en estimation de revêtement extérieur résidentiel (soffite, fascia, solin, parement) au Québec.
 
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: "user", content }],
     });
 
+    journaliserCoutReponse("hover", MODELES.parse_hover, response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)

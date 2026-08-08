@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 const PROMPT_EXTRACTION = `Tu es expert en estimation de revêtement extérieur (soffite, fascia, solin, parement).
 
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
       ],
     });
 
+    journaliserCoutReponse("vision", MODELES.vision_photos, response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)

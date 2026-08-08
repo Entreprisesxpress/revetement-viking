@@ -6,6 +6,7 @@ import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { exporterCSV } from "@/lib/csv";
+import { envoyer, nombreSaisi } from "@/lib/envoi";
 
 type Vue = "semaine" | "liste";
 
@@ -155,15 +156,21 @@ export default function HoraireePage() {
   const supprimerSelection = async () => {
     if (selection.size === 0) return;
     if (!confirm(`Supprimer ${selection.size} entrée(s) sélectionnée(s) ?\nIRRÉVERSIBLE.`)) return;
-    await Promise.all(Array.from(selection).map((id) => fetch(`/api/heures?id=${id}`, { method: "DELETE" })));
-    toast(`${selection.size} entrée(s) supprimée(s)`, "success");
+    // Compte les vrais succès : une suppression refusée ne doit pas être annoncée comme
+    // faite (l'entrée réapparaissait au rechargement suivant).
+    const res = await Promise.all(Array.from(selection).map((id) => envoyer(`/api/heures?id=${id}`, { methode: "DELETE" })));
+    const ok = res.filter((r) => r.ok).length;
+    const echecs = res.length - ok;
+    if (ok > 0) toast(`${ok} entrée(s) supprimée(s)`, "success");
+    if (echecs > 0) toast(`${echecs} suppression(s) refusée(s) : ${res.find((r) => !r.ok)?.erreur || "erreur"}`, "error");
     setSelection(new Set());
     charger();
   };
 
   const supprimerUn = async (id: number) => {
     if (!confirm("Supprimer cette entrée d'heures ?")) return;
-    await fetch(`/api/heures?id=${id}`, { method: "DELETE" });
+    const r = await envoyer(`/api/heures?id=${id}`, { methode: "DELETE" });
+    if (!r.ok) { toast(`Échec de la suppression : ${r.erreur}`, "error"); charger(); return; }
     toast("Entrée supprimée", "info");
     charger();
   };
@@ -172,7 +179,7 @@ export default function HoraireePage() {
     if (!editing) return;
     const body = {
       id: editing.id, projet_id: editing.projet_id, date: editing.date,
-      heures: +editing.heures, taux_horaire: +editing.taux_horaire,
+      heures: nombreSaisi(editing.heures), taux_horaire: nombreSaisi(editing.taux_horaire),
       employe: editing.employe, description: editing.description,
       version: editing.version, // verrouillage optimiste (B7)
     };
@@ -184,11 +191,16 @@ export default function HoraireePage() {
       charger();
       return;
     }
-    if ((await r.json()).ok) {
-      toast("Heures mises à jour", "success");
-      setEditing(null);
-      charger();
+    // Sans ce `else`, un refus (ex. « heures > 24 ») laissait la modale ouverte sans le
+    // moindre message : on croyait que le bouton ne marchait pas.
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({} as any));
+      toast(`Modification refusée : ${d?.error || `erreur ${r.status}`}`, "error");
+      return;
     }
+    toast("Heures mises à jour", "success");
+    setEditing(null);
+    charger();
   };
 
   const exporter = () => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES, lirePrixCache, ecrirePrixCache } from "@/lib/viking-ai";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 const PROMPT = (nomProduit: string, codeProduit: string, fournisseur: string) => `
 Tu es un assistant qui aide à vérifier les prix de matériaux de construction au Québec.
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: "user", content: PROMPT(nom, code, fournisseur) }],
     });
 
+    journaliserCoutReponse("prix-web", MODELES.parse_pdf, response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)

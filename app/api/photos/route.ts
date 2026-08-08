@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerPhotosChantier, getPhotoChantier, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync } from "@/lib/db";
+import { after } from "next/server";
+import { listerPhotosChantier, getPhotoChantier, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync, marquerDriveEnAttente } from "@/lib/db";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier } from "@/lib/drive";
 
 export async function GET(req: NextRequest) {
@@ -18,10 +19,17 @@ export async function POST(req: NextRequest) {
   }
   const id = await ajouterPhotoChantier(b);
 
-  // Push Drive en arrière-plan si actif
+  // Push Drive si actif. Deux garde-fous, parce qu'une fonction serverless peut être
+  // arrêtée dès la réponse envoyée :
+  //  1) on marque la photo « en attente » AVANT de commencer → si l'envoi est interrompu,
+  //     elle reste repérable et le bouton « Resynchroniser » la reprendra (avant, elle
+  //     n'arrivait ni sur Drive ni dans le journal d'erreurs : perdue en silence) ;
+  //  2) after() confie le travail à la plateforme, qui maintient la fonction en vie après
+  //     la réponse — contrairement à une promesse lancée et non attendue.
   const driveActif = await driveEstActif();
   if (driveActif) {
-    (async () => {
+    await marquerDriveEnAttente(id).catch(() => {});
+    after(async () => {
       try {
         const projet = await getProjet(+b.projet_id);
         const sousDossier = `${projet?.nom || "Projet " + b.projet_id} - Photos`;
@@ -29,12 +37,12 @@ export async function POST(req: NextRequest) {
         const ext = b.photo_type?.includes("png") ? "png" : b.photo_type?.includes("pdf") ? "pdf" : b.photo_type?.startsWith("video/") ? "mp4" : "jpg";
         const nom = `${b.date}_${b.description || "photo"}_${id}.${ext}`.replace(/[/\\]/g, "-");
         const up = await uploaderFichier({ nom, dataUrl: b.photo_data, dossierId, description: `Projet ${projet?.nom || ""} · ${b.date} · ${b.employes || ""}` });
-        await marquerDriveSync(id, up.id, null);
+        await marquerDriveSync(id, up.id, null);   // succès : le marqueur d'attente est levé
       } catch (e: any) {
         console.warn("Drive sync failed:", e.message);
         try { await marquerDriveSync(id, null, e.message?.slice(0, 500) || "erreur inconnue"); } catch {}
       }
-    })();
+    });
   }
 
   return NextResponse.json({ ok: true, id, drive_sync: driveActif });

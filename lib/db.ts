@@ -1786,16 +1786,38 @@ export async function ajouterPhotoChantier(p: PhotoChantier): Promise<number> {
 export async function supprimerPhotoChantier(id: number) {
   await run("DELETE FROM photos_chantier WHERE id = ?", [id]);
 }
+/** Marqueur posé AVANT de lancer l'envoi vers Drive. Une fonction serverless peut être
+ *  arrêtée dès la réponse envoyée : sans cette trace, une photo n'arrivait ni sur Drive ni
+ *  dans le journal d'erreurs, donc restait invisible du bouton « Resynchroniser ». */
+export const DRIVE_EN_ATTENTE = "en attente d'envoi";
+/** Au-delà de ce délai, une photo encore « en attente » est considérée comme bloquée. */
+const DRIVE_ATTENTE_MAX_MS = 5 * 60 * 1000;
+function seuilAttenteDrive(): string { return new Date(Date.now() - DRIVE_ATTENTE_MAX_MS).toISOString(); }
+
 export async function marquerDriveSync(id: number, drive_file_id: string | null, error: string | null) {
   await run("UPDATE photos_chantier SET drive_file_id = ?, drive_sync_error = ? WHERE id = ?", [drive_file_id, error, id]);
 }
+export async function marquerDriveEnAttente(id: number) {
+  await run("UPDATE photos_chantier SET drive_sync_error = ? WHERE id = ?", [DRIVE_EN_ATTENTE, id]);
+}
+// Une photo tout juste déposée est « en attente » quelques secondes : on ne la compte comme
+// problème qu'au-delà du délai, sinon la cloche clignoterait à chaque photo.
+const OU_DRIVE_A_REPRENDRE = `drive_sync_error IS NOT NULL AND (drive_sync_error <> ? OR date_saisie < ?)`;
+
 export async function compterPhotosErreursDrive(): Promise<number> {
-  const r = await one<{ n: number }>("SELECT COUNT(*) AS n FROM photos_chantier WHERE drive_sync_error IS NOT NULL");
+  const r = await one<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM photos_chantier WHERE ${OU_DRIVE_A_REPRENDRE}`,
+    [DRIVE_EN_ATTENTE, seuilAttenteDrive()]
+  );
   return r?.n || 0;
 }
 /** Photos dont la synchro Drive a échoué (pour réessayer). */
 export async function listerPhotosErreursDrive(): Promise<any[]> {
-  return await all<any>("SELECT id, projet_id, date, photo_data, photo_type, description, drive_sync_error FROM photos_chantier WHERE drive_sync_error IS NOT NULL LIMIT 50");
+  return await all<any>(
+    `SELECT id, projet_id, date, photo_data, photo_type, description, drive_sync_error
+     FROM photos_chantier WHERE ${OU_DRIVE_A_REPRENDRE} LIMIT 50`,
+    [DRIVE_EN_ATTENTE, seuilAttenteDrive()]
+  );
 }
 
 // === BIBLIOTHÈQUE ===

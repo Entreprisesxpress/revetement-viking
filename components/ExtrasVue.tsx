@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
 import ModalExtra from "@/components/ModalExtra";
+import { envoyer } from "@/lib/envoi";
 
 const ICONE: Record<string, string> = { montant: "💰", heures: "⏱️", materiaux: "📦" };
 
@@ -24,14 +25,19 @@ export default function ExtrasVue() {
   };
   useEffect(() => { charger(); }, [onglet]);
 
+  // On ne retire la ligne de l'écran QUE si le serveur a confirmé : avant, une session
+  // expirée faisait disparaître l'extra à l'écran alors qu'il restait « à charger » en
+  // base — il « revenait » au rechargement suivant.
   const basculer = async (e: any, charge: boolean) => {
-    await fetch("/api/extras", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: e.id, statut: charge ? "charge" : "a_charger" }) });
+    const r = await envoyer("/api/extras", { methode: "PATCH", corps: { id: e.id, statut: charge ? "charge" : "a_charger" } });
+    if (!r.ok) { toast(`Échec : ${r.erreur}`, "error"); return; }
     toast(charge ? "✓ Marqué facturé" : "Remis à facturer", "success");
     setExtras((arr) => arr.filter((x) => x.id !== e.id));
   };
   const supprimer = async (e: any) => {
     if (!confirm("Supprimer cet extra ?")) return;
-    await fetch(`/api/extras?id=${e.id}`, { method: "DELETE" });
+    const r = await envoyer(`/api/extras?id=${e.id}`, { methode: "DELETE" });
+    if (!r.ok) { toast(`Échec de la suppression : ${r.erreur}`, "error"); return; }
     toast("Extra supprimé", "info");
     setExtras((arr) => arr.filter((x) => x.id !== e.id));
   };

@@ -10,6 +10,7 @@ import { MATERIAUX } from "@/data/materiaux";
 import { PRESETS } from "@/data/presets-soumission";
 import { jobsSimilaires } from "@/lib/db";
 import { REGLES_METIER_VIKING, MODELES, fewShotExemples, trouverProjetsSimilaires, resumeFeedbackHistorique, reglesMetierDynamiques, documentsReferenceActifs } from "@/lib/viking-ai";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 const SYSTEME = `Tu es l'expert estimateur en revêtement extérieur d'Revêtement Viking Inc. (RBQ 5811-4299-01, taux 90$/h facturé client).
 
@@ -131,6 +132,7 @@ Construis la soumission complète maintenant. Sélectionne les matériaux exacts
       messages: [{ role: "user", content: userMessage }],
     });
 
+    journaliserCoutReponse("auto-estimateur", MODELES.construction, response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)
@@ -176,6 +178,7 @@ Retourne UNIQUEMENT un JSON: {"code":"${mat.code}","prix_web_moyen":0,"source":"
             },
           ],
         });
+        journaliserCoutReponse("auto-estimateur:affinage", MODELES.construction, resp);
         const t = resp.content.filter((c) => c.type === "text").map((c: any) => c.text).join("").replace(/^```json\s*|\s*```$/g, "").trim();
         try { verifications.push(JSON.parse(t)); } catch {}
       } catch {}

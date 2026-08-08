@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 const SYSTEME = `Tu es l'assistant terrain de Francis (Revêtement Viking, revêtement extérieur QC).
 Francis te dicte des notes vocales depuis un chantier ou après visite.
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
       ],
     });
 
+    journaliserCoutReponse("notes-vocales", "claude-opus-4-7", response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)

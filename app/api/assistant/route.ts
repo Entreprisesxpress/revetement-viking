@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { MATERIAUX } from "@/data/materiaux";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 // Assistant conversationnel : prend l'état actuel de la soumission + une demande en langage naturel
 // Retourne des modifications structurées (ajout/modif/suppression de lignes)
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
       messages,
     });
 
+    journaliserCoutReponse("assistant", MODELES.chat_simple, response);
     const text = response.content
       .filter((c) => c.type === "text")
       .map((c: any) => c.text)
