@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerFacturesProjet, ajouterFactureProjet, marquerFacturePayee, supprimerFactureProjet } from "@/lib/db";
+import { listerFacturesProjet, ajouterFactureProjet, marquerFacturePayee, annulerPaiementFacture, supprimerFactureProjet } from "@/lib/db";
 import { aujourdhuiMontreal } from "@/lib/date";
 
 function fail(e: any, status = 500) { console.error("[/api/factures]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
@@ -33,6 +33,10 @@ export async function PATCH(req: NextRequest) {
     if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
     if (body.action === "marquer_payee") {
       await marquerFacturePayee(body.id, body.date_paiement || aujourdhuiMontreal());
+    } else if (body.action === "annuler_paiement") {
+      await annulerPaiementFacture(body.id);
+    } else {
+      return NextResponse.json({ error: "action inconnue" }, { status: 400 });
     }
     return NextResponse.json({ ok: true });
   } catch (e) { return fail(e); }

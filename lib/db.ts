@@ -1679,6 +1679,10 @@ export async function ajouterFactureProjet(f: FactureProjet): Promise<number> {
 export async function marquerFacturePayee(id: number, date_paiement: string) {
   await run("UPDATE factures_projet SET payee = 1, date_paiement = ? WHERE id = ?", [date_paiement, id]);
 }
+/** Annule un paiement marqué par erreur (le geste inverse manquait). */
+export async function annulerPaiementFacture(id: number) {
+  await run("UPDATE factures_projet SET payee = 0, date_paiement = NULL WHERE id = ?", [id]);
+}
 export async function supprimerFactureProjet(id: number) {
   await run("DELETE FROM factures_projet WHERE id = ?", [id]);
 }

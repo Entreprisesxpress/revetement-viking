@@ -9,6 +9,7 @@ import Lightbox from "@/components/Lightbox";
 import { getProjetPrefetch, setProjetPrefetch } from "@/lib/prefetchProjet";
 import MeteoProjet from "@/components/MeteoProjet";
 import ZoneDepot from "@/components/ZoneDepot";
+import FacturesProjet from "@/components/FacturesProjet";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -494,6 +495,10 @@ ${VIKING_EMAIL}
 
         {/* CONTRAT + FACTURE FINALE */}
         <ContratFactureSection projet={projet} onUpdate={charger} />
+
+        {/* Facturation : alimente total_facture / total_paye, jusqu'ici toujours à 0 faute
+            d'écran pour saisir les factures. */}
+        <FacturesProjet projetId={projet.id} onChange={charger} />
 
 
         {/* Onglets */}

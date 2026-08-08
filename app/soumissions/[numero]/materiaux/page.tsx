@@ -19,8 +19,12 @@ export default function MateriauxPage() {
 
   const csv = () => {
     if (!data) return;
-    const rows = [["Description", "Quantité", "Unité", "Coût unit.", "Sous-total"]];
-    data.liste.forEach((m: any) => rows.push([m.description, String(m.quantite), m.unite, String(m.cout_unit), String(m.sous_total)]));
+    const rows = [["Description", "À commander", "Format", "Mesuré", "Unité", "Coût / format", "Sous-total"]];
+    data.liste.forEach((m: any) => rows.push([
+      m.description, String(m.formats_a_commander ?? ""), m.format || "",
+      String(Math.round((m.quantite_avec_surplus ?? m.quantite) * 10) / 10), m.unite,
+      String(m.cout_unit), String(Math.round(m.sous_total * 100) / 100),
+    ]));
     const blob = new Blob(["﻿" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `materiaux-${numero}.csv`; a.click(); URL.revokeObjectURL(url);
@@ -42,21 +46,35 @@ export default function MateriauxPage() {
           <div className="border-b pb-3 mb-4">
             <h2 className="text-xl font-bold">Liste de matériaux pour {data.client}</h2>
             {data.adresse && <p className="text-sm text-slate-600">📍 {data.adresse}</p>}
-            <p className="text-xs text-slate-500">Soumission {data.numero} · {data.date} · {data.nb_articles} ligne(s)</p>
+            <p className="text-xs text-slate-500">
+              Soumission {data.numero} · {String(data.date || "").slice(0, 10)} · {data.nb_articles} ligne(s)
+            </p>
+            {data.avertissement && <p className="text-xs text-amber-700 mt-1">⚠️ {data.avertissement}</p>}
           </div>
           {data.liste.length === 0 ? (
             <p className="text-center text-slate-500 py-8 italic">Aucun matériau dans cette soumission (seulement de la main d'œuvre ?)</p>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-slate-100">
-                <tr><th className="text-left p-2">Description</th><th className="text-right p-2">Qté</th><th className="text-left p-2">Unité</th><th className="text-right p-2">Coût unit.</th><th className="text-right p-2">Sous-total</th></tr>
+                <tr>
+                  <th className="text-left p-2">Description</th>
+                  <th className="text-right p-2">À commander</th>
+                  <th className="text-left p-2">Format</th>
+                  <th className="text-right p-2">Mesuré (+ surplus)</th>
+                  <th className="text-right p-2">Coût / format</th>
+                  <th className="text-right p-2">Sous-total</th>
+                </tr>
               </thead>
               <tbody>
                 {data.liste.map((m: any, i: number) => (
                   <tr key={i} className="border-b hover:bg-slate-50">
-                    <td className="p-2 font-semibold">{m.description}</td>
-                    <td className="p-2 text-right">{m.quantite}</td>
-                    <td className="p-2 text-slate-500">{m.unite}</td>
+                    <td className="p-2 font-semibold">{m.description}<div className="text-[10px] text-slate-400 font-normal">{m.categorie}</div></td>
+                    {/* Ce qu'on commande vraiment : des formats entiers (boîtes, paquets) */}
+                    <td className="p-2 text-right font-bold text-emerald-800 text-base">{m.formats_a_commander ?? "—"}</td>
+                    <td className="p-2 text-slate-600 text-xs">{m.format}</td>
+                    <td className="p-2 text-right text-slate-600">
+                      {Math.round((m.quantite_avec_surplus ?? m.quantite) * 10) / 10} <span className="text-slate-400 text-xs">{m.unite}</span>
+                    </td>
                     <td className="p-2 text-right">{formatCAD(m.cout_unit)}</td>
                     <td className="p-2 text-right font-bold">{formatCAD(m.sous_total)}</td>
                   </tr>
@@ -64,7 +82,7 @@ export default function MateriauxPage() {
               </tbody>
               <tfoot>
                 <tr className="bg-emerald-50 font-bold">
-                  <td colSpan={4} className="p-2 text-right">TOTAL MATÉRIAUX</td>
+                  <td colSpan={5} className="p-2 text-right">TOTAL MATÉRIAUX (coûtant)</td>
                   <td className="p-2 text-right text-emerald-800 text-lg">{formatCAD(data.total)}</td>
                 </tr>
               </tfoot>

@@ -90,7 +90,10 @@ export default function SoumissionsPage() {
     if (!confirm(`Dupliquer ${numero} comme nouvelle soumission ?`)) return;
     const r = await fetch("/api/soumissions/dupliquer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ numero }) });
     const d = await r.json();
-    if (d.ok) { router.push(`/?modifier=${d.numero}`); }
+    // `/` est le tableau de bord et n'a jamais lu `?modifier=` : le formulaire est à
+    // /soumissions/nouveau. On atterrissait donc sur le dashboard après avoir dupliqué,
+    // ce qui donnait l'impression d'un échec → re-clics → doublons.
+    if (d.ok) { router.push(`/soumissions/nouveau?modifier=${d.numero}`); }
     else alert("Erreur duplication");
   };
 
@@ -168,7 +171,7 @@ export default function SoumissionsPage() {
                           <button onClick={() => convertirEnProjet(s.numero)} className="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs mr-1" title="Créer un projet à partir de cette soumission">🏗️ Projet</button>
                         )}
                         <button onClick={() => copierLienClient(s.numero)} className="text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded text-xs mr-1" title="Copier le lien de signature à envoyer au client">🔗 Lien client</button>
-                        <a href={`/?modifier=${s.numero}`} className="text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded text-xs mr-1">Modifier</a>
+                        <a href={`/soumissions/nouveau?modifier=${s.numero}`} className="text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded text-xs mr-1">Modifier</a>
                         <button onClick={() => dupliquer(s.numero)} className="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-xs mr-1" title="Utiliser comme template pour une nouvelle soumission">📋 Dupliquer</button>
                         <a href={`/soumissions/${s.numero}/materiaux`} className="text-amber-700 hover:bg-amber-50 px-2 py-1 rounded text-xs mr-1" title="Voir la liste de matériaux">📦 Matériaux</a>
                         <button onClick={() => supprimer(s.numero)} className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs">✕</button>
@@ -199,7 +202,7 @@ export default function SoumissionsPage() {
                     <select value={s.statut} onChange={(e) => changerStatut(s.numero, e.target.value)} className={`text-xs px-2 py-1 rounded border ${STATUTS[s.statut]?.couleur} flex-1`}>
                       {Object.entries(STATUTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
-                    <a href={`/?modifier=${s.numero}`} className="px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded text-xs font-semibold whitespace-nowrap">✏️ Modifier</a>
+                    <a href={`/soumissions/nouveau?modifier=${s.numero}`} className="px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded text-xs font-semibold whitespace-nowrap">✏️ Modifier</a>
                     <button onClick={() => dupliquer(s.numero)} className="px-3 py-1 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded text-xs font-semibold whitespace-nowrap" title="Dupliquer comme template">📋</button>
                     <button onClick={() => supprimer(s.numero)} className="px-2 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-xs">✕</button>
                   </div>
