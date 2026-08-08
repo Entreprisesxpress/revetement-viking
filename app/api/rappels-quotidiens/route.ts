@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { envoyerPushUtilisateur, pushEstConfigure } from "@/lib/push";
+import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
     // Projets en retard
     const pR = await c.execute({
-      sql: "SELECT COUNT(*) AS n FROM projets WHERE statut = 'actif' AND date_fin_prevue < ?",
+      sql: `SELECT COUNT(*) AS n FROM projets WHERE ${SQL_PROJET_ACTIF} AND date_fin_prevue < ?`,
       args: [auj],
     }).catch(() => ({ rows: [{ n: 0 }] }));
 

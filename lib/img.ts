@@ -85,10 +85,10 @@ function canvasVersBlob(canvas: HTMLCanvasElement, mime: string, q: number): Pro
   });
 }
 
-export async function compresserImage(file: File): Promise<string> {
-  // PDF : on retourne tel quel en base64 (pas de compression)
-  if (file.type === "application/pdf") return await lireDataURL(file);
-
+/** Compresse et renvoie le BLOB — utile quand l'envoi se fait en FormData plutôt qu'en
+ *  base64 (une photo d'iPhone brute pèse 3 à 5 Mo, et la limite de corps de requête est
+ *  atteinte bien avant avec plusieurs photos). */
+export async function compresserImageBlob(file: File): Promise<Blob> {
   const { src, w, h, fermer } = await decoderImage(file);
   try {
     const dim = dimensionsReduites(w, h, MAX_DIMENSION);
@@ -105,10 +105,16 @@ export async function compresserImage(file: File): Promise<string> {
       blob = await canvasVersBlob(canvas, "image/jpeg", q);
     }
     if (!blob) throw new Error("Compression impossible");
-    return await blobVersDataURL(blob);
+    return blob;
   } finally {
     fermer?.();
   }
+}
+
+export async function compresserImage(file: File): Promise<string> {
+  // PDF : on retourne tel quel en base64 (pas de compression)
+  if (file.type === "application/pdf") return await lireDataURL(file);
+  return await blobVersDataURL(await compresserImageBlob(file));
 }
 
 /** Détecte le support WebP du navigateur (encodage canvas). Mémoïsé. */

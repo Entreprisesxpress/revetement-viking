@@ -6,6 +6,7 @@ import {
   mentionsRecentes, relancesPourUser, db,
 } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
+import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
 
 async function alertesBusiness(user: string | null) {
   const c: any = db();
@@ -25,7 +26,7 @@ async function alertesBusiness(user: string | null) {
     }).catch(() => ({ rows: [] })),
     // Projets en retard
     c.execute({
-      sql: `SELECT id, nom, date_fin_prevue FROM projets WHERE statut = 'actif' AND date_fin_prevue IS NOT NULL AND date_fin_prevue < ? ORDER BY date_fin_prevue ASC LIMIT 20`,
+      sql: `SELECT id, nom, date_fin_prevue FROM projets WHERE ${SQL_PROJET_ACTIF} AND date_fin_prevue IS NOT NULL AND date_fin_prevue < ? ORDER BY date_fin_prevue ASC LIMIT 20`,
       args: [auj],
     }).catch(() => ({ rows: [] })),
     // Tâches à échéance (mes tâches, dans 3 jours ou en retard)

@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listerProjets, listerProjetsLite, listerProjetsAFacturer, getProjet, ajouterProjet, modifierProjet, supprimerProjet, trouverOuCreerClient, charger } from "@/lib/db";
 import { envoyerPushUtilisateur } from "@/lib/push";
+import { STATUTS_PROJET } from "@/lib/statuts-projet";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 
 // Statuts reconnus par l'app (filtres, CA, dashboard). Un statut hors liste rendait
 // le projet invisible des filtres ET du CA — silencieusement.
-const STATUTS_PROJET = new Set(["actif", "a_venir", "en_cours", "en_pause", "complete", "annule"]);
+const STATUTS_VALIDES = new Set<string>(STATUTS_PROJET);
 function statutInvalide(statut: any): boolean {
-  return statut !== undefined && statut !== null && !STATUTS_PROJET.has(String(statut));
+  return statut !== undefined && statut !== null && !STATUTS_VALIDES.has(String(statut));
 }
 
 function ok(data: any, init?: ResponseInit) {

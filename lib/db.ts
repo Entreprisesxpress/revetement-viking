@@ -4,6 +4,7 @@ import { createClient, type Client as LibsqlClient, type ResultSet } from "@libs
 import path from "path";
 import fs from "fs";
 import { calculerMargeProjet, revenuAvantTaxes, depensesAvantTaxes, avancerDateRecurrence, periodeBiHebdo as periodeBiHebdoCalc, calculerHeuresPaye as calculerHeuresPayeCalc, calculerPaye } from "@/lib/calculs";
+import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DB_DIR, "soumissions.db");
@@ -1316,7 +1317,11 @@ export async function listerProjets(statut?: string): Promise<ProjetAvecTotaux[]
   return cacheLecture(`projets:${statut || "all"}`, 10000, async () => {
     let sql = PROJ_SQL;
     const args: any[] = [];
-    if (statut) { sql += ` WHERE p.statut = ?`; args.push(statut); }
+    // « actif » veut dire « chantier en activité » : il couvre AUSSI « en_cours », posé
+    // par le bouton « Commencer ce chantier ». Sans ça, démarrer un chantier le faisait
+    // disparaître du tableau de bord et des sélecteurs de projet.
+    if (statut === "actif") sql += ` WHERE p.${SQL_PROJET_ACTIF}`;
+    else if (statut) { sql += ` WHERE p.statut = ?`; args.push(statut); }
     sql += ` ORDER BY p.date_creation DESC`;
     const rows = await all<any>(sql, args);
     return rows.map(calculerTotaux);
@@ -1330,7 +1335,11 @@ export async function listerProjetsLite(statut?: string): Promise<any[]> {
     let sql = `SELECT p.id, p.numero, p.nom, p.adresse_chantier, p.statut, p.date_creation, p.budget_estime, p.date_fin_reelle, p.date_fin_prevue, c.nom as client_nom
                FROM projets p LEFT JOIN clients c ON c.id = p.client_id`;
     const args: any[] = [];
-    if (statut) { sql += ` WHERE p.statut = ?`; args.push(statut); }
+    // « actif » veut dire « chantier en activité » : il couvre AUSSI « en_cours », posé
+    // par le bouton « Commencer ce chantier ». Sans ça, démarrer un chantier le faisait
+    // disparaître du tableau de bord et des sélecteurs de projet.
+    if (statut === "actif") sql += ` WHERE p.${SQL_PROJET_ACTIF}`;
+    else if (statut) { sql += ` WHERE p.statut = ?`; args.push(statut); }
     sql += ` ORDER BY p.date_creation DESC`;
     return await all<any>(sql, args);
   });

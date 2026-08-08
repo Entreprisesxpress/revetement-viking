@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { estProjetActif } from "@/lib/statuts-projet";
 
 interface ProjetItem { id: number; nom: string; adresse_chantier?: string; client_nom?: string; statut?: string }
 
@@ -34,7 +35,7 @@ export default function ProjetPicker({ value, onChange, projets, placeholder, cl
   const ql = q.trim().toLowerCase();
   const liste = ql
     ? projets.filter((p) => `${p.nom} ${p.adresse_chantier || ""} ${p.client_nom || ""}`.toLowerCase().includes(ql))
-    : projets.filter((p) => p.statut === "actif"); // par défaut : en cours seulement
+    : projets.filter((p) => estProjetActif(p.statut)); // par défaut : chantiers en activité
 
   const tag = (s?: string) => s === "a_venir" ? " · 📅 à venir" : s === "complete" ? " · ✅ complété" : "";
 

@@ -7,6 +7,7 @@ import { calculerSoumission, formatCAD, type LigneSoumission, type FraisActif } 
 import { PRESETS, type PresetMateriau } from "@/data/presets-soumission";
 import { mapperHoverVersLignes, type HoverMesures } from "@/lib/hover-mapping";
 import { sauvegarderBrouillon, chargerBrouillon, effacerBrouillon } from "@/lib/autosave";
+import { compresserImageBlob } from "@/lib/img";
 import dynamic from "next/dynamic";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
@@ -249,8 +250,29 @@ export default function SoumissionForm() {
       const fd = new FormData();
       fd.append("reference", referenceEchelle);
       fd.append("description", descriptionVision);
-      photosVision.forEach((f, i) => fd.append(`photo_${i}`, f));
+      // COMPRESSION avant l'envoi : 6 photos d'iPhone brutes font 20-30 Mo et dépassent
+      // largement la limite de corps de requête — la plateforme répondait alors une page
+      // d'erreur non-JSON et l'écran affichait « Unexpected token ». Le modèle de vision
+      // n'a de toute façon pas besoin de plus que la résolution réduite.
+      for (let i = 0; i < photosVision.length; i++) {
+        const f = photosVision[i];
+        try {
+          const blob = await compresserImageBlob(f);
+          fd.append(`photo_${i}`, new File([blob], `photo_${i}.jpg`, { type: "image/jpeg" }));
+        } catch {
+          fd.append(`photo_${i}`, f); // compression impossible : on tente l'original
+        }
+      }
       const r = await fetch("/api/vision-mesures", { method: "POST", body: fd });
+      if (!r.ok) {
+        // Réponse non-JSON possible (413 de la plateforme) : message clair plutôt qu'un
+        // « Unexpected token » incompréhensible.
+        const txt = await r.text().catch(() => "");
+        let msg = `erreur ${r.status}`;
+        try { msg = JSON.parse(txt)?.error || msg; } catch { if (r.status === 413) msg = "photos trop lourdes même après compression — essaie avec moins de photos"; }
+        alert("Erreur : " + msg);
+        return;
+      }
       const d = await r.json();
       if (d.ok) {
         setHoverExtraction(d.extraction);

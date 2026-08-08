@@ -63,9 +63,19 @@ export async function POST(req: NextRequest) {
   ];
 
   const encoder = new TextEncoder();
+  // Si l'utilisateur ferme l'onglet ou coupe la question, il faut ARRÊTER d'appeler le
+  // modèle : sans ça la boucle de 8 tours allait jusqu'au bout, personne ne lisait la
+  // réponse, et l'appel était facturé quand même.
+  const abort = new AbortController();
+  let annule = false;
+  const arreter = () => { annule = true; try { abort.abort(); } catch { /* déjà arrêté */ } };
+  // Déconnexion réseau du client (onglet fermé, navigation, perte de connexion).
+  try { req.signal?.addEventListener("abort", arreter, { once: true }); } catch { /* pas de signal */ }
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: string, data: any) => {
+        if (annule) return;
         try { controller.enqueue(encoder.encode(sse(event, data))); } catch { /* fermé */ }
       };
       const outilsUtilises: string[] = [];
@@ -74,6 +84,7 @@ export async function POST(req: NextRequest) {
 
       try {
         for (let tour = 0; tour < 8; tour++) {
+          if (annule) return;   // plus personne à l'écoute : on n'entame pas un tour de plus
           appliquerCacheMessages(messages);
 
           const s = client.messages.stream({
@@ -83,7 +94,7 @@ export async function POST(req: NextRequest) {
             system: systemBlocks as any,
             tools: OUTILS_JARVIS as any,
             messages,
-          });
+          }, { signal: abort.signal });
           // Diffuse le texte en direct (l'utilisateur voit la réponse se former).
           s.on("text", (delta: string) => { if (delta) send("text", { delta }); });
 
@@ -97,6 +108,7 @@ export async function POST(req: NextRequest) {
           messages.push({ role: "assistant", content: resp.content });
 
           if (resp.stop_reason === "tool_use") {
+            if (annule) return;  // n'exécute pas les outils d'un tour dont personne n'attend le résultat
             const demandes = resp.content.filter((b: any) => b.type === "tool_use") as any[];
             send("statut", { names: demandes.map((d) => d.name) });
             const resultats = await Promise.all(
@@ -131,11 +143,14 @@ export async function POST(req: NextRequest) {
         send("cout", { total_usd: coutAppel, mois_usd: mois.total_usd, mois: mois.mois });
         send("done", {});
       } catch (e: any) {
-        send("erreur", { error: e?.message || "Erreur serveur" });
+        // Une annulation n'est pas une erreur à afficher : personne n'écoute plus.
+        if (!annule) send("erreur", { error: e?.message || "Erreur serveur" });
       } finally {
         try { controller.close(); } catch { /* déjà fermé */ }
       }
     },
+    // Appelé par la plateforme quand le client se détache du flux.
+    cancel() { arreter(); },
   });
 
   return new Response(stream, {

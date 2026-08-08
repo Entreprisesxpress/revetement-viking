@@ -10,6 +10,7 @@ import { getProjetPrefetch, setProjetPrefetch } from "@/lib/prefetchProjet";
 import MeteoProjet from "@/components/MeteoProjet";
 import ZoneDepot from "@/components/ZoneDepot";
 import FacturesProjet from "@/components/FacturesProjet";
+import { estProjetActif } from "@/lib/statuts-projet";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -407,7 +408,7 @@ ${VIKING_EMAIL}
         )}
 
         {/* MÉTÉO 5 JOURS au chantier */}
-        {projet.adresse_chantier && projet.statut === "actif" && <MeteoProjet adresse={projet.adresse_chantier} />}
+        {projet.adresse_chantier && estProjetActif(projet.statut) && <MeteoProjet adresse={projet.adresse_chantier} />}
 
         {/* ALERTE DÉPASSEMENT BUDGET */}
         {projet.budget_estime > 0 && projet.pct_budget_consomme >= 90 && (

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatCAD } from "@/lib/calculateur";
 import { prefetchProjet } from "@/lib/prefetchProjet";
+import { estProjetActif } from "@/lib/statuts-projet";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
@@ -117,7 +118,7 @@ export default function ProjetsPage() {
   })();
 
   // Considère "en_cours" et "actif" comme des projets en activité
-  const estActif = (p: any) => p.statut === 'actif' || p.statut === 'en_cours';
+  const estActif = (p: any) => estProjetActif(p.statut);
   // Valeur du contrat : même précédence que le calcul de marge (lib/calculs.ts).
   // Avant, l'affichage ne regardait que budget_estime → un projet saisi avec seulement
   // un prix de contrat affichait « 0 $ » et son bloc de marge disparaissait.

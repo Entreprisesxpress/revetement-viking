@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db as getDbClient, listerProjets } from "@/lib/db";
+import { estProjetActif } from "@/lib/statuts-projet";
 
 /** Dashboard enrichi : KPIs business agrégés pour la page d'accueil.
  *  IMPORTANT : revenu et marge utilisent la MÊME logique que la page Finances /
@@ -25,7 +26,7 @@ export async function GET(_req: NextRequest) {
     }
 
     // Marge moyenne sur les projets ACTIFS (rentabilité en cours, avant taxes).
-    const actifs = projets.filter((p) => p.statut === "actif");
+    const actifs = projets.filter((p) => estProjetActif(p.statut));
     let totalMarge = 0, totalBase = 0, nbEnRetard = 0;
     for (const p of actifs) {
       totalMarge += p.marge || 0;
