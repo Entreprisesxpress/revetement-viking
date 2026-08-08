@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { getContratPipelineParToken, signerContratPipeline, getClient, marquerContratVu } from "@/lib/db";
 import { genererContratBlob } from "@/lib/pdf-contrat";
 
@@ -63,9 +64,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   data.signature_client_image = b.signature_dataurl;
 
   let pdfSigne: string;
+  let empreinte: string;
   try {
     const blob = await genererContratBlob(data);
     const buf = Buffer.from(await blob.arrayBuffer());
+    // Empreinte SHA-256 des OCTETS du PDF (pas de la dataURL) : scellée ici, elle permet au
+    // certificat d'authentification de prouver plus tard que la pièce archivée n'a pas bougé.
+    empreinte = createHash("sha256").update(buf).digest("hex");
     pdfSigne = `data:application/pdf;base64,${buf.toString("base64")}`;
   } catch (e: any) {
     return NextResponse.json({ error: "échec de génération du PDF signé : " + (e?.message || "") }, { status: 500 });
@@ -76,6 +81,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     signature_nom: signatureNom,
     pdf_signe: pdfSigne,
     ip: ipDe(req),
+    sha256: empreinte,
+    user_agent: (req.headers.get("user-agent") || "").slice(0, 300) || undefined,
   });
   if (!ok) return NextResponse.json({ error: "déjà signé ou introuvable" }, { status: 409 });
   return NextResponse.json({ ok: true });

@@ -89,7 +89,11 @@ export default function SignatureContratPage() {
         <div className="text-6xl">✅</div>
         <h1 className="text-xl font-bold text-emerald-700">Contrat signé !</h1>
         <p className="text-sm text-slate-700">Merci {meta?.signature_nom || nom}. Une copie du contrat signé est conservée par Revêtement Viking Inc.</p>
-        <a href={`/api/contrats-pipeline/${token}/pdf?signe=1`} target="_blank" rel="noreferrer" className="inline-block px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-sm">📄 Télécharger ma copie signée</a>
+        <div className="flex flex-col gap-2">
+          <a href={`/api/contrats-pipeline/${token}/pdf?signe=1`} target="_blank" rel="noreferrer" className="inline-block px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-sm">📄 Télécharger ma copie signée</a>
+          <a href={`/api/contrats-pipeline/${token}/certificat`} target="_blank" rel="noreferrer" className="inline-block px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-sm">🔏 Certificat d'authentification</a>
+        </div>
+        <p className="text-[11px] text-slate-500">Le certificat atteste de l'historique et de l'intégrité de votre signature. Conservez les deux documents.</p>
         <p className="text-xs text-slate-500 pt-3">Revêtement Viking Inc. · RBQ 5811-4299-01 · revetementviking@gmail.com · (438) 493-2041</p>
       </div>
     </main>

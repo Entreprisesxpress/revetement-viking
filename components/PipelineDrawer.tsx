@@ -334,6 +334,29 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     }
   };
 
+  /** Une fois signé : transmet au client le contrat signé + le certificat d'authentification. */
+  const envoyerDossierSigne = async (co: any) => {
+    const dest = form.courriel;
+    if (!dest) { toast("Aucun courriel client pour cette fiche — ajoute-le dans les coordonnées", "warning"); return; }
+    if (!confirm(`Envoyer à ${dest} le contrat signé ${co.numero} + le certificat d'authentification ?`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/contrats-pipeline/${co.token}/envoyer-signe`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: dest }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        toast(`📧 Dossier signé envoyé à ${dest}${d.verdict === "CONFORME" ? " (intégrité vérifiée)" : ""}`, "success");
+        rechargerContrats();
+      } else if (d.raison === "email_non_configure") {
+        toast("Service courriel non configuré — télécharge le contrat et le certificat pour les envoyer manuellement", "warning");
+      } else {
+        toast(`Échec envoi : ${d.error || "erreur inconnue"}`, "error");
+      }
+    } finally { setBusy(false); }
+  };
+
   const signerParPhotoPapier = async (co: any, file: File) => {
     try {
       toast("📷 Extraction de la signature…", "info");
@@ -610,13 +633,18 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
                       <div className="flex gap-1 flex-wrap">
                         <a href={`/api/contrats-pipeline/${co.token}/pdf${co.statut === "signe" ? "?signe=1" : ""}`} target="_blank" rel="noreferrer" className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-bold">👁 Aperçu</a>
                         <button onClick={() => copierLienContrat(co.token)} className="px-2 py-1 bg-slate-200 hover:bg-slate-300 rounded text-[10px] font-bold">🔗 Lien</button>
-                        {co.statut !== "signe" && (
+                        {co.statut !== "signe" ? (
                           <>
                             <button onClick={() => envoyerContratParMail(co)} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold" title="Envoyer le contrat par courriel pour signature">📧 Envoyer</button>
                             <label className="px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-[10px] font-bold cursor-pointer" title="Importer une photo de la signature manuscrite sur papier">
                               📷 Sig papier
                               <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && signerParPhotoPapier(co, e.target.files[0])} />
                             </label>
+                          </>
+                        ) : (
+                          <>
+                            <a href={`/api/contrats-pipeline/${co.token}/certificat`} target="_blank" rel="noreferrer" className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-bold" title="Certificat d'authentification : historique complet + empreinte du document">🔏 Certificat</a>
+                            <button onClick={() => envoyerDossierSigne(co)} disabled={busy} className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded text-[10px] font-bold" title="Envoyer au client le contrat signé + le certificat d'authentification">📧 Envoyer le dossier signé</button>
                           </>
                         )}
                         <button onClick={() => supprimerContrat(co.id)} className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-[10px]">🗑</button>
@@ -636,6 +664,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
                       )}
                       {co.signature_date && (
                         <div className="flex justify-between text-emerald-700"><span>✅ Signé par <strong>{co.signature_nom}</strong> (IP {co.signature_ip || "—"})</span><strong>{fmt(co.signature_date)}</strong></div>
+                      )}
+                      {co.date_signe_envoye && (
+                        <div className="flex justify-between text-indigo-700"><span>🔏 Dossier signé + certificat transmis à {co.signe_destinataire || "—"}</span><strong>{fmt(co.date_signe_envoye)}</strong></div>
                       )}
                     </div>
                   </li>

@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -377,6 +377,12 @@ async function doInitDb() {
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_destinataire TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_message_id TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_erreur TEXT");
+  // Certificat d'authentification : empreinte scellée du PDF signé (preuve d'intégrité),
+  // navigateur du signataire, et traçage de l'envoi du dossier signé au client.
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN pdf_signe_sha256 TEXT");
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN signature_user_agent TEXT");
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN date_signe_envoye TEXT");
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN signe_destinataire TEXT");
   // « Ajouté par » sur les principales entités (qui a saisi cette dépense / heure / etc.)
   await tryExec("ALTER TABLE depenses_projet ADD COLUMN ajoute_par TEXT");
   await tryExec("ALTER TABLE heures_projet ADD COLUMN ajoute_par TEXT");
@@ -1030,6 +1036,7 @@ export async function listerContratsParClient(client_id: number): Promise<any[]>
     `SELECT id, client_id, numero, token, statut, signature_nom, signature_date, signature_ip,
             cree_par, date_creation, date_envoye, date_vue, ip_vue,
             courriel_destinataire, courriel_message_id, courriel_erreur,
+            date_signe_envoye, signe_destinataire, pdf_signe_sha256,
             (pdf_signe IS NOT NULL) as a_signe
      FROM pipeline_contrats WHERE client_id = ? ORDER BY date_creation DESC`,
     [client_id]
@@ -1044,13 +1051,21 @@ export async function getPDFContratPipeline(token: string, signe = false): Promi
 }
 export async function signerContratPipeline(token: string, p: {
   signature_dataurl: string; signature_nom: string; pdf_signe: string; ip?: string;
+  sha256?: string; user_agent?: string;
 }): Promise<boolean> {
   const r = await run(
-    `UPDATE pipeline_contrats SET signature_dataurl=?, signature_nom=?, signature_date=?, signature_ip=?, pdf_signe=?, statut='signe'
+    `UPDATE pipeline_contrats SET signature_dataurl=?, signature_nom=?, signature_date=?, signature_ip=?, pdf_signe=?,
+            pdf_signe_sha256=?, signature_user_agent=?, statut='signe'
      WHERE token = ? AND statut != 'signe'`,
-    [p.signature_dataurl, p.signature_nom, new Date().toISOString(), p.ip || null, p.pdf_signe, token]
+    [p.signature_dataurl, p.signature_nom, new Date().toISOString(), p.ip || null, p.pdf_signe,
+     p.sha256 || null, p.user_agent || null, token]
   );
   return r.rowsAffected > 0;
+}
+/** Trace l'envoi du dossier signé (contrat + certificat) au client. */
+export async function marquerDossierSigneEnvoye(token: string, destinataire: string): Promise<void> {
+  await run("UPDATE pipeline_contrats SET date_signe_envoye=?, signe_destinataire=? WHERE token=?",
+    [new Date().toISOString(), destinataire, token]);
 }
 export async function marquerContratEnvoye(id: number, courriel?: string, messageId?: string, erreur?: string) {
   await run(

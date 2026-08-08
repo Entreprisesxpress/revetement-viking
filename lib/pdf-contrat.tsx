@@ -1,6 +1,6 @@
 import { Document, Page, Text, View, StyleSheet, pdf, Svg, Path, Image } from "@react-pdf/renderer";
 
-const ENTREPRISE = {
+export const ENTREPRISE = {
   nom: "Revêtement Viking Inc.",
   adresse: "1634 Rue Joliette",
   ville: "Montréal",
@@ -104,7 +104,7 @@ const s = StyleSheet.create({
 });
 
 // === Logo Drakkar Viking (fidèle au logo officiel — drakkar long avec boucliers) ===
-const LogoSvg = ({ size = 50 }: { size?: number }) => (
+export const LogoSvg = ({ size = 50 }: { size?: number }) => (
   <Svg width={size * 1.2} height={size} viewBox="0 0 240 200">
     {/* Mât */}
     <Path d="M120 20 L120 130" stroke={COULEUR_PRIMAIRE} strokeWidth={2.5} />
