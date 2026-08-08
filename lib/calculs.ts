@@ -56,7 +56,12 @@ export function calculerMargeProjet(input: {
   const cout_total = (input.cout_main_oeuvre || 0) + (input.total_depenses || 0);
   const marge = revenu_avant_taxes - cout_total;                       // profit AVANT taxes
   const marge_pct = revenu_avant_taxes ? (marge / revenu_avant_taxes) * 100 : 0;
-  const pct_budget_consomme = revenu ? Math.min(100, (cout_total / revenu) * 100) : 0;
+  // Les deux côtés du ratio DOIVENT être dans la même base. `cout_total` est hors taxes
+  // (la main-d'œuvre n'est pas taxée et les dépenses sont converties avant l'appel), donc on
+  // le compare au revenu HORS TAXES. Avec le revenu taxes incluses, le ratio était minoré
+  // d'environ 13 % : un projet à 100 % de son budget s'affichait à ~87 %, sous le seuil
+  // d'alerte de 90 % — le dépassement était signalé trop tard.
+  const pct_budget_consomme = revenu_avant_taxes ? Math.min(100, (cout_total / revenu_avant_taxes) * 100) : 0;
   return { revenu, revenu_avant_taxes, cout_total, marge, marge_pct, pct_budget_consomme };
 }
 

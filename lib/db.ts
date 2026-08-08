@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -379,6 +379,10 @@ async function doInitDb() {
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_erreur TEXT");
   // Certificat d'authentification : empreinte scellée du PDF signé (preuve d'intégrité),
   // navigateur du signataire, et traçage de l'envoi du dossier signé au client.
+  // Qui reçoit un talon de paie : les propriétaires ne s'en remettent pas un à eux-mêmes,
+  // mais leurs périodes restent calculées (coût de chantier). Défaut 1 = une nouvelle
+  // embauche en reçoit un, ce qui est le cas normal.
+  await tryExec("ALTER TABLE employes ADD COLUMN recoit_talon INTEGER DEFAULT 1");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN pdf_signe_sha256 TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN signature_user_agent TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN date_signe_envoye TEXT");
@@ -1813,6 +1817,7 @@ export async function jobsSimilaires(parementPi2: number, typeMateriau?: string,
 // === EMPLOYÉS ===
 export interface Employe {
   id?: number; nom: string; taux_horaire: number; das_pct?: number; actif?: number;
+  recoit_talon?: number;
   telephone?: string; courriel?: string; adresse?: string;
   date_naissance?: string; nas?: string; date_embauche?: string; poste?: string;
   contact_urgence_nom?: string; contact_urgence_lien?: string; contact_urgence_tel?: string;
@@ -1846,7 +1851,7 @@ export async function ajouterEmploye(e: Employe): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function modifierEmploye(id: number, e: Partial<Employe>) {
-  const champs = ['nom', 'taux_horaire', 'das_pct', 'actif',
+  const champs = ['nom', 'taux_horaire', 'das_pct', 'actif', 'recoit_talon',
     'telephone', 'courriel', 'adresse', 'date_naissance', 'nas',
     'date_embauche', 'poste', 'contact_urgence_nom', 'contact_urgence_lien',
     'contact_urgence_tel', 'specimen_cheque_data', 'specimen_cheque_type', 'notes'];
@@ -1882,7 +1887,12 @@ export async function modifierVehicule(id: number, v: Partial<Vehicule>) {
   if (!def.length) return;
   await run(`UPDATE vehicules SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (v as any)[k] ?? null), id]);
 }
-export async function supprimerVehicule(id: number) { await run("DELETE FROM vehicules WHERE id = ?", [id]); }
+export async function supprimerVehicule(id: number) {
+  // Détache les polices d'assurance liées : sans ça, elles gardaient un vehicule_id
+  // pointant dans le vide et disparaissaient silencieusement de l'affichage.
+  await run("UPDATE assurances SET vehicule_id = NULL WHERE vehicule_id = ?", [id]).catch(() => {});
+  await run("DELETE FROM vehicules WHERE id = ?", [id]);
+}
 
 // === ASSURANCES ===
 export interface Assurance { id?: number; type?: string; compagnie?: string; numero_police?: string; vehicule_id?: number | null; date_debut?: string; date_renouvellement?: string; prime_annuelle?: number; document_data?: string; document_type?: string; notes?: string; }

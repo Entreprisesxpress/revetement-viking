@@ -167,7 +167,7 @@ export default function InventairePage() {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Quantité</label>
-                <input type="number" step="0.1" value={form.quantite} onChange={(e) => setForm({ ...form, quantite: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" />
+                <input type="number" step="0.1" min="0" value={form.quantite} onChange={(e) => setForm({ ...form, quantite: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Unité</label>

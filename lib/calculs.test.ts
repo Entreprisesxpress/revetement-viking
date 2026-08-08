@@ -34,6 +34,23 @@ describe("calculerMargeProjet (rentabilité AVANT taxes)", () => {
   it("revenuAvantTaxes retire bien TPS+TVQ", () => {
     expect(revenuAvantTaxes(1149.75)).toBeCloseTo(1000, 4);
   });
+  // Le % de budget comparait un coût HORS taxes à un revenu TAXES INCLUSES : il était
+  // minoré d'environ 13 %, donc l'alerte de dépassement se déclenchait trop tard.
+  it("le % de budget compare deux montants HORS taxes", () => {
+    // Budget 11 497,50 $ taxes incluses = 10 000 $ hors taxes. Coût réel : 10 000 $ hors
+    // taxes → le budget est consommé à 100 %, pas à 87 %.
+    const r = calculerMargeProjet({ budget_estime: 11497.5, total_depenses: 10000 });
+    expect(r.pct_budget_consomme).toBeCloseTo(100, 1);
+  });
+  it("le % de budget franchit bien le seuil d'alerte de 90 %", () => {
+    // 9 200 $ de coût sur 10 000 $ hors taxes = 92 % → doit alerter.
+    const r = calculerMargeProjet({ budget_estime: 11497.5, total_depenses: 9200 });
+    expect(r.pct_budget_consomme).toBeGreaterThanOrEqual(90);
+  });
+  it("un projet à mi-budget affiche bien ~50 %", () => {
+    const r = calculerMargeProjet({ budget_estime: 11497.5, total_depenses: 5000 });
+    expect(r.pct_budget_consomme).toBeCloseTo(50, 1);
+  });
 });
 
 describe("calculerMargeProjet — extras facturés comme revenu", () => {

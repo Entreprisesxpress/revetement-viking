@@ -23,12 +23,12 @@ export default function EmployesPage() {
 
   useEffect(() => { charger(); }, []);
 
-  const reset = () => ({ nom: "", taux_horaire: "", das_pct: 0.15, poste: "Installateur", telephone: "", courriel: "", adresse: "", date_naissance: "", nas: "", date_embauche: new Date().toISOString().slice(0, 10), contact_urgence_nom: "", contact_urgence_lien: "", contact_urgence_tel: "", notes: "", specimen_cheque_data: "", specimen_cheque_type: "" });
+  const reset = () => ({ nom: "", taux_horaire: "", das_pct: 0.15, recoit_talon: 1, poste: "Installateur", telephone: "", courriel: "", adresse: "", date_naissance: "", nas: "", date_embauche: new Date().toISOString().slice(0, 10), contact_urgence_nom: "", contact_urgence_lien: "", contact_urgence_tel: "", notes: "", specimen_cheque_data: "", specimen_cheque_type: "" });
   const [form, setForm] = useState<any>(reset());
 
   const sauver = async () => {
     if (!form.nom?.trim() || !form.taux_horaire) { toast("Nom et taux requis", "warning"); return; }
-    const body = { ...form, taux_horaire: +form.taux_horaire, das_pct: +form.das_pct };
+    const body = { ...form, taux_horaire: +form.taux_horaire, das_pct: +form.das_pct, recoit_talon: form.recoit_talon ? 1 : 0 };
     if (edit) {
       await fetch("/api/employes", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: edit.id, ...body }) });
       toast(`✓ ${form.nom} mis à jour`, "success");
@@ -44,7 +44,7 @@ export default function EmployesPage() {
 
   const ouvrirEdit = (e: any) => {
     setEdit(e);
-    setForm({ ...reset(), ...e, taux_horaire: String(e.taux_horaire), das_pct: e.das_pct ?? 0.15 });
+    setForm({ ...reset(), ...e, taux_horaire: String(e.taux_horaire), das_pct: e.das_pct ?? 0.15, recoit_talon: e.recoit_talon ?? 1 });
     setCreerOuvert(true);
   };
 
@@ -184,6 +184,13 @@ export default function EmployesPage() {
                     <input type="number" step={0.01} value={form.das_pct} onChange={(ev) => setForm({ ...form, das_pct: ev.target.value })} className="w-full px-3 py-2 border rounded text-sm text-right" />
                   </div>
                 </div>
+                <label className="flex items-start gap-2 cursor-pointer bg-slate-50 border rounded p-2 mt-1">
+                  <input type="checkbox" checked={!!form.recoit_talon} onChange={(ev) => setForm({ ...form, recoit_talon: ev.target.checked ? 1 : 0 })} className="w-4 h-4 mt-0.5" />
+                  <span className="text-xs text-slate-700">
+                    <strong>Reçoit un talon de paie</strong>
+                    <span className="block text-[11px] text-slate-500">Décoche pour les propriétaires : leurs heures et leur coût de chantier restent calculés, mais aucun talon n'est produit pour eux.</span>
+                  </span>
+                </label>
               </div>
             </fieldset>
 

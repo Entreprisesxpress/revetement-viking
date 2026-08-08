@@ -47,6 +47,13 @@ export default function PaieVue() {
     charger();
   };
 
+  /** Le talon n'est produit que pour les employés marqués « Reçoit un talon de paie »
+   *  (/employes). Un employé absent de la liste (ex. désactivé) n'en reçoit pas non plus. */
+  const aDroitAuTalon = (nomEmploye: string): boolean => {
+    const e = employes.find((x) => x.nom === nomEmploye);
+    return !!e && (e.recoit_talon ?? 1) !== 0;
+  };
+
   const telechargerTalon = async (p: any) => {
     try {
       const { genererTalonPaieBlob } = await import("@/lib/pdf-talon-paie");
@@ -107,7 +114,10 @@ export default function PaieVue() {
     { hN: 0, hT: 0, brut: 0, das: 0, net: 0 }
   );
 
-  const aPayerTotal = periodes.filter((p) => !p.paye).reduce((s, p) => s + (p.montant_net || 0), 0);
+  // Le versement se fait au BRUT (aucune retenue à la source sur le paiement — le talon PDF
+  // remis à l'employé affiche d'ailleurs le brut). L'ancien calcul au net sous-estimait de
+  // ~15 % ce qu'il reste réellement à débourser.
+  const aPayerTotal = periodes.filter((p) => !p.paye).reduce((s, p) => s + (p.montant_brut || 0), 0);
 
   return (
     <>
@@ -161,9 +171,9 @@ export default function PaieVue() {
 
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <KPI label="À payer" value={formatCAD(aPayerTotal)} couleur="text-red-700" />
+          <KPI label="À payer (brut)" value={formatCAD(aPayerTotal)} couleur="text-red-700" />
           <KPI label="Total filtré (brut)" value={formatCAD(totaux.brut)} />
-          <KPI label="Total net" value={formatCAD(totaux.net)} couleur="text-emerald-700" />
+          <KPI label="DAS estimé (non retenu)" value={formatCAD(totaux.das)} couleur="text-slate-600" />
         </div>
 
         {/* Filtres */}
@@ -205,7 +215,11 @@ export default function PaieVue() {
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <button onClick={() => telechargerTalon(p)} className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-sm font-semibold" title="Talon de paie PDF">📄 Talon</button>
+                    {/* Talon réservé aux employés qui en reçoivent un (réglage sur la fiche
+                        employé) — les propriétaires ne s'en produisent pas à eux-mêmes. */}
+                    {aDroitAuTalon(p.employe) && (
+                      <button onClick={() => telechargerTalon(p)} className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-sm font-semibold" title="Talon de paie PDF">📄 Talon</button>
+                    )}
                     <button
                       onClick={() => togglePaye(p)}
                       className={`px-4 py-2 rounded font-bold text-sm ${p.paye ? "bg-slate-200 hover:bg-slate-300 text-slate-700" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}
@@ -235,13 +249,13 @@ export default function PaieVue() {
                     <div className="text-[10px] text-slate-500 uppercase">Taux $/h</div>
                     <div className="font-bold">{(p.taux_horaire || 0).toFixed(2)} $</div>
                   </div>
-                  <div className="bg-blue-50 p-2 rounded">
-                    <div className="text-[10px] text-blue-700 uppercase">Brut</div>
-                    <div className="font-bold text-blue-900">{formatCAD(p.montant_brut || 0)}</div>
+                  <div className="bg-emerald-50 p-2 rounded" title="Montant réellement versé à l'employé">
+                    <div className="text-[10px] text-emerald-700 uppercase">Versé (brut)</div>
+                    <div className="font-bold text-emerald-900">{formatCAD(p.montant_brut || 0)}</div>
                   </div>
-                  <div className="bg-emerald-50 p-2 rounded">
-                    <div className="text-[10px] text-emerald-700 uppercase">Net</div>
-                    <div className="font-bold text-emerald-900">{formatCAD(p.montant_net || 0)}</div>
+                  <div className="bg-slate-50 p-2 rounded" title="Estimation des déductions à la source — non retenue sur le versement">
+                    <div className="text-[10px] text-slate-500 uppercase">DAS estimé</div>
+                    <div className="font-bold text-slate-700">{formatCAD(p.das_montant || 0)}</div>
                   </div>
                 </div>
 

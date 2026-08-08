@@ -414,8 +414,10 @@ ${VIKING_EMAIL}
             <span className="text-2xl">{projet.pct_budget_consomme >= 100 ? "🚨" : "⚠️"}</span>
             <div className="flex-1 text-sm">
               <strong>{projet.pct_budget_consomme >= 100 ? "Budget DÉPASSÉ" : "Budget presque atteint"}</strong> —
-              {" "}<strong>{projet.pct_budget_consomme.toFixed(0)}%</strong> du budget consommé ({formatCAD(projet.cout_total)} sur {formatCAD(projet.budget_estime)})
-              {projet.pct_budget_consomme >= 100 && <span> · Déficit : <strong>{formatCAD(projet.cout_total - projet.budget_estime)}</strong></span>}
+              {/* Comparaison HORS TAXES des deux côtés : `cout_total` l'est déjà, donc on le
+                  confronte au revenu hors taxes et non au budget taxes incluses. */}
+              {" "}<strong>{projet.pct_budget_consomme.toFixed(0)}%</strong> du budget consommé ({formatCAD(projet.cout_total)} sur {formatCAD(projet.revenu_avant_taxes ?? projet.budget_estime / 1.14975)} hors taxes)
+              {projet.pct_budget_consomme >= 100 && <span> · Déficit : <strong>{formatCAD(projet.cout_total - (projet.revenu_avant_taxes ?? projet.budget_estime / 1.14975))}</strong></span>}
             </div>
           </div>
         )}

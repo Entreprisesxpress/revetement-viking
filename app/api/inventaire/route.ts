@@ -18,6 +18,11 @@ export async function POST(req: NextRequest) {
   await initDb();
   const b = await req.json();
   if (!b.nom) return NextResponse.json({ error: "nom requis" }, { status: 400 });
+  // `+b.quantite || 0` laissait passer une quantité négative (-5 || 0 === -5 en JS) :
+  // on créait un item déjà en stock négatif. Même garde que sur les retraits.
+  if (b.quantite !== undefined && (Number.isNaN(+b.quantite) || +b.quantite < 0)) {
+    return NextResponse.json({ error: "quantité invalide (doit être ≥ 0)" }, { status: 400 });
+  }
   const r = await c().execute({
     sql: "INSERT INTO inventaire (nom, categorie, quantite, unite, emplacement, photo_data, photo_type, notes, cout_unit, date_creation, date_modif) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     args: [b.nom, b.categorie || null, +b.quantite || 0, b.unite || "u", b.emplacement || null, b.photo_data || null, b.photo_type || null, b.notes || null, b.cout_unit ? +b.cout_unit : null, new Date().toISOString(), new Date().toISOString()],
@@ -46,7 +51,11 @@ export async function PATCH(req: NextRequest) {
     });
     return NextResponse.json({ ok: true });
   }
-  // Sinon, mise à jour des champs
+  // Sinon, mise à jour des champs. La quantité saisie ici contourne le chemin `delta`
+  // (et sa journalisation), mais elle ne doit pas davantage pouvoir devenir négative.
+  if (b.quantite !== undefined && (Number.isNaN(+b.quantite) || +b.quantite < 0)) {
+    return NextResponse.json({ error: "quantité invalide (doit être ≥ 0)" }, { status: 400 });
+  }
   const champs = ["nom", "categorie", "quantite", "unite", "emplacement", "photo_data", "photo_type", "notes", "cout_unit"];
   const sets: string[] = [], args: any[] = [];
   for (const k of champs) if (b[k] !== undefined) { sets.push(`${k} = ?`); args.push(b[k]); }
