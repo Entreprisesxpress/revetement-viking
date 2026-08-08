@@ -56,6 +56,26 @@ export async function PATCH(req: NextRequest) {
   if (b.quantite !== undefined && (Number.isNaN(+b.quantite) || +b.quantite < 0)) {
     return NextResponse.json({ error: "quantité invalide (doit être ≥ 0)" }, { status: 400 });
   }
+
+  // VERROU OPTIMISTE sur la quantité. Le modal « Modifier » renvoie toujours `quantite`,
+  // même si l'utilisateur n'a touché qu'au nom : sans ce garde, ouvrir la fiche puis
+  // enregistrer écrasait en silence un retrait fait entre-temps par quelqu'un d'autre,
+  // et sans laisser la moindre ligne dans inventaire_mouvements.
+  let ajustement: { avant: number; apres: number } | null = null;
+  if (b.quantite !== undefined) {
+    const cur = await c().execute({ sql: "SELECT quantite FROM inventaire WHERE id = ?", args: [b.id] });
+    if (!cur.rows.length) return NextResponse.json({ error: "item introuvable" }, { status: 404 });
+    const actuelle = Number((cur.rows[0] as any).quantite || 0);
+    const voulue = +b.quantite;
+    if (b.quantite_connue !== undefined && Number(b.quantite_connue) !== actuelle) {
+      return NextResponse.json({
+        error: `La quantité a changé pendant que tu modifiais la fiche : elle est passée de ${b.quantite_connue} à ${actuelle}. Rouvre la fiche pour repartir de la bonne valeur.`,
+        conflit: true, quantite_actuelle: actuelle,
+      }, { status: 409 });
+    }
+    if (voulue !== actuelle) ajustement = { avant: actuelle, apres: voulue };
+  }
+
   const champs = ["nom", "categorie", "quantite", "unite", "emplacement", "photo_data", "photo_type", "notes", "cout_unit"];
   const sets: string[] = [], args: any[] = [];
   for (const k of champs) if (b[k] !== undefined) { sets.push(`${k} = ?`); args.push(b[k]); }
@@ -63,6 +83,17 @@ export async function PATCH(req: NextRequest) {
   sets.push("date_modif = ?"); args.push(new Date().toISOString());
   args.push(b.id);
   await c().execute({ sql: `UPDATE inventaire SET ${sets.join(", ")} WHERE id = ?`, args });
+
+  // Un changement de quantité par l'écran d'édition laisse maintenant une trace, au même
+  // titre qu'une entrée/sortie — sinon un saut de stock restait inexplicable.
+  if (ajustement) {
+    const par = (await utilisateurActif(req)) || "?";
+    await c().execute({
+      sql: "INSERT INTO inventaire_mouvements (inventaire_id, delta, type, note, par, date_creation) VALUES (?,?,?,?,?,?)",
+      args: [b.id, ajustement.apres - ajustement.avant, "ajustement",
+             `Correction par la fiche : ${ajustement.avant} → ${ajustement.apres}`, par, new Date().toISOString()],
+    }).catch(() => {});
+  }
   return NextResponse.json({ ok: true });
 }
 

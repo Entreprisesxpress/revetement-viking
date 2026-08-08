@@ -435,7 +435,11 @@ ${VIKING_EMAIL}
           const margeReellePct = revenu > 0 ? (margeReelle / revenu) * 100 : 0;
           return (
         <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-lg p-5 shadow-lg">
-          <h2 className="text-sm font-semibold text-slate-300 uppercase mb-3">💰 Rentabilité temps réel <span className="text-[10px] font-normal text-slate-400">— inclut 15% frais fixes</span></h2>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase mb-3">💰 Rentabilité temps réel <span className="text-[10px] font-normal text-slate-400">— inclut 15 % de frais fixes</span></h2>
+          <p className="text-[11px] text-slate-400 -mt-2 mb-3">
+            Le « Profit net » ci-dessous retranche 15 % de frais fixes (administration, véhicules, assurances, loyer).
+            L'écran Finances → Rentabilité, lui, montre la <strong className="text-slate-300">marge de chantier</strong> sans ces frais : elle y sera donc plus élevée.
+          </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Stat label={projet.prix_contrat ? "Prix contrat" : "Budget initial"} value={formatCAD(revenuAffiche)} sub={`Avant taxes : ${formatCAD(revenu)}`} />
             <Stat label="Coût total" value={formatCAD(coutTotalAvecFixes)} couleur={coutTotalAvecFixes > revenu ? "text-red-300" : "text-amber-200"} sub={`Direct ${formatCAD(projet.cout_total)} + Fixes ${formatCAD(fraisFixes)}`} />

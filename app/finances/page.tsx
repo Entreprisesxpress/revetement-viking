@@ -114,16 +114,24 @@ export default function FinancesPage() {
 
   const max = Math.max(...data.mois.map((m: any) => Math.max(m.revenu_avant_taxes || 0, (m.depenses_avant_taxes || 0) + m.mo)), 1);
 
+  // Un projet ANNULÉ n'est pas du revenu : l'inclure gonflait « Valeur contrats »,
+  // « Coûts totaux » et « Marge ». Même règle que l'onglet Rentabilité et le tableau de bord.
+  const projetsRetenus = projets.filter((p) => p.statut !== "annule");
+  const nbAnnules = projets.length - projetsRetenus.length;
+
   // Totaux par projet
-  const totauxProjets = projets.reduce(
+  const totauxProjets = projetsRetenus.reduce(
     (s, p) => ({
       contrat: s.contrat + (p.prix_contrat || p.budget_estime || 0),
+      // Base HORS taxes du % de marge du total : la marge l'est déjà, la diviser par le
+      // contrat taxes incluses donnait un total (87 %) incohérent avec les lignes (100 %).
+      revenuAT: s.revenuAT + (p.revenu_avant_taxes ?? ((p.prix_contrat || p.budget_estime || 0) / 1.14975)),
       facture: s.facture + (p.total_facture || 0),
       paye: s.paye + (p.total_paye || 0),
       cout: s.cout + (p.cout_total || 0),
       marge: s.marge + (p.marge || 0),
     }),
-    { contrat: 0, facture: 0, paye: 0, cout: 0, marge: 0 }
+    { contrat: 0, revenuAT: 0, facture: 0, paye: 0, cout: 0, marge: 0 }
   );
 
   return (
@@ -161,7 +169,12 @@ export default function FinancesPage() {
             <KPI label="Marge" value={formatCAD(totauxProjets.marge)} couleur={totauxProjets.marge >= 0 ? "text-emerald-700" : "text-red-700"} />
           </div>
 
-          {projets.length === 0 ? (
+          {nbAnnules > 0 && (
+            <p className="text-[11px] text-slate-500 italic mb-2">
+              {nbAnnules} projet{nbAnnules > 1 ? "s" : ""} annulé{nbAnnules > 1 ? "s" : ""} exclu{nbAnnules > 1 ? "s" : ""} de ces chiffres.
+            </p>
+          )}
+          {projetsRetenus.length === 0 ? (
             <p className="text-sm text-slate-600 italic">Aucun projet enregistré.</p>
           ) : (
             <div className="bg-white rounded-lg overflow-x-auto">
@@ -180,7 +193,7 @@ export default function FinancesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {projets.map((p) => {
+                  {projetsRetenus.map((p) => {
                     const revenu = p.prix_contrat || p.budget_estime || 0;
                     const aRecevoir = (p.total_facture || 0) - (p.total_paye || 0);
                     return (
@@ -207,7 +220,7 @@ export default function FinancesPage() {
                     <td className="p-2 text-right text-amber-700">{formatCAD(totauxProjets.facture - totauxProjets.paye)}</td>
                     <td className="p-2 text-right text-orange-700">{formatCAD(totauxProjets.cout)}</td>
                     <td className={`p-2 text-right ${totauxProjets.marge < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCAD(totauxProjets.marge)}</td>
-                    <td className="p-2 text-right">{totauxProjets.contrat ? ((totauxProjets.marge / totauxProjets.contrat) * 100).toFixed(0) : 0}%</td>
+                    <td className="p-2 text-right">{totauxProjets.revenuAT ? ((totauxProjets.marge / totauxProjets.revenuAT) * 100).toFixed(0) : 0}%</td>
                   </tr>
                 </tfoot>
               </table>

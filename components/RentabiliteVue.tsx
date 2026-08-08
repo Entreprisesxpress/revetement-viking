@@ -120,6 +120,12 @@ export default function RentabiliteVue() {
         <div><span className="font-mono bg-slate-100 px-1 rounded">Revenu avant taxes</span> = Revenu ÷ 1,14975 <span className="text-slate-400">(on retire TPS 5 % + TVQ 9,975 %)</span></div>
         <div><span className="font-mono bg-slate-100 px-1 rounded">Coût total</span> = Dépenses + Main-d'œuvre</div>
         <div><span className="font-mono bg-slate-100 px-1 rounded font-bold">Marge</span> = Revenu avant taxes − Coût total</div>
+        <div className="pt-1.5 mt-1 border-t border-slate-100 text-[11px] text-slate-600">
+          ⚠️ La fiche d'un projet affiche un <strong>« Profit net »</strong> plus bas que cette marge : elle
+          retranche en plus <strong>15 % de frais fixes</strong> (administration, véhicules, assurances, loyer).
+          Les deux chiffres sont bons — ici c'est la marge de chantier, là-bas ce qui reste une fois la
+          structure payée.
+        </div>
       </div>
 
       {/* Filtres + export */}

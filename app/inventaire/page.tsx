@@ -14,13 +14,16 @@ export default function InventairePage() {
   const [recherche, setRecherche] = useState("");
   const [creerOuvert, setCreerOuvert] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
+  // Quantité au moment où la fiche a été ouverte — sert de témoin au verrou optimiste
+  // côté serveur (voir /api/inventaire PATCH).
+  const [quantiteConnue, setQuantiteConnue] = useState<number | null>(null);
   const [form, setForm] = useState({ nom: "", categorie: "", quantite: "0", unite: "u", emplacement: "Cabanon", notes: "", cout_unit: "", photo: null as null | { data: string; type: string } });
   const { toast } = useToast();
 
   const charger = () => fetch("/api/inventaire", { cache: "no-store" }).then((r) => r.json()).then((d) => setItems(Array.isArray(d) ? d : []));
   useEffect(() => { charger(); }, []);
 
-  const reset = () => { setForm({ nom: "", categorie: "", quantite: "0", unite: "u", emplacement: "Cabanon", notes: "", cout_unit: "", photo: null }); setEditId(null); };
+  const reset = () => { setForm({ nom: "", categorie: "", quantite: "0", unite: "u", emplacement: "Cabanon", notes: "", cout_unit: "", photo: null }); setEditId(null); setQuantiteConnue(null); };
 
   const sauvegarder = async () => {
     if (!form.nom.trim()) { toast("Nom requis", "warning"); return; }
@@ -31,13 +34,27 @@ export default function InventairePage() {
       cout_unit: form.cout_unit ? +form.cout_unit : null,
     };
     if (form.photo) { body.photo_data = form.photo.data; body.photo_type = form.photo.type; }
-    if (editId) body.id = editId;
+    if (editId) {
+      body.id = editId;
+      // Quantité telle qu'elle était à l'ouverture de la fiche : le serveur refuse
+      // l'enregistrement si quelqu'un l'a changée entre-temps, au lieu de l'écraser.
+      body.quantite_connue = quantiteConnue;
+    }
     const r = await fetch("/api/inventaire", {
       method: editId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (r.ok) { toast(editId ? "Item modifié" : "Item ajouté", "success"); setCreerOuvert(false); reset(); charger(); }
+    if (r.ok) { toast(editId ? "Item modifié" : "Item ajouté", "success"); setCreerOuvert(false); reset(); charger(); return; }
+    const d = await r.json().catch(() => ({} as any));
+    if (r.status === 409 && d?.conflit) {
+      toast(d.error, "warning");
+      setForm((x) => ({ ...x, quantite: String(d.quantite_actuelle) }));
+      setQuantiteConnue(d.quantite_actuelle);
+      charger();
+    } else {
+      toast(d?.error || "Échec de l'enregistrement", "error");
+    }
   };
 
   const ajusterQte = async (item: any, delta: number) => {
@@ -132,6 +149,7 @@ export default function InventairePage() {
                 <div className="flex gap-1 text-xs">
                   <button onClick={() => {
                     setEditId(i.id);
+                    setQuantiteConnue(Number(i.quantite || 0));
                     setForm({ nom: i.nom, categorie: i.categorie || "", quantite: String(i.quantite || 0), unite: i.unite || "u", emplacement: i.emplacement || "Cabanon", notes: i.notes || "", cout_unit: i.cout_unit ? String(i.cout_unit) : "", photo: i.photo_data ? { data: i.photo_data, type: i.photo_type || "image/jpeg" } : null });
                     setCreerOuvert(true);
                   }} className="flex-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded">✏️ Modifier</button>

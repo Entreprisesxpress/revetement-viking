@@ -7,11 +7,13 @@ export const dynamic = "force-dynamic";
 /** Cron quotidien 8h du matin : envoie un push push résumant les alertes critiques
  *  à Francis et Gabriel (factures impayées, projets en retard, tâches échéance). */
 export async function GET(req: NextRequest) {
+  // Fail-closed, comme les 4 autres crons : sans CRON_SECRET la route est DÉSACTIVÉE.
+  // Avant, l'absence du secret sautait la vérification et rendait la route déclenchable
+  // publiquement (rafale de push à Francis et Gabriel).
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization") || "";
-    if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
-  }
+  if (!cronSecret) return NextResponse.json({ error: "CRON_SECRET non configuré — route désactivée" }, { status: 503 });
+  const auth = req.headers.get("authorization") || "";
+  if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
   if (!pushEstConfigure()) return NextResponse.json({ ok: false, raison: "push_non_configure" });
 
   const c: any = db();

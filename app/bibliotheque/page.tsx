@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
+import ZoneDepot from "@/components/ZoneDepot";
+import { compresserImage } from "@/lib/img";
 
 export default function Bibliotheque() {
   const [jobs, setJobs] = useState<any[]>([]);
@@ -23,6 +25,7 @@ export default function Bibliotheque() {
   });
   const [photos, setPhotos] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [zoom, setZoom] = useState<string | null>(null);
   const photosRef = useRef<HTMLInputElement>(null);
 
   const charger = async () => {
@@ -41,13 +44,19 @@ export default function Bibliotheque() {
     }
     setUploading(true);
     try {
-      const fd = new FormData();
-      Object.entries(form).forEach(([k, v]) => fd.append(k, String(v)));
-      photos.forEach((p, i) => fd.append(`photo_${i}`, p));
-      const r = await fetch("/api/bibliotheque", { method: "POST", body: fd });
+      // Compression côté navigateur avant l'envoi (même chemin que les autres photos de
+      // l'app) : l'upload part en JSON et les images sont stockées en base, pas sur disque.
+      const images: string[] = [];
+      for (const f of photos.slice(0, 10)) {
+        try { images.push(await compresserImage(f)); } catch { /* photo illisible : ignorée */ }
+      }
+      const r = await fetch("/api/bibliotheque", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, photos: images }),
+      });
       const d = await r.json();
       if (d.ok) {
-        alert(`Job ajoutée à la bibliothèque (#${d.id})`);
+        alert(`Job ajoutée à la bibliothèque (#${d.id})${d.photos ? ` — ${d.photos} photo(s)` : ""}${d.photos_ignorees ? ` · ${d.photos_ignorees} ignorée(s) (trop lourde)` : ""}`);
         setForm({ adresse: "", type_materiau: "vinyle", parement_pi2: "", fascia_pi_lin: "", soffite_pi2: "", nb_etages: "1", total_soumission: "", heures_reelles: "", complexite: "moyenne", notes_chantier: "", hover_data_json: "", soumission_data_json: "" });
         setPhotos([]);
         if (photosRef.current) photosRef.current.value = "";
@@ -93,11 +102,25 @@ export default function Bibliotheque() {
               <label className="block text-xs font-medium text-slate-600 mb-1">Notes chantier (particularités, obstacles, leçons)</label>
               <textarea value={form.notes_chantier} onChange={(e) => setForm({ ...form, notes_chantier: e.target.value })} rows={3} className="w-full px-3 py-2 border rounded text-sm" placeholder="Ex: Fronton triangulaire avant, échafaudage déplacé 4 fois, accès difficile par l'arrière..." />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">📷 Photos chantier/maison (optionnel)</label>
-              <input ref={photosRef} type="file" accept="image/*" multiple onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, 10))} className="text-sm" />
-              {photos.length > 0 && <div className="text-xs text-slate-500 mt-1">{photos.length} photo(s) sélectionnée(s)</div>}
-            </div>
+            <ZoneDepot onFichiers={(f) => setPhotos((prev) => [...prev, ...f].slice(0, 10))} accept="image/*" messageSurvol="📷 Dépose les photos">
+              <div className="border border-dashed border-slate-300 rounded p-2">
+                <label className="block text-xs font-medium text-slate-600 mb-1">📷 Photos chantier/maison (optionnel) — glisse-dépose accepté</label>
+                <input ref={photosRef} type="file" accept="image/*" multiple onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, 10))} className="text-sm" />
+                {photos.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs text-slate-500 mb-1">{photos.length} photo(s) · max 10</div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {photos.map((p, i) => (
+                        <div key={i} className="relative">
+                          <img src={URL.createObjectURL(p)} alt="" className="w-14 h-14 object-cover rounded border" />
+                          <button type="button" onClick={() => setPhotos((prev) => prev.filter((_, k) => k !== i))} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 text-[9px] leading-none">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ZoneDepot>
             <details>
               <summary className="cursor-pointer text-xs text-slate-600">📄 Données Hover (avancé - optionnel)</summary>
               <textarea value={form.hover_data_json} onChange={(e) => setForm({ ...form, hover_data_json: e.target.value })} rows={3} placeholder='Colle le JSON Hover ou laisse vide' className="w-full mt-2 px-3 py-2 border rounded text-xs font-mono" />
@@ -122,7 +145,9 @@ export default function Bibliotheque() {
           ) : (
             <div className="space-y-3 max-h-[700px] overflow-y-auto">
               {jobs.map((j) => {
-                const photos = j.photos_json ? JSON.parse(j.photos_json) : [];
+                // Ids des photos en base. L'ancien `photos_json` ne contenait que des noms
+                // de fichiers écrits sur un disque éphémère : ces images n'existent plus.
+                const photoIds: string[] = String(j.photo_ids || "").split(",").filter(Boolean);
                 return (
                   <div key={j.id} className="border rounded p-3 bg-slate-50 text-sm">
                     <div className="flex justify-between mb-1">
@@ -143,7 +168,15 @@ export default function Bibliotheque() {
                       <div><span className="text-slate-500">$/pi²:</span> <strong>{(j.total_soumission / j.parement_pi2).toFixed(2)}$</strong></div>
                     </div>
                     {j.notes_chantier && <div className="mt-2 text-xs italic text-slate-700">"{j.notes_chantier}"</div>}
-                    {photos.length > 0 && <div className="mt-1 text-xs text-slate-500">📷 {photos.length} photo(s)</div>}
+                    {photoIds.length > 0 && (
+                      <div className="mt-2 flex gap-1.5 flex-wrap">
+                        {photoIds.map((pid) => (
+                          <button key={pid} type="button" onClick={() => setZoom(`/api/bibliotheque/photo/${pid}`)} title="Agrandir">
+                            <img src={`/api/bibliotheque/photo/${pid}`} alt="Photo du chantier" loading="lazy" className="w-16 h-16 object-cover rounded border hover:ring-2 hover:ring-emerald-500 transition" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -151,6 +184,19 @@ export default function Bibliotheque() {
           )}
         </section>
       </main>
+
+      {/* Visualiseur plein écran (le composant Lightbox est câblé sur /api/photos, pas réutilisable ici) */}
+      {zoom && (
+        <div className="fixed inset-0 z-[90] bg-black/95 flex flex-col" onClick={() => setZoom(null)}>
+          <div className="flex items-center justify-between p-3 text-white">
+            <button onClick={() => setZoom(null)} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 font-semibold text-sm">← Retour</button>
+            <a href={zoom} target="_blank" rel="noreferrer" download onClick={(e) => e.stopPropagation()} className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm">⬇</a>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-3">
+            <img src={zoom} alt="Photo du chantier" onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full object-contain" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,11 +14,13 @@ const PRODUITS_USUELS = [
 ];
 
 export async function GET(req: NextRequest) {
+  // Fail-closed, comme les 4 autres crons : sans CRON_SECRET la route est DÉSACTIVÉE.
+  // Ici c'est d'autant plus important que chaque passage déclenche 6 appels à l'API
+  // Anthropic avec recherche web — donc un coût réel si la route est abusée en boucle.
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.get("authorization") || "";
-    if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
-  }
+  if (!cronSecret) return NextResponse.json({ error: "CRON_SECRET non configuré — route désactivée" }, { status: 503 });
+  const auth = req.headers.get("authorization") || "";
+  if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
 
   const base = req.nextUrl.origin;
   const resultats: any[] = [];

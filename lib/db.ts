@@ -16,7 +16,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 21;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -379,6 +379,16 @@ async function doInitDb() {
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_erreur TEXT");
   // Certificat d'authentification : empreinte scellée du PDF signé (preuve d'intégrité),
   // navigateur du signataire, et traçage de l'envoi du dossier signé au client.
+  // Photos de la bibliothèque de jobs. Elles étaient écrites sur le disque local
+  // (data/photos-biblio) : perdu à chaque déploiement sur Vercel, et aucune route ne les
+  // servait. Stockage en base comme photos_chantier.
+  await tryExec(`CREATE TABLE IF NOT EXISTS bibliotheque_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL,
+    data TEXT NOT NULL, type TEXT,
+    date_ajout TEXT NOT NULL
+  )`);
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_biblio_photos_job ON bibliotheque_photos(job_id)");
   // Qui reçoit un talon de paie : les propriétaires ne s'en remettent pas un à eux-mêmes,
   // mais leurs périodes restent calculées (coût de chantier). Défaut 1 = une nouvelle
   // embauche en reçoit un, ce qui est le cas normal.
@@ -1782,6 +1792,7 @@ export interface JobBiblio {
   nb_etages?: number; total_soumission?: number; heures_reelles?: number;
   hover_data_json?: string; soumission_data_json?: string; photos_json?: string;
   notes_chantier?: string; complexite?: string;
+  photo_ids?: string | null;   // « 3,7,12 » — ids des photos en base (voir listerJobsBiblio)
 }
 export async function ajouterJobBiblio(job: JobBiblio): Promise<number> {
   const r = await run(
@@ -1794,10 +1805,27 @@ export async function ajouterJobBiblio(job: JobBiblio): Promise<number> {
   return r.lastInsertRowid;
 }
 export async function listerJobsBiblio(): Promise<JobBiblio[]> {
-  return await all<JobBiblio>("SELECT * FROM bibliotheque_jobs ORDER BY date_ajout DESC LIMIT 200");
+  // `photo_ids` : la liste des id de photos, PAS les images elles-mêmes — la liste resterait
+  // sinon plombée par des méga-octets de base64. Les vignettes se chargent une par une.
+  return await all<JobBiblio>(
+    `SELECT b.*, (SELECT GROUP_CONCAT(p.id) FROM bibliotheque_photos p WHERE p.job_id = b.id) as photo_ids
+     FROM bibliotheque_jobs b ORDER BY b.date_ajout DESC LIMIT 200`
+  );
 }
 export async function supprimerJobBiblio(id: number) {
+  // Sans ça, les photos restaient en base pour toujours après la suppression de la job.
+  await run("DELETE FROM bibliotheque_photos WHERE job_id = ?", [id]).catch(() => {});
   await run("DELETE FROM bibliotheque_jobs WHERE id = ?", [id]);
+}
+export async function ajouterPhotoBiblio(job_id: number, data: string, type?: string): Promise<number> {
+  const r = await run(
+    "INSERT INTO bibliotheque_photos (job_id, data, type, date_ajout) VALUES (?, ?, ?, ?)",
+    [job_id, data, type || "image/jpeg", new Date().toISOString()]
+  );
+  return r.lastInsertRowid;
+}
+export async function getPhotoBiblio(id: number): Promise<{ data: string; type: string } | null> {
+  return await one<{ data: string; type: string }>("SELECT data, type FROM bibliotheque_photos WHERE id = ?", [id]);
 }
 export async function jobsSimilaires(parementPi2: number, typeMateriau?: string, limit = 3): Promise<JobBiblio[]> {
   const min = parementPi2 * 0.7, max = parementPi2 * 1.3;
