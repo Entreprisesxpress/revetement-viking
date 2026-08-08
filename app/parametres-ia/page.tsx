@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
+import ZoneDepot from "@/components/ZoneDepot";
 
 export default function ParametresIaPage() {
   const [params, setParams] = useState<any[]>([]);
@@ -140,9 +141,10 @@ export default function ParametresIaPage() {
 
         {onglet === "docs" && (
           <section className="space-y-3">
+            <ZoneDepot onFichiers={(files) => files[0] && uploadDoc(files[0])} accept=".pdf,.xlsx,.xls,.csv,image/*" multiple={false} messageSurvol="📤 Dépose le document">
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-bold text-slate-900 mb-2">📤 Ajouter un document de référence</h2>
-              <p className="text-xs text-slate-600 mb-3">Téléverse des PDF (listes de prix fournisseurs, brochures Maibec/Canexel), Excel (catalogues), photos de référence. L'IA pourra les consulter lors de la génération des soumissions.</p>
+              <p className="text-xs text-slate-600 mb-3">Téléverse des PDF (listes de prix fournisseurs, brochures Maibec/Canexel), Excel (catalogues), photos de référence — ou glisse-dépose. L'IA pourra les consulter lors de la génération des soumissions.</p>
               <input
                 type="file"
                 accept=".pdf,.xlsx,.xls,.csv,image/*"
@@ -151,6 +153,7 @@ export default function ParametresIaPage() {
               />
               {uploadStatus && <p className="text-xs text-indigo-700 mt-2">{uploadStatus}</p>}
             </div>
+            </ZoneDepot>
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
               {docs.length === 0 ? (

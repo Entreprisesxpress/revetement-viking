@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
+import ZoneDepot from "@/components/ZoneDepot";
 
 function ValiderBackup() {
   const [texteBackup, setTexteBackup] = useState<string | null>(null);
@@ -9,8 +10,7 @@ function ValiderBackup() {
   const [chargement, setChargement] = useState(false);
   const [restaure, setRestaure] = useState(false);
 
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const traiterFichier = async (file?: File) => {
     if (!file) return;
     setChargement(true);
     setRestaure(false);
@@ -22,6 +22,7 @@ function ValiderBackup() {
     } catch (err: any) { setResultat({ ok: false, error: err.message }); }
     finally { setChargement(false); }
   };
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => traiterFichier(e.target.files?.[0]);
 
   const restaurerReellement = async () => {
     if (!texteBackup) return;
@@ -39,8 +40,10 @@ function ValiderBackup() {
 
   return (
     <div className="text-sm">
-      <p className="text-slate-700 mb-2">Vérifier la validité d'un fichier de backup (.json) avant restauration éventuelle :</p>
-      <input type="file" accept="application/json,.json" onChange={onFile} className="text-xs border rounded p-1.5" />
+      <p className="text-slate-700 mb-2">Vérifier la validité d'un fichier de backup (.json) avant restauration éventuelle — clic ou glisse-dépose :</p>
+      <ZoneDepot onFichiers={(files) => traiterFichier(files[0])} accept="application/json,.json" multiple={false} messageSurvol="📂 Dépose le fichier de backup" className="inline-block">
+        <input type="file" accept="application/json,.json" onChange={onFile} className="text-xs border rounded p-1.5" />
+      </ZoneDepot>
       {chargement && <div className="text-slate-500 mt-2 text-xs">⏳ {restaure ? "Restauration…" : "Analyse…"}</div>}
       {resultat && (
         <div className={`mt-2 p-3 rounded text-xs ${resultat.ok ? "bg-emerald-50 border border-emerald-300 text-emerald-900" : "bg-red-50 border border-red-300 text-red-900"}`}>

@@ -9,6 +9,7 @@ import { compresserImage } from "@/lib/img";
 const ScannerRecu = lazy(() => import("@/components/ScannerRecu"));
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
+import ZoneDepot from "@/components/ZoneDepot";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
 const CATEGORIES_FALLBACK = ["matériaux", "outils", "location", "sous-traitant", "transport", "permis", "essence", "autre"];
@@ -56,6 +57,9 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
   const ajouterFichiers = async (input: HTMLInputElement) => {
     const files = Array.from(input.files || []);
     input.value = "";
+    for (const f of files) await traiterFichier(f);
+  };
+  const ajouterFichiersDepose = async (files: File[]) => {
     for (const f of files) await traiterFichier(f);
   };
 
@@ -255,7 +259,8 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
           {/* Reçu : photo caméra ou fichier galerie/PDF */}
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">📎 Reçu (optionnel)</label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">📎 Reçu (optionnel) — glisse-dépose accepté</label>
+            <ZoneDepot onFichiers={ajouterFichiersDepose} accept="image/*,application/pdf" messageSurvol="📎 Dépose la facture ici">
             {recu ? (
               <div className="border-2 border-emerald-300 bg-emerald-50 rounded-lg p-2 flex items-center gap-2">
                 <div className="w-16 h-16 bg-slate-200 rounded flex items-center justify-center text-2xl">📄</div>
@@ -309,6 +314,7 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
                 </label>
               </div>
             )}
+            </ZoneDepot>
           </div>
         </div>
 

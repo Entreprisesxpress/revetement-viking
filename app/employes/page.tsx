@@ -5,6 +5,7 @@ import Navigation from "@/components/Navigation";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
+import ZoneDepot from "@/components/ZoneDepot";
 
 const POSTES = ["Installateur", "Apprenti", "Chef d'équipe", "Estimateur", "Administration", "Autre"];
 
@@ -60,14 +61,14 @@ export default function EmployesPage() {
     charger();
   };
 
-  const uploadSpecimen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const traiterSpecimen = (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB", "warning"); return; }
     const reader = new FileReader();
     reader.onload = () => setForm({ ...form, specimen_cheque_data: reader.result, specimen_cheque_type: file.type });
     reader.readAsDataURL(file);
   };
+  const uploadSpecimen = (e: React.ChangeEvent<HTMLInputElement>) => traiterSpecimen(e.target.files?.[0]);
 
   const affiches = employes.filter((e) => {
     if (filtreActif === "actifs") return e.actif;
@@ -200,7 +201,8 @@ export default function EmployesPage() {
 
             {/* Spécimen chèque */}
             <fieldset className="border rounded p-3">
-              <legend className="text-xs font-bold text-slate-600 px-1">📎 Spécimen de chèque</legend>
+              <legend className="text-xs font-bold text-slate-600 px-1">📎 Spécimen de chèque — glisse-dépose accepté</legend>
+              <ZoneDepot onFichiers={(files) => traiterSpecimen(files[0])} accept="image/*,application/pdf" multiple={false} messageSurvol="📎 Dépose le spécimen">
               {form.specimen_cheque_data ? (
                 <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded p-2">
                   {form.specimen_cheque_type?.startsWith("image/") ? (
@@ -224,6 +226,7 @@ export default function EmployesPage() {
                   <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadSpecimen} />
                 </label>
               )}
+              </ZoneDepot>
             </fieldset>
 
             {/* Notes */}

@@ -8,6 +8,7 @@ import { useToast } from "@/components/Toasts";
 import Lightbox from "@/components/Lightbox";
 import { getProjetPrefetch, setProjetPrefetch } from "@/lib/prefetchProjet";
 import MeteoProjet from "@/components/MeteoProjet";
+import ZoneDepot from "@/components/ZoneDepot";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -1220,8 +1221,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     setEdit(false);
     onUpdate();
   };
-  const uploadContrat = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const traiterContrat = async (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
     const reader = new FileReader();
@@ -1234,8 +1234,8 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     };
     reader.readAsDataURL(file);
   };
-  const uploadFacture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const uploadContrat = (e: React.ChangeEvent<HTMLInputElement>) => traiterContrat(e.target.files?.[0]);
+  const traiterFacture = async (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
     const reader = new FileReader();
@@ -1269,6 +1269,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     };
     reader.readAsDataURL(file);
   };
+  const uploadFacture = (e: React.ChangeEvent<HTMLInputElement>) => traiterFacture(e.target.files?.[0]);
   return (
     <section className="bg-white rounded-lg shadow p-4 md:p-5 space-y-3">
       <div className="flex justify-between items-center">
@@ -1290,6 +1291,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
           {ocrBusy && <div className="text-[11px] text-emerald-700 mt-1 animate-pulse">🔍 Lecture du total sur la facture…</div>}
         </div>
         {/* Contrat signé */}
+        <ZoneDepot onFichiers={(files) => traiterContrat(files[0])} accept="image/*,application/pdf" multiple={false} messageSurvol="🖋️ Dépose le contrat signé">
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Contrat signé</div>
           {projet.contrat_signe_data || projet.a_contrat_signe ? (
@@ -1307,12 +1309,14 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
             </div>
           ) : (
             <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 rounded p-3 text-center transition flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
-              🖋️ Joindre le contrat signé
+              🖋️ Joindre le contrat signé (ou glisse-dépose)
               <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadContrat} />
             </label>
           )}
         </div>
+        </ZoneDepot>
         {/* Facture projet */}
+        <ZoneDepot onFichiers={(files) => traiterFacture(files[0])} accept="image/*,application/pdf" multiple={false} messageSurvol="🧾 Dépose la facture">
         <div>
           <div className="text-xs text-slate-500 uppercase font-semibold mb-1">Facture projet</div>
           {projet.facture_finale_data || projet.a_facture_finale ? (
@@ -1326,11 +1330,12 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
             </div>
           ) : (
             <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 rounded p-3 text-center transition flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
-              🧾 Joindre la facture
+              🧾 Joindre la facture (ou glisse-dépose)
               <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadFacture} />
             </label>
           )}
         </div>
+        </ZoneDepot>
       </div>
 
       {/* Visualiseur contrat signé plein écran avec bouton retour */}

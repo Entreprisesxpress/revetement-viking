@@ -7,6 +7,7 @@ import { compresserImage } from "@/lib/img";
 import { PIPELINE_STAGES } from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import MicVocal from "@/components/MicVocal";
+import ZoneDepot from "@/components/ZoneDepot";
 
 interface Props {
   client: any;
@@ -44,7 +45,6 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const [busy, setBusy] = useState(false);
   const [autoSaveStatut, setAutoSaveStatut] = useState<"idle" | "saving" | "saved">("idle");
   const [moiUtilisateur, setMoiUtilisateur] = useState<string | null>(null);
-  const dropRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
   const firstRender = useRef(true);
   const autoSaveT = useRef<any>(null);
@@ -403,7 +403,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     } finally { setBusy(false); }
   };
 
-  const upload = async (files: FileList | null) => {
+  const upload = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     setUploadEnCours(true);
     try {
@@ -441,15 +441,6 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     await fetch(`/api/client-fichiers?id=${id}`, { method: "DELETE" });
     setFichiers((arr) => arr.filter((f) => f.id !== id));
     toast("Fichier supprimé", "info");
-  };
-
-  // Drop zone : empêche le drag par défaut, gère le drop
-  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); dropRef.current?.classList.add("ring-4", "ring-emerald-400"); };
-  const onDragLeave = () => { dropRef.current?.classList.remove("ring-4", "ring-emerald-400"); };
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    dropRef.current?.classList.remove("ring-4", "ring-emerald-400");
-    upload(e.dataTransfer.files);
   };
 
   const dateRetard = form.date_relance && form.date_relance < new Date().toISOString().slice(0, 10);
@@ -732,22 +723,18 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
           {/* Fichiers — zone de drop */}
           <section>
             <label className="block text-xs font-medium text-slate-600 mb-1">📎 Fichiers (plans, photos, contrats)</label>
-            <div
-              ref={dropRef}
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop}
-              className="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center bg-slate-50 transition"
-            >
-              <div className="text-2xl mb-1">📥</div>
-              <p className="text-sm font-semibold text-slate-700">Glisse-dépose des fichiers ici</p>
-              <p className="text-xs text-slate-500 mb-2">ou</p>
-              <label className="cursor-pointer inline-block bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-bold">
-                📁 Choisir des fichiers
-                <input type="file" multiple className="hidden" onChange={(e) => upload(e.target.files)} disabled={uploadEnCours} />
-              </label>
-              {uploadEnCours && <p className="text-xs text-slate-500 mt-2">⏳ Upload en cours…</p>}
-            </div>
+            <ZoneDepot onFichiers={upload} disabled={uploadEnCours} messageSurvol="📥 Dépose les fichiers pour les ajouter">
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center bg-slate-50 transition">
+                <div className="text-2xl mb-1">📥</div>
+                <p className="text-sm font-semibold text-slate-700">Glisse-dépose des fichiers ici</p>
+                <p className="text-xs text-slate-500 mb-2">ou</p>
+                <label className="cursor-pointer inline-block bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-bold">
+                  📁 Choisir des fichiers
+                  <input type="file" multiple className="hidden" onChange={(e) => upload(e.target.files)} disabled={uploadEnCours} />
+                </label>
+                {uploadEnCours && <p className="text-xs text-slate-500 mt-2">⏳ Upload en cours…</p>}
+              </div>
+            </ZoneDepot>
             {fichiers.length > 0 && (
               <ul className="mt-2 space-y-1.5">
                 {fichiers.map((f) => (

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
+import ZoneDepot from "@/components/ZoneDepot";
 
 const TYPES = ["Auto / flotte", "Responsabilité civile", "Chantier / RBQ", "Équipement / outils", "Cautionnement", "Autre"];
 
@@ -31,13 +32,14 @@ export default function AssurancesPage() {
   };
   useEffect(() => { charger(); }, []);
 
-  const uploadDoc = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; if (!f) return;
+  const traiterDoc = (f?: File) => {
+    if (!f) return;
     if (f.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB", "warning"); return; }
     const reader = new FileReader();
     reader.onload = () => setForm((x: any) => ({ ...x, document_data: reader.result, document_type: f.type }));
     reader.readAsDataURL(f);
   };
+  const uploadDoc = (e: React.ChangeEvent<HTMLInputElement>) => traiterDoc(e.target.files?.[0]);
 
   const sauver = async () => {
     if (!form.compagnie?.trim() && !form.type?.trim()) { toast("Type ou compagnie requis", "warning"); return; }
@@ -147,11 +149,13 @@ export default function AssurancesPage() {
               <I label="Renouvellement" v={form.date_renouvellement} on={(x: string) => setForm({ ...form, date_renouvellement: x })} type="date" />
             </div>
             <I label="Prime annuelle ($)" v={form.prime_annuelle} on={(x: string) => setForm({ ...form, prime_annuelle: x })} type="number" />
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Document (police PDF/photo)</label>
+            <ZoneDepot onFichiers={(files) => traiterDoc(files[0])} accept="image/*,application/pdf" multiple={false} messageSurvol="📎 Dépose le document">
+            <div className="border border-dashed border-slate-300 rounded p-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Document (police PDF/photo) — glisse-dépose accepté</label>
               {form.document_data ? <div className="text-xs text-emerald-700 mb-1">✓ Nouveau document chargé</div> : edit?.a_document ? <div className="text-xs text-slate-500 mb-1">Document existant conservé</div> : null}
               <input type="file" accept="image/*,application/pdf" onChange={uploadDoc} className="text-xs" />
             </div>
+            </ZoneDepot>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Notes</label>
               <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" rows={2} placeholder="Couverture, franchise, courtier..." />
