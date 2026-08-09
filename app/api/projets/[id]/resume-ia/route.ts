@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjet, listerHeuresProjet, listerDepensesProjet, listerPhotosChantier } from "@/lib/db";
+import { journaliserCoutReponse } from "@/lib/ia-couts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -79,6 +80,9 @@ ${contexte}`,
       }),
     });
     const data = await r.json();
+    // Dernière route IA qui ne comptait pas sa dépense (elle appelle l'API en HTTP direct,
+    // pas via le SDK, d'où l'oubli) : sans ça le total du mois reste sous-estimé.
+    journaliserCoutReponse("resume-ia", "claude-haiku-4-5", data);
     const texte = data?.content?.[0]?.text || "Pas de résumé généré.";
     return NextResponse.json({ ok: true, resume: texte, contexte_tokens: data?.usage });
   } catch (e: any) {

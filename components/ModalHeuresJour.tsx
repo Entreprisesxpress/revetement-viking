@@ -165,7 +165,11 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
         // donnait NaN (virgule) ou 0 (heures calculées) → alerte budget jamais montrée.
         const ajout = heuresEffectives(l) * coutEmployes;
         const nouveauCout = p.cout_total + ajout;
-        const pct = (nouveauCout / p.budget_estime) * 100;
+        // `cout_total` est HORS taxes : le comparer au budget taxes incluses minorait le
+        // ratio de ~13 %, donc cette alerte se déclenchait à ~113 % réels alors que la
+        // fiche projet alerte à 100 %. Même base des deux côtés.
+        const budgetHT = p.revenu_avant_taxes ?? (p.budget_estime / 1.14975);
+        const pct = budgetHT > 0 ? (nouveauCout / budgetHT) * 100 : 0;
         if (pct > 100) toast(`⚠️ ${p.nom} : budget DÉPASSÉ (${pct.toFixed(0)}%)`, "error");
         else if (pct > 90) toast(`⚠️ ${p.nom} : ${pct.toFixed(0)}% du budget`, "warning");
       }

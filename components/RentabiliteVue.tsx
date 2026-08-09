@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { exporterCSV } from "@/lib/csv";
 import { useToast } from "@/components/Toasts";
+import { estProjetActif } from "@/lib/statuts-projet";
 
 // Tableur de rentabilité : décompose EXACTEMENT le calcul de la marge du tableau de bord.
 // revenu = (prix_contrat | budget) + extras facturés  →  ÷ 1,14975 = avant taxes
@@ -33,12 +34,18 @@ export default function RentabiliteVue() {
       setProjets(arr);
       setChargement(false);
       // Si aucun projet ACTIF mais qu'il y a des projets, montre « Tous » (sinon la vue paraît vide).
-      if (arr.length > 0 && !arr.some((p: any) => p.statut === "actif")) setFiltre("tous");
+      if (arr.length > 0 && !arr.some((p: any) => estProjetActif(p.statut))) setFiltre("tous");
     }).catch(() => setChargement(false));
   }, []);
 
   const lignes = useMemo(() => {
-    let arr = projets.filter((p) => filtre === "tous" ? p.statut !== "annule" : p.statut === filtre);
+    // « actif » = chantier EN ACTIVITÉ, donc aussi « en_cours » — sinon cet écran et la
+    // carte « Marge moyenne » du tableau de bord divergent dès qu'un chantier est démarré,
+    // alors que le texte juste en dessous affirme qu'ils font le même calcul.
+    let arr = projets.filter((p) =>
+      filtre === "tous" ? p.statut !== "annule"
+      : filtre === "actif" ? estProjetActif(p.statut)
+      : p.statut === filtre);
     const q = recherche.trim().toLowerCase();
     if (q) arr = arr.filter((p) => `${p.nom || ""} ${p.client_nom || ""}`.toLowerCase().includes(q));
     const rows = arr.map((p) => {

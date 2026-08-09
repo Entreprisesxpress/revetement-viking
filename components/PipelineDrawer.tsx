@@ -354,6 +354,10 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
       } else {
         toast(`Échec envoi : ${d.error || "erreur inconnue"}`, "error");
       }
+    } catch (e: any) {
+      // Sans ce catch, une réponse non-JSON (401, page d'erreur, réseau coupé) rejetait la
+      // promesse SANS message : on croyait avoir transmis le dossier signé au client.
+      toast(`Envoi non confirmé (${e?.message || "réseau"}) — vérifie avant de considérer le dossier transmis`, "error");
     } finally { setBusy(false); }
   };
 
@@ -403,7 +407,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
       onClose();
       onUpdate();
     } else {
-      toast("Erreur suppression", "error");
+      // Refus 409 quand un contrat SIGNÉ est rattaché : afficher la raison du serveur.
+      const d = await r.json().catch(() => ({} as any));
+      toast(d?.error || "Erreur suppression", "error");
     }
   };
 

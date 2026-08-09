@@ -110,7 +110,7 @@ export default function ClientDetail() {
             if (!confirm(`Supprimer définitivement la fiche client « ${client.nom} » ?\n\n⚠️ Action irréversible. Les projets liés ne seront PAS supprimés.`)) return;
             const r = await fetch(`/api/clients?id=${client.id}`, { method: "DELETE" });
             if (r.ok) { toast("Fiche client supprimée", "success"); router.push("/clients"); }
-            else toast("Erreur suppression", "error");
+            else { const d = await r.json().catch(() => ({} as any)); toast(d?.error || "Erreur suppression", "error"); }
           }}
           className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded text-sm font-bold"
           title="Supprimer la fiche client"

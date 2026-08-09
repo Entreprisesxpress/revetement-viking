@@ -17,7 +17,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 21;
+const SCHEMA_VERSION = 22;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -380,6 +380,16 @@ async function doInitDb() {
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_erreur TEXT");
   // Certificat d'authentification : empreinte scellée du PDF signé (preuve d'intégrité),
   // navigateur du signataire, et traçage de l'envoi du dossier signé au client.
+  // Journal des coûts IA. Était créée par un CREATE TABLE IF NOT EXISTS à CHAQUE appel au
+  // modèle (un aller-retour de plus à chaque fois) — sa place est ici, avec le reste.
+  await tryExec(`CREATE TABLE IF NOT EXISTS ia_couts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    outil TEXT, model TEXT,
+    input_tokens INTEGER, output_tokens INTEGER,
+    cache_write_tokens INTEGER, cache_read_tokens INTEGER,
+    cout_usd REAL, utilisateur TEXT, date TEXT
+  )`);
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_ia_couts_date ON ia_couts(date)");
   // Photos de la bibliothèque de jobs. Elles étaient écrites sur le disque local
   // (data/photos-biblio) : perdu à chaque déploiement sur Vercel, et aucune route ne les
   // servait. Stockage en base comme photos_chantier.
@@ -841,14 +851,26 @@ export async function modifierClient(id: number, c: Partial<ClientType>) {
   const valeurs = definis.map(k => (c as any)[k]);
   await run(`UPDATE clients SET ${sets} WHERE id = ?`, [...valeurs, id]);
 }
-export async function supprimerClient(id: number) {
+export async function supprimerClient(id: number): Promise<{ ok: boolean; raison?: string; contrats_signes?: number }> {
+  // GARDE-FOU : un contrat SIGNÉ est une pièce juridique (PDF signé + empreinte scellée +
+  // chronologie). La cascade le détruisait sans le moindre avertissement — on refuse.
+  const signes = await one<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM pipeline_contrats WHERE client_id = ? AND statut = 'signe'", [id]
+  ).catch(() => ({ n: 0 }));
+  const nb = Number(signes?.n || 0);
+  if (nb > 0) {
+    return { ok: false, contrats_signes: nb, raison: `Ce client a ${nb} contrat(s) SIGNÉ(S). Les supprimer effacerait la pièce signée et son certificat d'authentification, sans copie. Supprime d'abord les contrats si c'est vraiment voulu.` };
+  }
   // Suppression en cascade : aucune contrainte FK n'existe, donc on nettoie à la main.
   // Sinon sous-tâches, commentaires et surtout FICHIERS (blobs base64) restaient en
   // base indéfiniment sous un client_id mort → base qui gonfle + stats faussées.
-  for (const t of ["interactions_client", "client_taches", "client_commentaires", "client_fichiers", "taches_client", "pipeline_contrats"]) {
+  // `pipeline_contrats` n'est purgé que de ses BROUILLONS (les signés sont refusés plus haut).
+  for (const t of ["interactions_client", "client_taches", "client_commentaires", "client_fichiers", "taches_client"]) {
     await run(`DELETE FROM ${t} WHERE client_id = ?`, [id]).catch(() => {});
   }
+  await run("DELETE FROM pipeline_contrats WHERE client_id = ? AND statut != 'signe'", [id]).catch(() => {});
   await run("DELETE FROM clients WHERE id = ?", [id]);
+  return { ok: true };
 }
 export async function trouverOuCreerClient(nom: string, infos?: Partial<ClientType>): Promise<number> {
   if (!nom?.trim()) return 0;
@@ -2280,6 +2302,8 @@ export const TABLES_EXCLUES_SAUVEGARDE: Record<string, string> = {
   push_subscriptions: "propre à chaque appareil, se recrée à la reconnexion",
   journal_activite: "journal d'audit volumineux, propre à l'instance",
   ia_feedback: "données secondaires d'apprentissage",
+  ia_couts: "journal de dépense IA, propre à l'instance et reconstituable par la facturation Anthropic",
+  erreurs_client: "journal d'erreurs du navigateur, purgé automatiquement",
 };
 
 /** Export brut d'une table : colonnes réelles complètes, sans troncature ni jointure —

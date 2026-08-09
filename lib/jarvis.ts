@@ -5,6 +5,7 @@ import {
   listerTaches, listerExtras, listerToutesDepenses,
   getProjet, rechercheGlobale, listerVehicules, listerAssurances, listerFacturesProjet,
 } from "@/lib/db";
+import { estProjetActif } from "@/lib/statuts-projet";
 
 // === DÉFINITIONS D'OUTILS (format Anthropic tool-use) ===
 export const OUTILS_JARVIS = [
@@ -145,7 +146,8 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         const dep = fin.mois.reduce((s: number, m: any) => s + (m.depenses_avant_taxes || 0), 0);
         const mo = fin.mois.reduce((s: number, m: any) => s + (m.mo || 0), 0);
         const marge = fin.mois.reduce((s: number, m: any) => s + (m.marge || 0), 0);
-        const actifs = projets.filter((p) => p.statut === "actif");
+        // Même définition que le reste de l'app : « actif » couvre aussi « en_cours ».
+        const actifs = projets.filter((p) => estProjetActif(p.statut));
         const totMargeAct = actifs.reduce((s, p) => s + (p.marge || 0), 0);
         const totRevAct = actifs.reduce((s, p) => s + (p.revenu_avant_taxes || 0), 0);
         const factImp = await db().execute({ sql: "SELECT COALESCE(SUM(montant),0) t, COUNT(*) n FROM factures_projet WHERE payee=0 OR payee IS NULL", args: [] }).catch(() => ({ rows: [{ t: 0, n: 0 }] }));

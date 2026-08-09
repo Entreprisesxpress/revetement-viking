@@ -69,7 +69,10 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
     const c = await getClient(+id);
-    await supprimerClient(+id);
+    const res = await supprimerClient(+id);
+    // Refus quand des contrats SIGNÉS sont rattachés : on ne détruit pas une pièce
+    // juridique en supprimant une fiche client.
+    if (!res.ok) return NextResponse.json({ error: res.raison, contrats_signes: res.contrats_signes }, { status: 409 });
     journaliser("client.supprime", { ref_type: "client", ref_id: id, description: c?.nom || `id ${id}`, ip: ipDe(req) });
     if (c?.asana_gid) asanaSyncFireAndForget("delete", { asana_gid: c.asana_gid });
     return NextResponse.json({ ok: true });

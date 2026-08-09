@@ -56,17 +56,10 @@ export function journaliserCoutReponse(outil: string, model: string, resp: any, 
   enregistrerCoutIA({ outil, model, usage: usageDeReponse(resp), user }).catch(() => {});
 }
 
+// La table est créée par doInitDb() (lib/db.ts), avec le reste du schéma : la recréer à
+// chaque appel coûtait un aller-retour réseau supplémentaire par requête IA.
 async function assurerTable(): Promise<void> {
   await initDb();
-  await db().execute(
-    `CREATE TABLE IF NOT EXISTS ia_couts (
-       id INTEGER PRIMARY KEY AUTOINCREMENT,
-       outil TEXT, model TEXT,
-       input_tokens INTEGER, output_tokens INTEGER,
-       cache_write_tokens INTEGER, cache_read_tokens INTEGER,
-       cout_usd REAL, utilisateur TEXT, date TEXT
-     )`
-  ).catch(() => {});
 }
 
 /** Enregistre un appel IA (best-effort — ne fait jamais échouer l'appel). Retourne le coût USD. */

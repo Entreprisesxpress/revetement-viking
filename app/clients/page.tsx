@@ -65,7 +65,9 @@ export default function ClientsPage() {
     // Capture une copie pour pouvoir annuler (re-créer côté serveur si Undo)
     const sauvegarde = clients.find((c) => c.id === id);
     const r = await fetch(`/api/clients?id=${id}`, { method: "DELETE" });
-    if (!r.ok) { toast("Erreur suppression", "error"); return; }
+    // Le serveur refuse (409) si des contrats SIGNÉS sont rattachés : il faut montrer
+    // sa raison, pas un « Erreur suppression » qui n'explique rien.
+    if (!r.ok) { const d = await r.json().catch(() => ({} as any)); toast(d?.error || "Erreur suppression", "error"); return; }
     toast("Client supprimé", "success", {
       action: sauvegarde ? {
         label: "Annuler",

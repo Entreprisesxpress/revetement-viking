@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
       const outilsUtilises: string[] = [];
       const usage: Required<UsageIA> = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
       let repondu = false;
+      let coutJournalise = false;   // évite un double comptage si le flux va au bout
 
       try {
         for (let tour = 0; tour < 8; tour++) {
@@ -137,8 +138,9 @@ export async function POST(req: NextRequest) {
         if (!repondu) send("text", { delta: "\nJe n'ai pas réussi à formuler une réponse. Reformule ta question ?" });
         if (outilsUtilises.length) send("outils", { names: Array.from(new Set(outilsUtilises)) });
 
-        // Journal des coûts (best-effort) + retour du coût au client.
+        // Journal des coûts + retour du coût au client.
         const coutAppel = await enregistrerCoutIA({ outil: "jarvis", model: MODELES.jarvis, usage, user });
+        coutJournalise = true;
         const mois = await coutMoisCourantIA();
         send("cout", { total_usd: coutAppel, mois_usd: mois.total_usd, mois: mois.mois });
         send("done", {});
@@ -146,6 +148,12 @@ export async function POST(req: NextRequest) {
         // Une annulation n'est pas une erreur à afficher : personne n'écoute plus.
         if (!annule) send("erreur", { error: e?.message || "Erreur serveur" });
       } finally {
+        // Les tours DÉJÀ consommés sont facturés par Anthropic, même si l'utilisateur a
+        // fermé l'onglet : sans ce filet, un `return` sur annulation sautait la
+        // journalisation et le compteur du mois sous-estimait la dépense réelle.
+        if (usage.input + usage.output + usage.cacheWrite + usage.cacheRead > 0 && !coutJournalise) {
+          await enregistrerCoutIA({ outil: annule ? "jarvis:annule" : "jarvis:interrompu", model: MODELES.jarvis, usage, user }).catch(() => {});
+        }
         try { controller.close(); } catch { /* déjà fermé */ }
       }
     },

@@ -10,6 +10,9 @@ const ENVELOPPE_VIDE = {
   soumissions: [], clients: [], projets: [], employes: [], heures: [],
   depenses: [], contrats: [], paies: [], biblio: [],
 };
+// Champs exigés pour juger une sauvegarde valide (ceux de la v1 : les fichiers plus
+// anciens doivent rester restaurables). Miroir de CHAMPS_REQUIS de /api/restore.
+const CHAMPS_REQUIS = Object.keys(ENVELOPPE_VIDE);
 
 function ValiderBackup() {
   const [texteBackup, setTexteBackup] = useState<string | null>(null);
@@ -25,10 +28,34 @@ function ValiderBackup() {
     try {
       const txt = await file.text();
       setTexteBackup(txt);
-      const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: txt });
-      setResultat(await r.json());
-    } catch (err: any) { setResultat({ ok: false, error: err.message }); }
-    finally { setChargement(false); }
+      // VALIDATION DANS LE NAVIGATEUR, sans envoyer le fichier : une vraie sauvegarde
+      // dépasse la limite de taille d'une requête (~4,5 Mo) — la valider côté serveur
+      // renvoyait un 413 non-JSON, et le bouton « Restaurer réellement » n'apparaissait
+      // JAMAIS. La restauration elle-même part ensuite table par table.
+      const dump = JSON.parse(txt);
+      const erreurs: string[] = [];
+      const compte: Record<string, number> = {};
+      for (const c of CHAMPS_REQUIS) {
+        if (!Array.isArray(dump[c])) erreurs.push(`Champ manquant ou non-array : ${c}`);
+        else compte[c] = dump[c].length;
+      }
+      for (const k of Object.keys(dump)) {
+        if (!CHAMPS_REQUIS.includes(k) && Array.isArray(dump[k]) && dump[k].length) compte[k] = dump[k].length;
+      }
+      const total = Object.values(compte).reduce((s, n) => s + n, 0);
+      const mo = (txt.length / 1024 / 1024).toFixed(1);
+      setResultat({
+        ok: erreurs.length === 0,
+        mode: "validation-seulement",
+        meta: { date_backup: dump.date_backup || "—", version: dump.version || 0 },
+        compte, total, erreurs,
+        message: erreurs.length
+          ? `⚠ Structure incomplète — ${erreurs.length} erreur(s).`
+          : `✓ Sauvegarde valide — ${total} enregistrements sur ${Object.keys(compte).length} tables (${mo} Mo).`,
+      });
+    } catch (err: any) {
+      setResultat({ ok: false, error: `Fichier illisible : ${err.message}` });
+    } finally { setChargement(false); }
   };
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => traiterFichier(e.target.files?.[0]);
 
@@ -46,18 +73,36 @@ function ValiderBackup() {
       const champs = Object.keys(dump).filter((k) => Array.isArray(dump[k]) && dump[k].length > 0);
       const cumul: any = {};
       const echecs: string[] = [];
-      for (const champ of champs) {
-        setProgression(`${champ}…`);
-        // Chaque envoi rejoue l'enveloppe minimale + une seule table de données.
-        const morceau: any = { ...ENVELOPPE_VIDE, confirmer: true, [champ]: dump[champ] };
-        try {
-          const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(morceau) });
-          const d = await r.json().catch(() => ({} as any));
-          if (!r.ok) { echecs.push(`${champ} : ${d?.error || `erreur ${r.status}`}`); continue; }
-          if (d.resultat?.[champ]) cumul[champ] = d.resultat[champ];
-        } catch (e: any) {
-          echecs.push(`${champ} : ${e?.message || "réseau"}`);
+      // …ET par PAQUETS à l'intérieur d'une table : `contrats_signes` embarque les PDF
+      // signés en base64, donc une seule table peut à elle seule dépasser la limite.
+      const MAX_PAQUET = 2_500_000; // ~2,5 Mo de JSON par envoi, sous le plafond de ~4,5 Mo
+      const enPaquets = (lignes: any[]): any[][] => {
+        const paquets: any[][] = []; let cur: any[] = []; let taille = 0;
+        for (const l of lignes) {
+          const t = JSON.stringify(l).length;
+          // Une ligne seule trop grosse part quand même : le serveur tranchera.
+          if (cur.length && taille + t > MAX_PAQUET) { paquets.push(cur); cur = []; taille = 0; }
+          cur.push(l); taille += t;
         }
+        if (cur.length) paquets.push(cur);
+        return paquets;
+      };
+      for (const champ of champs) {
+        const paquets = enPaquets(dump[champ]);
+        let inseres = 0, ignores = 0, total = 0, erreur: string | undefined;
+        for (let i = 0; i < paquets.length; i++) {
+          setProgression(paquets.length > 1 ? `${champ} (${i + 1}/${paquets.length})…` : `${champ}…`);
+          const morceau: any = { ...ENVELOPPE_VIDE, confirmer: true, [champ]: paquets[i] };
+          try {
+            const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(morceau) });
+            const d = await r.json().catch(() => ({} as any));
+            if (!r.ok) { erreur = d?.error || `erreur ${r.status}`; break; }
+            const res = d.resultat?.[champ];
+            if (res) { inseres += res.inseres || 0; ignores += res.ignores || 0; total += res.total || 0; }
+          } catch (e: any) { erreur = e?.message || "réseau"; break; }
+        }
+        cumul[champ] = { inseres, ignores, total, ...(erreur ? { erreur } : {}) };
+        if (erreur) echecs.push(`${champ} : ${erreur}`);
       }
       const inseres = Object.values(cumul).reduce((s: number, v: any) => s + (v?.inseres || 0), 0);
       setResultat({
