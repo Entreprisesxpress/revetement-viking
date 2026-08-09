@@ -71,7 +71,14 @@ export default function FacturesProjet({ projetId, onChange }: { projetId: numbe
     if (!confirm(`Supprimer la facture ${f.numero || ""} de ${formatCAD(f.montant)} ?`)) return;
     try {
       const r = await fetch(`/api/factures?id=${f.id}`, { method: "DELETE" });
-      if (!r.ok) { toast("Échec de la suppression", "error"); return; }
+      if (!r.ok) {
+        // Le serveur refuse désormais de supprimer une facture ENCAISSÉE et explique
+        // quoi faire (annuler le paiement d'abord). « Échec de la suppression » tout
+        // court laissait l'utilisateur devant un mur.
+        const d = await r.json().catch(() => ({} as any));
+        toast(d?.message || d?.error || "Échec de la suppression", "error");
+        return;
+      }
       toast("Facture supprimée", "info");
       rafraichir();
     } catch { toast("Réseau indisponible", "error"); }

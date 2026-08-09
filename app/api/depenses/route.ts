@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerDepensesProjet, ajouterDepenseProjet, supprimerDepenseProjet, modifierDepenseProjet, fournisseursConnus, listerToutesDepenses, categoriesParFournisseur } from "@/lib/db";
+import { listerDepensesProjet, ajouterDepenseProjet, supprimerDepenseProjet, modifierDepenseProjet, fournisseursConnus, listerToutesDepenses, categoriesParFournisseur, projetReferenceValide } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { nombreSaisi } from "@/lib/calculs";
@@ -36,6 +36,13 @@ export async function POST(req: NextRequest) {
     }
     const invalide = validerDepense(body);
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
+    // Sans projet_id, c'est une dépense générale : permis. Avec un projet_id qui ne
+    // pointe sur RIEN, la dépense n'apparaît sur aucune fiche mais reste comptée dans
+    // les totaux — de l'argent hors de vue. Mesuré : elle sortait bien dans la liste
+    // globale alors que /api/projets?id=… répondait 404.
+    if (!(await projetReferenceValide(body.projet_id))) {
+      return NextResponse.json({ error: "projet introuvable — laisse le projet vide pour une dépense générale" }, { status: 400 });
+    }
     body.montant = montant;
     const user = await utilisateurActif(req);
     const id = await ajouterDepenseProjet({ ...body, ajoute_par: user || undefined });

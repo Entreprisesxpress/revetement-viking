@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerFacturesProjet, ajouterFactureProjet, marquerFacturePayee, annulerPaiementFacture, supprimerFactureProjet } from "@/lib/db";
+import { listerFacturesProjet, ajouterFactureProjet, marquerFacturePayee, annulerPaiementFacture, supprimerFactureProjet, projetReferenceValide } from "@/lib/db";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { nombreSaisi } from "@/lib/calculs";
 import { validerEcritureArgent } from "@/lib/validation-argent";
@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
     // « à recevoir » et la marge du projet dans tous les écrans (mesuré).
     const invalide = validerEcritureArgent(body, { champsDate: ["date", "date_paiement", "date_echeance"] });
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
+    if (!(await projetReferenceValide(body.projet_id))) {
+      return NextResponse.json({ error: "projet introuvable — la facture serait rattachée à un projet qui n'existe pas" }, { status: 400 });
+    }
     body.montant = montant;
     const id = await ajouterFactureProjet(body);
     const u = await utilisateurActif(req);
@@ -66,7 +69,10 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
     const u = await utilisateurActif(req);
-    await supprimerFactureProjet(+id);
+    // Une facture ENCAISSÉE ne se supprime plus d'un clic : sans corbeille, c'était de
+    // l'argent reçu effacé définitivement, sans confirmation ni possibilité de retour.
+    const res = await supprimerFactureProjet(+id);
+    if (!res.ok) return NextResponse.json({ error: "suppression refusée", message: res.raison }, { status: 409 });
     journaliser("facture.supprimee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id, description: `Suppression facture #${id}` }).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (e) { return fail(e); }

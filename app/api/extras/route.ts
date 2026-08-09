@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compterExtrasACharger, getProjet } from "@/lib/db";
+import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compterExtrasACharger, getProjet, projetReferenceValide } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { envoyerPushUtilisateur } from "@/lib/push";
@@ -37,6 +37,9 @@ export async function POST(req: NextRequest) {
     // qui peut porter une note de crédit) et retranchait du revenu en silence.
     const invalide = validerEcritureArgent(body, { refuserNegatif: true, champsMontant: ["montant", "heures"], champsDate: ["date"] });
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
+    if (!(await projetReferenceValide(body.projet_id))) {
+      return NextResponse.json({ error: "projet introuvable — laisse le projet vide si l'extra n'est rattaché à aucun chantier" }, { status: 400 });
+    }
     const user = await utilisateurActif(req);
     const id = await ajouterExtra({
       projet_id: body.projet_id ? +body.projet_id : null,

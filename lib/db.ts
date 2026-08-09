@@ -1762,8 +1762,34 @@ export async function marquerFacturePayee(id: number, date_paiement: string) {
 export async function annulerPaiementFacture(id: number) {
   await run("UPDATE factures_projet SET payee = 0, date_paiement = NULL WHERE id = ?", [id]);
 }
-export async function supprimerFactureProjet(id: number) {
+/** Supprime une facture. REFUSE une facture déjà encaissée : c'est la trace d'un
+ *  paiement reçu, et il n'y a pas de corbeille dans cette app — une suppression efface
+ *  définitivement de l'argent entré. Pour corriger une erreur, il faut d'abord annuler
+ *  le paiement (le geste est explicite et journalisé), puis supprimer. */
+export async function supprimerFactureProjet(id: number): Promise<{ ok: boolean; raison?: string }> {
+  const f = await one<{ payee: number; montant: number; numero: string | null; date_paiement: string | null }>(
+    "SELECT payee, montant, numero, date_paiement FROM factures_projet WHERE id = ?", [id]
+  );
+  if (!f) return { ok: false, raison: "Facture introuvable." };
+  if (f.payee) {
+    return {
+      ok: false,
+      raison: `Cette facture (${f.numero || `#${id}`} · ${f.montant} $) est marquée ENCAISSÉE${f.date_paiement ? ` le ${f.date_paiement}` : ""}. Annule d'abord le paiement, puis supprime-la.`,
+    };
+  }
   await run("DELETE FROM factures_projet WHERE id = ?", [id]);
+  return { ok: true };
+}
+
+/** Le projet référencé existe-t-il ? `null`/absent = dépense générale, c'est permis.
+ *  Un id qui ne pointe sur RIEN ne l'est pas : la ligne devient un orphelin invisible
+ *  (aucune fiche projet ne l'affiche) mais bien compté dans les totaux globaux. */
+export async function projetReferenceValide(projet_id: any): Promise<boolean> {
+  if (projet_id === null || projet_id === undefined || projet_id === "") return true;
+  const n = Number(projet_id);
+  if (!Number.isFinite(n)) return false;
+  const r = await one<{ id: number }>("SELECT id FROM projets WHERE id = ?", [n]);
+  return !!r;
 }
 
 // === DÉPENSES ===

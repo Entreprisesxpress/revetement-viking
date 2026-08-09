@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet, modifierHeureProjet, listerToutesHeures, getHeureProjet } from "@/lib/db";
+import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet, modifierHeureProjet, listerToutesHeures, getHeureProjet, projetReferenceValide } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 
@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
   }
   const err = valider(body);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
+  // Des heures rattachées à un projet inexistant n'apparaissent sur aucune fiche mais
+  // pèsent quand même dans le coût de main-d'œuvre global et dans la paie.
+  if (!(await projetReferenceValide(body.projet_id))) {
+    return NextResponse.json({ error: "projet introuvable" }, { status: 400 });
+  }
   const user = await utilisateurActif(req);
   const id = await ajouterHeureProjet({ ...body, ajoute_par: user || undefined });
   journaliser("heures.ajoutees", {
