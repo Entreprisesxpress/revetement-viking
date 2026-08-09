@@ -81,6 +81,11 @@ export async function proxy(req: NextRequest) {
     path.startsWith("/projet/") ||                             // mode présentation client (token HMAC)
     path === "/api/projet-public" ||                           // endpoint mode présentation
     (path === "/api/lead-web" && req.method === "POST") ||     // formulaires du site web (exige LEAD_WEBHOOK_SECRET)
+    // Appel interne du cron de pré-calcul des prix : il s'auto-appelle en HTTP, donc sans
+    // cookie — il était bloqué en 401 et le cron nocturne ne rafraîchissait RIEN depuis
+    // toujours. On l'ouvre uniquement s'il porte le secret de cron.
+    (path === "/api/prix-web" && req.method === "POST" && !!process.env.CRON_SECRET
+      && req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`) ||
     /^\/api\/contrats-pipeline\/[^/]+(\/pdf|\/certificat)?$/.test(path) // GET infos + PDF + certificat d'authentification + POST signature (token = secret)
   ) {
     return avecHeaders(NextResponse.next());

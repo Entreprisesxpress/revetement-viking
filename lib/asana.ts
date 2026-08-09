@@ -83,6 +83,10 @@ export async function supprimerTacheAsana(gid: string): Promise<void> {
 }
 
 /** Construire les notes Asana à partir d'un client CRM */
+/** Marqueur du bloc écrit PAR l'app dans les notes Asana. Sert aussi à le reconnaître au
+ *  retour pour ne pas le réimporter comme s'il s'agissait de notes saisies dans Asana. */
+export const MARQUEUR_SYNC = "[Synchronisé depuis Revêtement Viking App]";
+
 export function clientVersNotesAsana(client: any): string {
   const lignes: string[] = [];
   if (client.nom) lignes.push(`Client: ${client.nom}`);
@@ -93,7 +97,7 @@ export function clientVersNotesAsana(client: any): string {
   if (client.source) lignes.push(`Source: ${client.source}`);
   if (client.tags) lignes.push(`Tags: ${client.tags}`);
   if (client.notes) lignes.push(`\n${client.notes}`);
-  lignes.push(`\n[Synchronisé depuis Revêtement Viking App]`);
+  lignes.push(`\n${MARQUEUR_SYNC}`);
   return lignes.join("\n");
 }
 
@@ -105,11 +109,28 @@ export function parserNotesAsana(task: AsanaTask): { nom: string; telephone?: st
   // Adresse : ligne contenant un chiffre + nom de rue
   let adresse = n.match(/(\d+[,\s][^\n]{5,80})/)?.[1];
   if (adresse) adresse = adresse.trim().split("\n")[0];
+  // Le nom de la tâche EST le nom du client (c'est l'app qui l'écrit). Découper sur « - »
+  // amputait tous les prénoms composés : « Jean-François Tremblay » revenait en « Jean »,
+  // et le sync réécrasait la fiche. On ne coupe plus que sur un vrai saut de ligne.
+  const nom = task.name.split("\n")[0].trim() || task.name;
+
+  // Notes : on retire le bloc que l'app a elle-même écrit. Sans ça, chaque aller-retour
+  // réimportait « Client: … / Adresse: … / [Synchronisé…] » et l'imbriquait dans lui-même
+  // jusqu'à la coupure à 500 caractères — les vraies notes finissaient effacées.
+  let notes: string | undefined = n;
+  const i = notes.indexOf(MARQUEUR_SYNC);
+  if (i >= 0) {
+    // Tout ce qui suit le marqueur est de l'ajout fait DANS Asana ; ce qui précède est
+    // notre propre bloc, qu'on ne réimporte pas.
+    notes = notes.slice(i + MARQUEUR_SYNC.length).trim();
+  }
+  notes = (notes || "").trim().slice(0, 500) || undefined;
+
   return {
-    nom: task.name.split(/[-\n]/)[0].trim() || task.name,
+    nom,
     telephone: tel?.replace(/\s+/g, " ").trim(),
     courriel: mail,
     adresse,
-    notes: n.slice(0, 500),
+    notes,
   };
 }

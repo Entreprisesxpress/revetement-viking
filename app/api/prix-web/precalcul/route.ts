@@ -26,9 +26,12 @@ export async function GET(req: NextRequest) {
   const resultats: any[] = [];
   for (const p of PRODUITS_USUELS) {
     try {
+      // On transmet le secret de cron : sans lui, cet appel interne partait sans cookie et
+      // se faisait refuser en 401 par le proxy — la boucle tournait chaque nuit pour rien
+      // et le cache de prix n'était jamais rafraîchi.
       const r = await fetch(`${base}/api/prix-web`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cronSecret}` },
         body: JSON.stringify({ ...p, force: true }),
       });
       const d = await r.json();
@@ -37,5 +40,8 @@ export async function GET(req: NextRequest) {
       resultats.push({ code: p.code, ok: false, erreur: e?.message });
     }
   }
-  return NextResponse.json({ ok: true, traite: resultats.length, resultats });
+  // `ok:true` était renvoyé même quand les 6 appels avaient échoué : l'échec du cron était
+  // donc invisible. On remonte le compte réel.
+  const reussis = resultats.filter((r) => r.ok).length;
+  return NextResponse.json({ ok: reussis > 0, traite: resultats.length, reussis, echecs: resultats.length - reussis, resultats });
 }

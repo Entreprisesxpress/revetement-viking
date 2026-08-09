@@ -30,15 +30,18 @@ export async function POST(_req: NextRequest) {
         // MAJ si Asana plus récent
         const dejaSync = existant.asana_modifie_le || "";
         if (t.modified_at && t.modified_at > dejaSync) {
-          await modifierClient(existant.id, {
-            nom: infos.nom,
-            telephone: infos.telephone,
-            courriel: infos.courriel,
-            adresse: infos.adresse,
-            notes: infos.notes,
-            statut: t.completed ? "actif" : (existant.statut || "prospect"),
-            asana_modifie_le: t.modified_at,
-          });
+          // Le STATUT n'est plus réécrit depuis Asana : le push marque `completed` pour un
+          // client « perdu » ou « inactif », et ce retour le faisait revenir « actif » —
+          // un client perdu ressuscitait à chaque synchro. L'app reste la référence.
+          // On ne réécrit un champ que s'il porte une valeur (sinon on efface une donnée
+          // saisie dans l'app avec du vide venu d'Asana).
+          const maj: any = { asana_modifie_le: t.modified_at };
+          if (infos.nom) maj.nom = infos.nom;
+          if (infos.telephone) maj.telephone = infos.telephone;
+          if (infos.courriel) maj.courriel = infos.courriel;
+          if (infos.adresse) maj.adresse = infos.adresse;
+          if (infos.notes) maj.notes = infos.notes;
+          await modifierClient(existant.id, maj);
           majs++;
         } else {
           ignores++;
@@ -51,7 +54,9 @@ export async function POST(_req: NextRequest) {
           courriel: infos.courriel,
           adresse: infos.adresse,
           notes: infos.notes,
-          statut: t.completed ? "actif" : "prospect",
+          // Une tâche Asana COMPLÉTÉE correspond, côté app, à un client perdu/inactif
+          // (c'est ce que le push écrit) — pas à un client actif.
+          statut: t.completed ? "inactif" : "prospect",
           source: "Asana",
           tags: tagsBase,
           asana_gid: t.gid,

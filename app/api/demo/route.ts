@@ -43,6 +43,12 @@ const BIBLIO_DEMO = [
 ];
 
 export async function POST(req: NextRequest) {
+  // GARDE-FOU : un POST sans paramètre injectait 5 soumissions fictives (Marie Lavoie,
+  // Jean-François Tremblay…) et 4 jobs dans la BIBLIOTHÈQUE — laquelle sert de référence
+  // de prix pour les prochaines estimations. Aucun écran n'appelle cette route.
+  if (process.env.DEMO_ENABLED !== "1") {
+    return NextResponse.json({ error: "Données de démo désactivées. Mettre DEMO_ENABLED=1 pour les autoriser temporairement." }, { status: 403 });
+  }
   const action = req.nextUrl.searchParams.get("action");
 
   if (action === "reset") {
