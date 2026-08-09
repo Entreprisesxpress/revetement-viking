@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { listerClients, getClient, ajouterClient, modifierClient, supprimerClient } from "@/lib/db";
 import { asanaEstConfigure, creerTacheAsana, modifierTacheAsana, supprimerTacheAsana, clientVersNotesAsana } from "@/lib/asana";
 import { journaliser } from "@/lib/audit";
+import { STATUTS_CLIENT, CLES_ETAPES_PIPELINE, estStatutClient, estEtapePipeline, courrielValide } from "@/lib/vocabulaire";
 
 function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
 function fail(e: any, status = 500) { console.error("[/api/clients]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
@@ -43,10 +44,29 @@ export async function GET(req: NextRequest) {
   } catch (e) { return fail(e); }
 }
 
+
+/** Vocabulaire fermé : statut client, étape de pipeline, format de courriel.
+ *  Mesuré : le serveur acceptait « licorne » comme statut et « etape_inexistante »
+ *  comme étape — la fiche disparaissait alors de tous les filtres et de toutes les
+ *  colonnes du kanban, sans le moindre message. Un dossier perdu en silence.
+ *  Le courriel invalide, lui, faisait partir les relances dans le vide. */
+function validerClient(body: any): string | null {
+  if (body.statut !== undefined && body.statut !== null && body.statut !== "" && !estStatutClient(body.statut)) {
+    return `statut inconnu « ${body.statut} » (attendu : ${STATUTS_CLIENT.join(", ")})`;
+  }
+  if (body.pipeline_stage !== undefined && !estEtapePipeline(body.pipeline_stage)) {
+    return `étape de pipeline inconnue « ${body.pipeline_stage} » (attendu : ${CLES_ETAPES_PIPELINE.join(", ")})`;
+  }
+  if (!courrielValide(body.courriel)) return `courriel invalide « ${body.courriel} »`;
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     if (!body?.nom?.trim()) return NextResponse.json({ error: "nom requis" }, { status: 400 });
+    const invalide = validerClient(body);
+    if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
     const id = await ajouterClient(body);
     journaliser("client.cree", { ref_type: "client", ref_id: id, description: body.nom, ip: ipDe(req) });
     if (!body.asana_gid && body.source !== "Asana" && body._skip_asana !== true) {
@@ -60,6 +80,10 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     if (!body?.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+    // Mêmes règles qu'à la création : c'est le glisser-déposer du kanban qui écrit
+    // `pipeline_stage`, donc c'est ici que la valeur douteuse arrive en pratique.
+    const invalidePatch = validerClient(body);
+    if (invalidePatch) return NextResponse.json({ error: invalidePatch }, { status: 400 });
     await modifierClient(body.id, body);
     journaliser("client.modifie", { ref_type: "client", ref_id: body.id, description: body.nom || `id ${body.id}`, ip: ipDe(req) });
     if (body._skip_asana !== true) {

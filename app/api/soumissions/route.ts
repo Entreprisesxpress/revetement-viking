@@ -34,7 +34,14 @@ export async function POST(req: NextRequest) {
       ip: ipDe(req), user_agent: req.headers.get("user-agent") || undefined,
     });
     return NextResponse.json({ numero, ok: true });
-  } catch (e) { return fail(e); }
+  } catch (e: any) {
+    // Refus métier (soumission signée) ≠ panne. 409 pour que l'écran affiche le motif
+    // au lieu de « erreur serveur », et pour ne pas polluer le suivi d'incidents.
+    if (e?.code === "SOUMISSION_SIGNEE") {
+      return NextResponse.json({ error: "soumission signée", message: e.message }, { status: 409 });
+    }
+    return fail(e);
+  }
 }
 
 export async function PATCH(req: NextRequest) {
@@ -56,7 +63,14 @@ export async function PATCH(req: NextRequest) {
     }
     if (body.heuresReelles !== undefined) await enregistrerHeuresReelles(body.numero, body.heuresReelles);
     return NextResponse.json({ ok: true });
-  } catch (e) { return fail(e); }
+  } catch (e: any) {
+    // Statut inconnu, ou retour en arrière sur une soumission signée : refus métier,
+    // pas panne serveur. 409 pour que l'écran affiche le motif.
+    if (e?.code === "STATUT_INVALIDE" || e?.code === "SOUMISSION_SIGNEE") {
+      return NextResponse.json({ error: "changement refusé", message: e.message }, { status: 409 });
+    }
+    return fail(e);
+  }
 }
 
 export async function DELETE(req: NextRequest) {

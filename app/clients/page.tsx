@@ -8,6 +8,7 @@ import FAB from "@/components/FAB";
 import PipelineCRM from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import { exporterCSV } from "@/lib/csv";
+import { envoyer } from "@/lib/envoi";
 
 const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
   prospect: { label: "Prospect", couleur: "bg-amber-100 text-amber-900" },
@@ -51,13 +52,15 @@ export default function ClientsPage() {
 
   const creer = async () => {
     if (!nouveau.nom.trim()) { toast("Nom requis", "warning"); return; }
-    const r = await fetch("/api/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...nouveau, pipeline_stage: "info_1" }) });
-    if ((await r.json()).ok) {
-      toast("Client créé", "success");
-      setCreerOuvert(false);
-      setNouveau({ nom: "", courriel: "", telephone: "", adresse: "", notes: "", statut: "prospect", source: "", tags: "" });
-      charger();
-    }
+    // Réponse vérifiée : en cas d'échec, RIEN ne se passait — pas de message, la fenêtre
+    // restait ouverte, et l'utilisateur recliquait. Depuis que le serveur refuse un
+    // courriel malformé ou un statut inconnu, ce silence rendait le refus invisible.
+    const r = await envoyer("/api/clients", { corps: { ...nouveau, pipeline_stage: "info_1" } });
+    if (!r.ok) { toast(`Client NON créé : ${r.erreur}`, "error"); return; }
+    toast("Client créé", "success");
+    setCreerOuvert(false);
+    setNouveau({ nom: "", courriel: "", telephone: "", adresse: "", notes: "", statut: "prospect", source: "", tags: "" });
+    charger();
   };
 
   const supprimer = async (id: number) => {

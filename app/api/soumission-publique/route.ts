@@ -9,6 +9,28 @@ export const dynamic = "force-dynamic";
 
 function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
 
+/** Ne laisse sortir QUE ce que la page publique affiche : un libellé et un montant.
+ *
+ *  Le commentaire disait déjà « pas les coûts internes », mais on renvoyait les lignes
+ *  du payload telles quelles. Mesuré sur une vraie soumission : le client recevait
+ *  `margePct: 30` et `surplus: 10` par matériau — soit la majoration exacte appliquée
+ *  par Viking, lisible en deux clics dans le navigateur. La page ne s'en sert même pas.
+ *  Liste blanche : tout nouveau champ de chiffrage reste interne par défaut. */
+function lignesPourClient(lignes: any): any[] {
+  if (!Array.isArray(lignes)) return [];
+  return lignes.map((l: any) => {
+    const sortie: any = {};
+    // Libellé (la page essaie description, puis nom, puis code)
+    if (l?.description != null) sortie.description = l.description;
+    if (l?.nom != null) sortie.nom = l.nom;
+    if (l?.code != null) sortie.code = l.code;
+    // Montant affiché
+    if (l?.montant != null) sortie.montant = l.montant;
+    if (l?.total != null) sortie.total = l.total;
+    return sortie;
+  });
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
@@ -36,8 +58,10 @@ export async function GET(req: NextRequest) {
       statut: s.statut,
       signature_nom: s.signature_nom,
       signature_date: s.signature_date,
-      lignes: payload.lignes || [],
-      fraisActifs: payload.fraisActifs || [],
+      lignes: lignesPourClient(payload.lignes),
+      // `fraisActifs` n'est PAS renvoyé : la page publique ne l'affiche pas, et il
+      // contient les heures de main-d'œuvre estimées par poste — une information de
+      // chiffrage interne.
       appliquerTaxes: payload.appliquerTaxes,
     });
   } catch (e: any) {

@@ -8,17 +8,15 @@ import {
   type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import { useToast } from "@/components/Toasts";
+import { ETAPES_PIPELINE } from "@/lib/vocabulaire";
+import { envoyer } from "@/lib/envoi";
 
 const PipelineDrawer = lazy(() => import("@/components/PipelineDrawer"));
 
-export const PIPELINE_STAGES = [
-  { key: "info_1", label: "Info 1ère soumission", couleur: "bg-slate-100 border-slate-300", emoji: "📋" },
-  { key: "rdv", label: "Rendez-vous à céduler", couleur: "bg-sky-100 border-sky-300", emoji: "📅" },
-  { key: "mesures", label: "Mesures et prise de photo", couleur: "bg-amber-100 border-amber-300", emoji: "📐" },
-  { key: "soum_envoyer", label: "Soumission à envoyer", couleur: "bg-orange-100 border-orange-300", emoji: "✉️" },
-  { key: "attente", label: "Projet en attente", couleur: "bg-violet-100 border-violet-300", emoji: "⏳" },
-  { key: "accepte", label: "Projet accepté", couleur: "bg-emerald-100 border-emerald-300", emoji: "✅" },
-] as const;
+// Source unique partagée avec l'API (lib/vocabulaire.ts, module nu) : sans ça, le
+// serveur acceptait des étapes que le kanban ne sait pas afficher, et la fiche
+// disparaissait de toutes les colonnes.
+export const PIPELINE_STAGES = ETAPES_PIPELINE;
 
 export const STAGE_PAR_CLE: Record<string, typeof PIPELINE_STAGES[number]> = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.key, s])) as any;
 const AUCUN_KEY = "__aucun__";
@@ -51,25 +49,23 @@ export default function PipelineCRM({ clients, onUpdate }: Props) {
   );
 
   const changerStage = async (id: number, stage: string | null) => {
-    await fetch("/api/clients", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, pipeline_stage: stage }),
-    });
+    // Réponse vérifiée : sans ça, une carte déposée dans une colonne que le serveur
+    // refuse revenait à sa place au rechargement, sans un mot d'explication.
+    const r = await envoyer("/api/clients", { methode: "PATCH", corps: { id, pipeline_stage: stage } });
+    if (!r.ok) toast(`Déplacement non enregistré : ${r.erreur}`, "error");
     onUpdate();
   };
 
   const ajouter = async (stage: string) => {
     if (!nouveau.nom.trim()) { toast("Nom requis", "warning"); return; }
-    const r = await fetch("/api/clients", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...nouveau, statut: "prospect", pipeline_stage: stage }),
-    });
-    if ((await r.json()).ok) {
-      toast(`${nouveau.nom} ajouté à « ${STAGE_PAR_CLE[stage].label} »`, "success");
-      setNouveau({ nom: "", telephone: "", courriel: "" });
-      setAjoutOuvert(null);
-      onUpdate();
-    }
+    // Échec silencieux avant : un courriel malformé ou un doublon refusé ne produisait
+    // aucun message, la carte n'apparaissait pas et l'utilisateur recliquait.
+    const r = await envoyer("/api/clients", { corps: { ...nouveau, statut: "prospect", pipeline_stage: stage } });
+    if (!r.ok) { toast(`Prospect NON ajouté : ${r.erreur}`, "error"); return; }
+    toast(`${nouveau.nom} ajouté à « ${STAGE_PAR_CLE[stage].label} »`, "success");
+    setNouveau({ nom: "", telephone: "", courriel: "" });
+    setAjoutOuvert(null);
+    onUpdate();
   };
 
   const filtres = useMemo(() => {

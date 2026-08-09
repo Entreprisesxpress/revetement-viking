@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import { calculerMargeProjet, revenuAvantTaxes, depensesAvantTaxes, avancerDateRecurrence, periodeBiHebdo as periodeBiHebdoCalc, calculerHeuresPaye as calculerHeuresPayeCalc, calculerPaye } from "@/lib/calculs";
 import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
+import { estStatutSoumission, STATUTS_SOUMISSION } from "@/lib/vocabulaire";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DB_DIR, "soumissions.db");
@@ -681,7 +682,12 @@ export async function sauvegarder(payload: {
   // affirme qu'il a signé à telle date, depuis telle IP, un document dont le prix et les
   // lignes ont été modifiés depuis. Il faut dupliquer pour repartir d'une base révisée.
   if (existing?.signature_nom) {
-    throw new Error(`La soumission ${numero} a été SIGNÉE par le client le ${String((existing as any).signature_date || "").slice(0, 10) || "—"} : elle ne peut plus être modifiée. Duplique-la pour créer une version révisée.`);
+    // `code` reconnu par la route pour répondre 409 (refus délibéré) et non 500
+    // (panne serveur). Le message était bon, mais le code disait « l'app est cassée ».
+    throw Object.assign(
+      new Error(`La soumission ${numero} a été SIGNÉE par le client le ${String((existing as any).signature_date || "").slice(0, 10) || "—"} : elle ne peut plus être modifiée. Duplique-la pour créer une version révisée.`),
+      { code: "SOUMISSION_SIGNEE" }
+    );
   }
   const json = JSON.stringify(payload.data ?? {});
   const heures = payload.heuresEstimees ?? 0;
@@ -706,6 +712,24 @@ export async function sauvegarder(payload: {
 }
 
 export async function changerStatut(numero: string, statut: Statut) {
+  // Vocabulaire fermé. Mesuré : « statut_bidon » était enregistré en 200, et la
+  // soumission disparaissait de TOUS les onglets (Brouillon, Envoyée, Acceptée…) —
+  // introuvable à l'écran alors qu'elle existe en base.
+  if (!estStatutSoumission(statut)) {
+    throw Object.assign(new Error(`Statut de soumission inconnu « ${statut} » (attendu : ${STATUTS_SOUMISSION.join(", ")}).`), { code: "STATUT_INVALIDE" });
+  }
+  // Une soumission SIGNÉE par le client ne redevient pas un brouillon. Son contenu était
+  // déjà verrouillé (voir sauvegarder), mais son statut, lui, se changeait librement :
+  // on pouvait remettre en « brouillon » une soumission acceptée et signée, ce qui la
+  // sortait du pipeline et des relances tout en gardant la signature au dossier.
+  // Seul « facturee » reste permis : c'est la suite normale.
+  const sig = await one<{ signature_nom: string | null }>("SELECT signature_nom FROM soumissions WHERE numero = ?", [numero]);
+  if (sig?.signature_nom && statut !== "facturee" && statut !== "acceptee") {
+    throw Object.assign(
+      new Error(`La soumission ${numero} a été signée par ${sig.signature_nom} : son statut ne peut plus revenir à « ${statut} ». Duplique-la pour repartir d'une version révisée.`),
+      { code: "SOUMISSION_SIGNEE" }
+    );
+  }
   const now = new Date().toISOString();
   const dateCol = statut === "envoyee" ? "date_envoi" :
     statut === "acceptee" ? "date_acceptation" :
