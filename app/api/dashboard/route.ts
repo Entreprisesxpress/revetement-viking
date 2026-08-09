@@ -43,7 +43,13 @@ export async function GET(_req: NextRequest) {
 
     // Banque d'heures (somme des banque_solde des dernières paies par employé)
     const rBanque = await db.execute({
-      sql: `SELECT COALESCE(SUM(banque_solde),0) AS total FROM (SELECT employe, banque_solde FROM paies_periodes WHERE id IN (SELECT MAX(id) FROM paies_periodes GROUP BY employe))`,
+      // La DERNIÈRE période, c'est la plus récente par DATE — pas par id : les périodes
+      // sont créées au fil de la découverte des heures, donc saisir une feuille de temps
+      // oubliée crée une période ancienne avec un id plus élevé. Le tableau de bord
+      // affichait alors un solde de banque périmé, différent de l'écran Paie.
+      sql: `SELECT COALESCE(SUM(pp.banque_solde),0) AS total FROM paies_periodes pp
+            JOIN (SELECT employe, MAX(debut) AS d FROM paies_periodes GROUP BY employe) m
+              ON m.employe = pp.employe AND m.d = pp.debut`,
       args: [],
     }).catch(() => ({ rows: [{ total: 0 }] }));
 

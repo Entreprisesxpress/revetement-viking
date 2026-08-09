@@ -3,8 +3,9 @@ import { tachesPourUtilisateur } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 
 export async function GET(req: NextRequest) {
-  const param = req.nextUrl.searchParams.get("user");
-  const user = param || (await utilisateurActif(req));
+  // L'identité vient du COOKIE, jamais du paramètre : `?user=Gabriel` permettait à
+  // n'importe qui de lire la liste de tâches de l'autre.
+  const user = await utilisateurActif(req);
   if (!user) return NextResponse.json([]);
   return NextResponse.json(await tachesPourUtilisateur(user));
 }

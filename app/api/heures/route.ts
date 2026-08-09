@@ -86,7 +86,9 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
   // Snapshot avant suppression pour traçabilité paie/audit
   const avant = await getHeureProjet(+id);
-  await supprimerHeureProjet(+id);
+  // Refus si ces heures sont couvertes par une paie déjà versée.
+  const res = await supprimerHeureProjet(+id);
+  if (!res.ok) return NextResponse.json({ error: res.raison }, { status: 409 });
   journaliser("heures.supprimees", {
     ref_type: "heures", ref_id: id,
     description: `${avant?.employe || "?"} · ${avant?.heures}h sur ${avant?.date}`,

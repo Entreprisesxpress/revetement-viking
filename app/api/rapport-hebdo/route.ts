@@ -26,9 +26,13 @@ export async function GET(req: NextRequest) {
     args: [debut],
   }).catch(() => ({ rows: [] }));
 
-  // Revenus (factures payées dans la semaine)
+  // Revenus ENCAISSÉS dans la semaine : on filtre sur la date de PAIEMENT, pas sur la date
+  // d'émission de la facture. Avant, une facture émise il y a 3 semaines et payée cette
+  // semaine n'était pas comptée, et une facture émise cette semaine mais payée dans 2 mois
+  // l'était déjà — le chiffre « Encaissé » du dimanche ne mesurait pas l'encaissement.
   const rRevenu = await c.execute({
-    sql: `SELECT COALESCE(SUM(montant), 0) as r FROM factures_projet WHERE payee = 1 AND date >= ?`,
+    sql: `SELECT COALESCE(SUM(montant), 0) as r FROM factures_projet
+          WHERE payee = 1 AND COALESCE(date_paiement, date) >= ?`,
     args: [debut],
   }).catch(() => ({ rows: [{ r: 0 }] }));
 

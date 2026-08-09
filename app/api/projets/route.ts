@@ -110,7 +110,8 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
     const user = await utilisateurActif(req);
-    await supprimerProjet(+id);
+    const supp = await supprimerProjet(+id);
+    if (!supp.ok) return NextResponse.json({ error: supp.raison }, { status: 409 });
     journaliser("projet.supprime", { ref_type: "projet", ref_id: id, utilisateur: user || undefined, description: `Suppression projet #${id}` });
     return ok({ ok: true });
   } catch (e) { return fail(e); }

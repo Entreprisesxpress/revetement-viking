@@ -42,6 +42,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
-  await supprimerContratPipeline(+id);
+  const res = await supprimerContratPipeline(+id);
+  if (!res.ok) return NextResponse.json({ error: res.raison }, { status: res.raison?.includes("introuvable") ? 404 : 409 });
   return NextResponse.json({ ok: true });
 }

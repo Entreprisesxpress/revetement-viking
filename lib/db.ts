@@ -674,7 +674,15 @@ export async function sauvegarder(payload: {
 }): Promise<string> {
   const numero = payload.numero || await genererNumero();
   const now = new Date().toISOString();
-  const existing = await one("SELECT id FROM soumissions WHERE numero = ?", [numero]);
+  const existing = await one<any>(
+    "SELECT id, signature_nom, signature_date, statut FROM soumissions WHERE numero = ?", [numero]
+  );
+  // Une soumission SIGNÉE par le client en ligne ne doit plus changer : sinon la base
+  // affirme qu'il a signé à telle date, depuis telle IP, un document dont le prix et les
+  // lignes ont été modifiés depuis. Il faut dupliquer pour repartir d'une base révisée.
+  if (existing?.signature_nom) {
+    throw new Error(`La soumission ${numero} a été SIGNÉE par le client le ${String((existing as any).signature_date || "").slice(0, 10) || "—"} : elle ne peut plus être modifiée. Duplique-la pour créer une version révisée.`);
+  }
   const json = JSON.stringify(payload.data ?? {});
   const heures = payload.heuresEstimees ?? 0;
   const c = payload.client || {};
@@ -1117,8 +1125,17 @@ export async function marquerContratVu(token: string, ip?: string): Promise<void
 export async function getContratPipelineParId(id: number): Promise<any | null> {
   return await one<any>("SELECT * FROM pipeline_contrats WHERE id = ?", [id]);
 }
-export async function supprimerContratPipeline(id: number) {
+export async function supprimerContratPipeline(id: number): Promise<{ ok: boolean; raison?: string }> {
+  // Même garde que sur la suppression de client : un contrat SIGNÉ emporte le PDF signé,
+  // l'empreinte scellée et la chronologie. Protéger la fiche client ne servait à rien tant
+  // que cette porte directe restait ouverte.
+  const c = await one<{ statut: string }>("SELECT statut FROM pipeline_contrats WHERE id = ?", [id]);
+  if (!c) return { ok: false, raison: "contrat introuvable" };
+  if (c.statut === "signe") {
+    return { ok: false, raison: "Ce contrat est SIGNÉ : le supprimer effacerait la pièce signée et son certificat d'authentification, sans copie." };
+  }
   await run("DELETE FROM pipeline_contrats WHERE id = ?", [id]);
+  return { ok: true };
 }
 
 // === FICHIERS ATTACHÉS AUX CLIENTS (pipeline Asana-style) ===
@@ -1419,11 +1436,24 @@ export async function modifierProjet(id: number, p: Partial<Projet>) {
   const valeurs = definis.map(k => (p as any)[k]);
   await run(`UPDATE projets SET ${sets} WHERE id = ?`, [...valeurs, id]);
 }
-export async function supprimerProjet(id: number) {
+export async function supprimerProjet(id: number): Promise<{ ok: boolean; raison?: string }> {
+  // Un contrat signé téléversé sur le projet est une pièce à conserver.
+  const p = await one<any>("SELECT (contrat_signe_data IS NOT NULL) AS a_contrat FROM projets WHERE id = ?", [id]);
+  if (p && Number(p.a_contrat)) {
+    return { ok: false, raison: "Ce projet porte un contrat signé joint. Retire-le d'abord si la suppression est vraiment voulue." };
+  }
   await run("DELETE FROM heures_projet WHERE projet_id = ?", [id]);
   await run("DELETE FROM factures_projet WHERE projet_id = ?", [id]);
   await run("DELETE FROM depenses_projet WHERE projet_id = ?", [id]);
+  // Étaient laissés orphelins : les PHOTOS (blobs, hors sauvegarde → invisibles et
+  // impurgeables), les EXTRAS (qui continuaient d'alimenter le badge « à facturer »
+  // sans pouvoir être rattachés), les tâches et les notes.
+  await run("DELETE FROM photos_chantier WHERE projet_id = ?", [id]).catch(() => {});
+  await run("DELETE FROM extras WHERE projet_id = ?", [id]).catch(() => {});
+  await run("UPDATE taches_client SET projet_id = NULL WHERE projet_id = ?", [id]).catch(() => {});
+  await run("UPDATE notes_rapides SET projet_id = NULL WHERE projet_id = ?", [id]).catch(() => {});
   await run("DELETE FROM projets WHERE id = ?", [id]);
+  return { ok: true };
 }
 
 // === HEURES ===
@@ -1441,8 +1471,26 @@ export async function ajouterHeureProjet(h: HeureProjet & { ajoute_par?: string 
   );
   return r.lastInsertRowid;
 }
-export async function supprimerHeureProjet(id: number) {
+/** Vrai si la date/employé d'une entrée d'heures tombe dans une paie DÉJÀ VERSÉE. */
+export async function heureDansPaiePayee(employe: string | null, date: string): Promise<boolean> {
+  if (!employe || !date) return false;
+  const r = await one<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM paies_periodes WHERE employe = ? AND paye = 1 AND ? BETWEEN debut AND fin",
+    [employe, String(date).slice(0, 10)]
+  ).catch(() => ({ n: 0 }));
+  return Number(r?.n || 0) > 0;
+}
+
+export async function supprimerHeureProjet(id: number): Promise<{ ok: boolean; raison?: string }> {
+  // Une paie versée a été calculée sur ces heures. Les effacer fait diverger le talon
+  // remis à l'employé de ce que montre l'écran, et recalcule la banque d'heures des
+  // périodes suivantes sur des chiffres qui n'ont plus rien à voir avec ce qui a été payé.
+  const h = await one<any>("SELECT employe, date FROM heures_projet WHERE id = ?", [id]);
+  if (h && await heureDansPaiePayee(h.employe, h.date)) {
+    return { ok: false, raison: `Ces heures (${h.employe}, ${String(h.date).slice(0, 10)}) font partie d'une paie DÉJÀ VERSÉE. Les modifier fausserait le talon remis à l'employé et la banque d'heures.` };
+  }
   await run("DELETE FROM heures_projet WHERE id = ?", [id]);
+  return { ok: true };
 }
 export async function getHeureProjet(id: number) {
   return await one<any>("SELECT * FROM heures_projet WHERE id = ?", [id]);
@@ -1910,8 +1958,17 @@ export interface Employe {
   notes?: string;
 }
 async function seedEmployes() {
-  // Migration idempotente : Frédéric n'est plus un employé suivi
-  await run("UPDATE employes SET actif = 0 WHERE nom = 'Frédéric'", []);
+  // Cette désactivation tournait à CHAQUE listerEmployes() : Frédéric réembauché et
+  // réactivé se retrouvait désactivé au prochain écran ouvert, sans explication possible.
+  // Elle est jouée UNE seule fois, comme une vraie migration. (Effet de bord réglé au
+  // passage : cette écriture invalidait le cache de lecture à chaque chargement.)
+  try {
+    const fait = await one<{ valeur: string }>("SELECT valeur FROM parametres_app WHERE cle = 'mig_frederic_inactif'");
+    if (!fait) {
+      await run("UPDATE employes SET actif = 0 WHERE nom = 'Frédéric'", []);
+      await run("INSERT OR REPLACE INTO parametres_app (cle, valeur) VALUES ('mig_frederic_inactif', '1')");
+    }
+  } catch { /* table pas encore prête sur une base neuve : rien à migrer de toute façon */ }
   const r = await one<{ n: number }>("SELECT COUNT(*) as n FROM employes WHERE actif = 1");
   if ((r?.n || 0) > 0) return;
   const now = new Date().toISOString();

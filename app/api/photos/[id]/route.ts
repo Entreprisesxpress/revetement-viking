@@ -22,7 +22,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     headers: {
       "Content-Type": mime,
       "Content-Length": String(buf.length),
-      "Cache-Control": "public, max-age=2592000, immutable",
+      // `private` : ces binaires sont derrière l'authentification. En `public`, un cache
+      // partagé (proxy) pouvait les servir, et le navigateur les gardait 30 jours après
+      // une suppression ou une déconnexion.
+      "Cache-Control": "private, max-age=2592000, immutable",
       "Content-Disposition": `inline; filename="photo-${id}${veutThumb ? "-thumb" : ""}.${mime.split("/")[1] || "bin"}"`,
     },
   });
