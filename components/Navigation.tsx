@@ -69,16 +69,22 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
     fetch("/api/auth/profil").then((r) => r.ok ? r.json() : null).then((p) => p && setProfil(p)).catch(() => {});
     // Précharge le cache offline en arrière-plan (clients/projets/soumissions/employés)
     import("@/lib/offlineCache").then((m) => m.prechargerCache());
-    activerMoniteurOffline((info) => {
-      if (info.envoyees > 0) {
-        // Toast léger sans dépendance — visible une fois la connexion revenue
+    // Le moniteur rend maintenant une fonction d'arrêt : Navigation n'est PAS dans le
+    // layout, elle se remonte à chaque navigation, et sans ce nettoyage on empilait un
+    // écouteur « online » et une minuterie par page visitée.
+    const arreterMoniteur = activerMoniteurOffline((info) => {
+      const bulle = (txt: string, couleur: string) => {
         const t = document.createElement("div");
-        t.className = "fixed bottom-20 right-4 bg-emerald-600 text-white px-4 py-2 rounded shadow-lg text-sm z-50";
-        t.textContent = `✓ ${info.envoyees} saisie(s) hors-ligne synchronisée(s)`;
+        t.className = `fixed bottom-20 right-4 ${couleur} text-white px-4 py-2 rounded shadow-lg text-sm z-50`;
+        t.textContent = txt;
         document.body.appendChild(t);
-        setTimeout(() => t.remove(), 4000);
-      }
+        setTimeout(() => t.remove(), 6000);
+      };
+      if (info.envoyees > 0) bulle(`✓ ${info.envoyees} saisie(s) hors-ligne synchronisée(s)`, "bg-emerald-600");
+      // Une saisie refusée par le serveur était rejouée en boucle sans jamais le dire.
+      if (info.abandonnees > 0) bulle(`⚠ ${info.abandonnees} saisie(s) hors-ligne refusée(s) — à ressaisir`, "bg-red-600");
     });
+    return () => arreterMoniteur();
   }, []);
 
   const deconnexion = async () => {
@@ -92,7 +98,14 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   useEffect(() => {
     const charger = () => {
       if (document.visibilityState !== "visible") return;
-      fetch("/api/notifications").then((r) => r.json()).then(setNotifs).catch(() => {});
+      // On n'écrase l'état QUE si la réponse a la bonne forme. Une session expirée renvoie
+      // `{ error: "non authentifié" }` : setNotifs l'écrivait tel quel, puis un clic sur la
+      // cloche lisait `notifs.mentions_items.length` sur undefined → TypeError → TOUTE
+      // l'app plantait et la saisie en cours était perdue.
+      fetch("/api/notifications")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d && Array.isArray(d.mentions_items) && Array.isArray(d.relances_items)) setNotifs(d); })
+        .catch(() => {});
     };
     charger();
     const id = setInterval(charger, 30000);

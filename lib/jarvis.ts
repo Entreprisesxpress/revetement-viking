@@ -150,8 +150,14 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         const actifs = projets.filter((p) => estProjetActif(p.statut));
         const totMargeAct = actifs.reduce((s, p) => s + (p.marge || 0), 0);
         const totRevAct = actifs.reduce((s, p) => s + (p.revenu_avant_taxes || 0), 0);
-        const factImp = await db().execute({ sql: "SELECT COALESCE(SUM(montant),0) t, COUNT(*) n FROM factures_projet WHERE payee=0 OR payee IS NULL", args: [] }).catch(() => ({ rows: [{ t: 0, n: 0 }] }));
-        const nbTaches = await db().execute({ sql: "SELECT COUNT(*) n FROM taches_client WHERE statut != 'complete'", args: [] }).catch(() => ({ rows: [{ n: 0 }] }));
+        // Pas de repli à 0 : la consigne système de Jarvis dit « Ne devine JAMAIS un
+        // montant », mais l'outil mentait à sa place — sur une erreur de base il
+        // renvoyait `factures_impayees: { nombre: 0, montant: 0 }`, que le modèle
+        // restituait comme un fait (« tu n'as aucune facture impayée »).
+        const factImp = await db().execute({ sql: "SELECT COALESCE(SUM(montant),0) t, COUNT(*) n FROM factures_projet WHERE payee=0 OR payee IS NULL", args: [] })
+          .catch((e) => { throw new Error(`Impossible de lire les factures impayées : ${e?.message || e}`); });
+        const nbTaches = await db().execute({ sql: "SELECT COUNT(*) n FROM taches_client WHERE statut != 'complete'", args: [] })
+          .catch((e) => { throw new Error(`Impossible de lire les tâches : ${e?.message || e}`); });
         return {
           annee, projets_total: projets.length, projets_par_statut: parStatut,
           ca_annee_avant_taxes: num(ca), depenses_annee_avant_taxes: num(dep), main_oeuvre_annee: num(mo),
@@ -269,9 +275,11 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         if (!base || !base.id) return { trouve: false, message: `Aucun projet trouvé pour « ${input.nom} ».` };
         const p = await getProjet(base.id) || base;
         const [hr, factures, extrasAll] = await Promise.all([
-          db().execute({ sql: "SELECT COALESCE(employe,'?') employe, COALESCE(SUM(heures),0) h, COALESCE(SUM(heures*taux_horaire),0) cout FROM heures_projet WHERE projet_id=? GROUP BY employe ORDER BY h DESC", args: [base.id] }).catch(() => ({ rows: [] })),
-          listerFacturesProjet(base.id).catch(() => []),
-          listerExtras().catch(() => []),
+          // Idem : un repli silencieux faisait dire « 0 h travaillées sur ce projet ».
+          db().execute({ sql: "SELECT COALESCE(employe,'?') employe, COALESCE(SUM(heures),0) h, COALESCE(SUM(heures*taux_horaire),0) cout FROM heures_projet WHERE projet_id=? GROUP BY employe ORDER BY h DESC", args: [base.id] })
+            .catch((e) => { throw new Error(`Impossible de lire les heures du projet : ${e?.message || e}`); }),
+          listerFacturesProjet(base.id).catch((e) => { throw new Error(`Impossible de lire les factures du projet : ${e?.message || e}`); }),
+          listerExtras().catch((e) => { throw new Error(`Impossible de lire les extras : ${e?.message || e}`); }),
         ]);
         const extras = (extrasAll as any[]).filter((e) => e.projet_id === base.id);
         return {

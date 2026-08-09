@@ -12,6 +12,7 @@ import ZoneDepot from "@/components/ZoneDepot";
 import FacturesProjet from "@/components/FacturesProjet";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
+import { postOuFile } from "@/lib/fileOffline";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -140,14 +141,30 @@ export default function ProjetDetail() {
     fetch("/api/employes").then((r) => r.json()).then(setEmployes);
   }, [id]);
 
+  // Verrous anti-double-clic : sur un chantier en 4G faible, deux taps sur « ＋ Ajouter »
+  // enregistraient DEUX fois les mêmes heures (16 h facturées pour la journée) ou la même
+  // dépense. Rien ne signalait que le premier clic avait été pris, le champ n'étant vidé
+  // qu'après la réponse du serveur.
+  const [busyHeures, setBusyHeures] = useState(false);
+  const [busyDepense, setBusyDepense] = useState(false);
+
   const ajouterHeures = async () => {
+    if (busyHeures) return;
     if (!hForm.heures) { toast("Heures requises", "warning"); return; }
     if (!hForm.employe) { toast("Sélectionne un employé", "warning"); return; }
     if (!hForm.taux_horaire) { toast("Taux horaire manquant", "warning"); return; }
-    const r = await envoyer("/api/heures", {
-      corps: { projet_id: id, date: hForm.date, heures: nombreSaisi(hForm.heures), description: hForm.description, employe: hForm.employe, taux_horaire: nombreSaisi(hForm.taux_horaire) },
-    });
+    setBusyHeures(true);
+    // postOuFile (et non envoyer) : réseau coupé sur un toit = la saisie est mise en file
+    // locale et repartira au retour du réseau, au lieu d'être à ressaisir.
+    const r = await postOuFile("/api/heures",
+      { projet_id: id, date: hForm.date, heures: nombreSaisi(hForm.heures), description: hForm.description, employe: hForm.employe, taux_horaire: nombreSaisi(hForm.taux_horaire) },
+    ).finally(() => setBusyHeures(false));
     if (!r.ok) { toast(`Heures NON enregistrées : ${r.erreur}`, "error"); return; }
+    if (r.offline) {
+      toast(`📴 Hors ligne — ${hForm.heures} h en attente d'envoi`, "warning");
+      setHForm({ ...hForm, heures: "", description: "" });
+      return;
+    }
     {
       toast(`${hForm.heures} h ajoutées pour ${hForm.employe}`, "success");
       setHForm({ ...hForm, heures: "", description: "" });
@@ -165,11 +182,18 @@ export default function ProjetDetail() {
   };
 
   const ajouterDepense = async () => {
+    if (busyDepense) return;
     if (!dForm.montant) { toast("Montant requis", "warning"); return; }
-    const r = await envoyer("/api/depenses", {
-      corps: { projet_id: id, date: dForm.date, montant: nombreSaisi(dForm.montant), fournisseur: dForm.fournisseur, description: dForm.description, categorie: dForm.categorie },
-    });
+    setBusyDepense(true);
+    const r = await postOuFile("/api/depenses",
+      { projet_id: id, date: dForm.date, montant: nombreSaisi(dForm.montant), fournisseur: dForm.fournisseur, description: dForm.description, categorie: dForm.categorie },
+    ).finally(() => setBusyDepense(false));
     if (!r.ok) { toast(`Dépense NON enregistrée : ${r.erreur}`, "error"); return; }
+    if (r.offline) {
+      toast(`📴 Hors ligne — dépense ${formatCAD(nombreSaisi(dForm.montant))} en attente d'envoi`, "warning");
+      setDForm({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
+      return;
+    }
     {
       toast(`Dépense ${formatCAD(nombreSaisi(dForm.montant))} ajoutée`, "success");
       setDForm({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
@@ -545,7 +569,7 @@ ${VIKING_EMAIL}
                     {employes.map((e) => <option key={e.id} value={e.nom}>{e.nom}</option>)}
                   </select>
                 </div>
-                <div className="flex items-end"><button onClick={ajouterHeures} className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold">＋ Ajouter</button></div>
+                <div className="flex items-end"><button onClick={ajouterHeures} disabled={busyHeures} className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-semibold">{busyHeures ? "…" : "＋ Ajouter"}</button></div>
               </div>
               <div className="mt-2">
                 <Field label="Description" value={hForm.description} onChange={(v) => setHForm({ ...hForm, description: v })} placeholder="Ex: pose soffite côté est" />
@@ -892,7 +916,7 @@ ${VIKING_EMAIL}
                     {CAT_DEPENSES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <div className="flex items-end"><button onClick={ajouterDepense} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded text-sm font-semibold">＋ Ajouter</button></div>
+                <div className="flex items-end"><button onClick={ajouterDepense} disabled={busyDepense} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-semibold">{busyDepense ? "…" : "＋ Ajouter"}</button></div>
               </div>
               <div className="mt-2">
                 <Field label="Description" value={dForm.description} onChange={(v) => setDForm({ ...dForm, description: v })} placeholder="Détails..." />
@@ -1224,13 +1248,29 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const [contratOuvert, setContratOuvert] = useState(false);
   const [factureOuverte, setFactureOuverte] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [sauveBusy, setSauveBusy] = useState(false);
+  // Le champ n'était initialisé qu'au tout premier rendu. Or l'OCR de facture (plus bas)
+  // écrit `prix_contrat` dans la même page : le champ restait donc VIDE, et un « Modifier »
+  // suivi de « ✓ » renvoyait prix_contrat: null — rentabilité, marge et % budget tombaient
+  // à zéro partout. On le resynchronise tant qu'on n'est pas en train de le modifier.
+  useEffect(() => {
+    if (edit) return;
+    setPrix(projet.prix_contrat ? String(projet.prix_contrat) : "");
+  }, [projet.prix_contrat, edit]);
   const sauver = async () => {
-    const valeur = prix ? +prix : null;
+    if (sauveBusy) return;
+    // nombreSaisi et non `+prix` : « 51 738,75 » (espace + virgule, ce que produit
+    // l'affichage canadien) donnait NaN, sérialisé en null — le prix s'effaçait.
+    const brut = nombreSaisi(prix);
+    if (prix.trim() && !Number.isFinite(brut)) { alert("Montant illisible. Ex. : 51738,75"); return; }
+    const valeur = prix.trim() ? brut : null;
+    setSauveBusy(true);
     // Sync les deux champs pour que toutes les pages (liste, détail, finances) reflètent le changement
-    await fetch("/api/projets", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: projet.id, prix_contrat: valeur, budget_estime: valeur }),
-    });
+    const r = await envoyer("/api/projets", {
+      methode: "PATCH",
+      corps: { id: projet.id, prix_contrat: valeur, budget_estime: valeur },
+    }).finally(() => setSauveBusy(false));
+    if (!r.ok) { alert(`Prix NON enregistré : ${r.erreur}`); return; }
     setEdit(false);
     onUpdate();
   };
@@ -1254,16 +1294,22 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const uploadContrat = (e: React.ChangeEvent<HTMLInputElement>) => traiterContrat(e.target.files?.[0]);
   const traiterFacture = async (file?: File) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
+    // 3 Mo et non 5 : le fichier part encodé en base64 (~1,37×), donc 5 Mo dépassaient la
+    // limite de corps de requête de la plateforme et l'envoi était refusé côté serveur.
+    if (file.size > 3 * 1024 * 1024) { alert("Fichier trop lourd (max 3 Mo). Compresse le PDF ou réduis la photo."); return; }
     if ((projet.facture_finale_data || projet.a_facture_finale) &&
         !confirm("Une facture est déjà jointe à ce projet. La remplacer par ce fichier ?")) return;
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
-      await fetch("/api/projets", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: projet.id, facture_finale_data: dataUrl, facture_finale_type: file.type }),
+      // Réponse vérifiée : le garde-fou client accepte 5 Mo, ce qui fait ~6,7 Mo en
+      // base64 — au-dessus de la limite de corps de requête. Le 413 (non-JSON) était
+      // avalé et l'écran se rafraîchissait comme si la facture était jointe.
+      const rp = await envoyer("/api/projets", {
+        methode: "PATCH",
+        corps: { id: projet.id, facture_finale_data: dataUrl, facture_finale_type: file.type },
       });
+      if (!rp.ok) { alert(`Facture NON jointe : ${rp.erreur}\n\nEssaie un fichier plus léger (PDF compressé ou photo réduite).`); return; }
       onUpdate();
       // OCR : si le prix du contrat n'est pas défini, lit le total de la facture et le propose.
       if (!projet.prix_contrat) {
@@ -1276,11 +1322,12 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
           if (r?.ok && r.total) {
             const fmt = (+r.total).toLocaleString("fr-CA", { style: "currency", currency: "CAD" });
             if (confirm(`💡 Total détecté sur la facture : ${fmt}\n\nL'utiliser comme prix du contrat ?`)) {
-              await fetch("/api/projets", {
-                method: "PATCH", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: projet.id, prix_contrat: r.total, budget_estime: r.total }),
+              const rp2 = await envoyer("/api/projets", {
+                methode: "PATCH",
+                corps: { id: projet.id, prix_contrat: r.total, budget_estime: r.total },
               });
-              onUpdate();
+              if (!rp2.ok) alert(`Prix du contrat NON enregistré : ${rp2.erreur}`);
+              else onUpdate();
             }
           }
         } catch { /* OCR best-effort */ } finally { setOcrBusy(false); }

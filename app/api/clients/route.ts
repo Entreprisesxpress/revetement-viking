@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { listerClients, getClient, ajouterClient, modifierClient, supprimerClient } from "@/lib/db";
 import { asanaEstConfigure, creerTacheAsana, modifierTacheAsana, supprimerTacheAsana, clientVersNotesAsana } from "@/lib/asana";
 import { journaliser } from "@/lib/audit";
@@ -6,10 +6,15 @@ import { journaliser } from "@/lib/audit";
 function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
 function fail(e: any, status = 500) { console.error("[/api/clients]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
 
-/** Push Asana en arrière-plan (jamais bloquant pour le client) */
+/** Push Asana en arrière-plan (jamais bloquant pour le client).
+ *  `after()` et non une promesse flottante : sur la plateforme, la fonction peut être
+ *  gelée dès la réponse envoyée. La tâche Asana se créait alors sans que
+ *  `modifierClient(asana_gid)` n'ait le temps de tourner — au sync suivant, la tâche
+ *  n'avait plus de correspondance et un client EN DOUBLE était créé. Même chose pour la
+ *  suppression : la tâche survivait et le client supprimé ressuscitait. */
 function asanaSyncFireAndForget(op: "create" | "update" | "delete", payload: any) {
   if (!asanaEstConfigure()) return;
-  (async () => {
+  after(async () => {
     try {
       if (op === "create") {
         const t = await creerTacheAsana({ name: payload.nom, notes: clientVersNotesAsana(payload) });
@@ -23,7 +28,7 @@ function asanaSyncFireAndForget(op: "create" | "update" | "delete", payload: any
         if (payload.asana_gid) await supprimerTacheAsana(payload.asana_gid);
       }
     } catch (e: any) { console.warn(`Asana ${op} failed:`, e.message); }
-  })();
+  });
 }
 
 export async function GET(req: NextRequest) {

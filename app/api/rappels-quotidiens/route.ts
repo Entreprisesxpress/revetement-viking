@@ -17,6 +17,10 @@ export async function GET(req: NextRequest) {
   if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
   if (!pushEstConfigure()) return NextResponse.json({ ok: false, raison: "push_non_configure" });
 
+  // NOTE — pas de repli à zéro sur les requêtes ci-dessous. Avant, une base injoignable
+  // faisait tomber les 4 compteurs à 0, donc `nFact + nPr + nT === 0` → « aucune alerte »,
+  // aucun push. Le silence du matin était indiscernable d'une journée sans problème :
+  // le rappel se taisait précisément quand il fallait qu'il parle.
   const c: any = db();
   const auj = new Date().toISOString().slice(0, 10);
   const il_y_a_30j = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
@@ -27,25 +31,25 @@ export async function GET(req: NextRequest) {
     const fIm = await c.execute({
       sql: "SELECT COUNT(*) AS n, COALESCE(SUM(montant), 0) AS total FROM factures_projet WHERE (payee = 0 OR payee IS NULL) AND date < ?",
       args: [il_y_a_30j],
-    }).catch(() => ({ rows: [{ n: 0, total: 0 }] }));
+    });
 
     // Projets en retard
     const pR = await c.execute({
       sql: `SELECT COUNT(*) AS n FROM projets WHERE ${SQL_PROJET_ACTIF} AND date_fin_prevue < ?`,
       args: [auj],
-    }).catch(() => ({ rows: [{ n: 0 }] }));
+    });
 
     // Mes tâches dans 3 jours / en retard
     const dans3j = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
     const tE = await c.execute({
       sql: "SELECT COUNT(*) AS n FROM client_taches WHERE assignee = ? AND (complete IS NULL OR complete = 0) AND date_echeance IS NOT NULL AND date_echeance <= ?",
       args: [user, dans3j],
-    }).catch(() => ({ rows: [{ n: 0 }] }));
+    });
     // Tâches générales (module Tâches) à échéance / en retard
     const tG = await c.execute({
       sql: "SELECT COUNT(*) AS n FROM taches_client WHERE assigne_a = ? AND statut != 'complete' AND date_due IS NOT NULL AND date_due <= ?",
       args: [user, dans3j],
-    }).catch(() => ({ rows: [{ n: 0 }] }));
+    });
 
     const nFact = +(fIm.rows[0] as any).n || 0;
     const totFact = +(fIm.rows[0] as any).total || 0;

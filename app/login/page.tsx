@@ -5,7 +5,12 @@ import { useSearchParams } from "next/navigation";
 
 function LoginForm() {
   const params = useSearchParams();
-  const redirect = params.get("redirect") || "/";
+  // Redirection interne UNIQUEMENT. `redirect` vient de l'URL, donc de n'importe qui :
+  // sans ce filtre, un lien /login?redirect=https://faux-viking.example renvoyait
+  // l'utilisateur sur un site tiers juste après avoir saisi son mot de passe.
+  // On refuse aussi « //ailleurs.com » (URL protocole-relative).
+  const brut = params.get("redirect") || "/";
+  const redirect = brut.startsWith("/") && !brut.startsWith("//") ? brut : "/";
   const [user, setUser] = useState<"Gabriel" | "Francis">("Francis");
   const [password, setPassword] = useState("");
   const [erreur, setErreur] = useState("");

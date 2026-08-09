@@ -102,7 +102,13 @@ export async function proxy(req: NextRequest) {
     }
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("redirect", path);
+    // On garde la CHAÎNE DE REQUÊTE, pas seulement le chemin. Avant, une session expirée
+    // sur « Modifier la soumission XP-… » renvoyait vers /soumissions/nouveau tout court :
+    // après reconnexion, l'utilisateur atterrissait sur un formulaire VIERGE et repartait
+    // à zéro sans comprendre pourquoi. Idem pour toute page ouverte avec un paramètre.
+    const cible = path + (req.nextUrl.search || "");
+    url.search = "";                       // sinon on recopie les params de la page cible
+    url.searchParams.set("redirect", cible);
     return avecHeaders(NextResponse.redirect(url));
   }
 

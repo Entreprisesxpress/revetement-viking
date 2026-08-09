@@ -17,8 +17,10 @@ export function asanaEstConfigure(): boolean {
 async function asanaFetch(path: string, opts: RequestInit = {}): Promise<any> {
   const token = getToken();
   if (!token) throw new Error("ASANA_PAT non configuré dans les variables d'environnement Vercel");
+  // Borne de temps : Asana injoignable ne doit pas geler la requête de l'app.
   const r = await fetch(`${BASE}${path}`, {
     ...opts,
+    signal: AbortSignal.timeout(20_000),
     headers: {
       ...opts.headers,
       Authorization: `Bearer ${token}`,

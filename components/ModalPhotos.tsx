@@ -68,10 +68,15 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
     setVideoPct(null);
     if (!res.ok) throw new Error(res.erreur || "Envoi vidéo échoué");
 
-    await fetch("/api/photos/video", {
+    // Réponse vérifiée : la vidéo est déjà SUR Drive à ce stade, mais c'est ce POST qui
+    // l'enregistre dans l'app. S'il échoue (session expirée après un envoi de 2 Go, 500,
+    // fichier introuvable), la vidéo existe chez Google et n'apparaît nulle part ici —
+    // et le compte rendu annonçait quand même la réussite.
+    const rEnr = await fetch("/api/photos/video", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projet_id, date, description: description || f.name, nom: sess.nom, mimeType: videoFile.type || "video/mp4", drive_id: res.driveId || null }),
     });
+    if (!rEnr.ok) throw new Error(`Vidéo envoyée sur Drive mais NON enregistrée dans l'app (${rEnr.status}) — ${f.name}`);
   };
 
   // Envoie une seule image : compression + vignette + POST.

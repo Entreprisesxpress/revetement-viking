@@ -84,19 +84,39 @@ export async function GET(req: NextRequest) {
   if (auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // L'alerte était posée UNIQUEMENT sur la branche `!r.ok`. Or le cas le plus probable —
+  // Google révoque le refresh_token — fait LEVER effectuerBackup(), donc on tombait dans
+  // le catch, qui n'alertait pas : 500 silencieux tous les matins, aucun courriel, aucun
+  // push, rien dans la cloche. Des semaines sans sauvegarde, découvertes le jour où on en
+  // a besoin. L'alerte couvre maintenant les deux chemins.
+  const alerter = async (message: string) => {
+    try {
+      await fetch(new URL("/api/log-erreur", req.url).toString(), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, path: "/api/backup", userAgent: "cron-vercel" }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {}
+    try {
+      const { envoyerPushUtilisateur, pushEstConfigure } = await import("@/lib/push");
+      if (pushEstConfigure()) {
+        for (const u of ["Francis", "Gabriel"]) {
+          await envoyerPushUtilisateur(u, { title: "⚠️ Sauvegarde Viking échouée", body: message.slice(0, 160), url: "/sync", tag: "backup-echec" }).catch(() => {});
+        }
+      }
+    } catch {}
+  };
+
   try {
     const r = await effectuerBackup();
-    if (!r.ok) {
-      // Alerte : backup échoué — log dans Sentry-light pour visibilité
-      try {
-        await fetch(new URL("/api/log-erreur", req.url).toString(), {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: `Backup échoué: ${r.error}`, path: "/api/backup", userAgent: "cron-vercel" }),
-        });
-      } catch {}
-    }
+    if (!r.ok) await alerter(`Backup échoué: ${r.error}`);
     return NextResponse.json(r, { status: r.ok ? 200 : 500 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    const { estDriveDeconnecte } = await import("@/lib/drive");
+    const msg = estDriveDeconnecte(e)
+      ? "Backup impossible : Google Drive est déconnecté (jeton révoqué). Reconnecte-le dans /sync."
+      : `Backup échoué (exception): ${e?.message || e}`;
+    await alerter(msg);
+    return NextResponse.json({ ok: false, error: msg, drive_deconnecte: estDriveDeconnecte(e) }, { status: 500 });
   }
 }

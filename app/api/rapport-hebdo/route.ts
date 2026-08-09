@@ -16,6 +16,11 @@ export async function GET(req: NextRequest) {
   if (auth !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "non autorisé" }, { status: 401 });
   if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
 
+  // NOTE — pas de repli à zéro sur les requêtes ci-dessous. Avant, chaque `execute` avait
+  // un `.catch(() => ({ rows: [{ n: 0 }] }))` : une base injoignable le dimanche soir
+  // envoyait à Francis et Gabriel un rapport parfaitement formé annonçant « Encaissé :
+  // 0,00 $ · 0 soumission · 0 h », indiscernable d'une vraie semaine morte. Un cron qui
+  // échoue est visible ; un faux rapport ne l'est pas. On laisse donc remonter l'erreur.
   const c: any = db();
   const il_y_a_7j = new Date(); il_y_a_7j.setDate(il_y_a_7j.getDate() - 7);
   const debut = il_y_a_7j.toISOString().slice(0, 10);
@@ -24,7 +29,7 @@ export async function GET(req: NextRequest) {
   const rHeures = await c.execute({
     sql: `SELECT employe, SUM(heures) as h FROM heures_projet WHERE date >= ? GROUP BY employe ORDER BY h DESC`,
     args: [debut],
-  }).catch(() => ({ rows: [] }));
+  });
 
   // Revenus ENCAISSÉS dans la semaine : on filtre sur la date de PAIEMENT, pas sur la date
   // d'émission de la facture. Avant, une facture émise il y a 3 semaines et payée cette
@@ -34,25 +39,25 @@ export async function GET(req: NextRequest) {
     sql: `SELECT COALESCE(SUM(montant), 0) as r FROM factures_projet
           WHERE payee = 1 AND COALESCE(date_paiement, date) >= ?`,
     args: [debut],
-  }).catch(() => ({ rows: [{ r: 0 }] }));
+  });
 
   // Dépenses
   const rDepenses = await c.execute({
     sql: `SELECT COALESCE(SUM(montant), 0) as d, COUNT(*) as n FROM depenses_projet WHERE date >= ?`,
     args: [debut],
-  }).catch(() => ({ rows: [{ d: 0, n: 0 }] }));
+  });
 
   // Nouvelles soumissions
   const rSoum = await c.execute({
     sql: `SELECT COUNT(*) as n, COALESCE(SUM(total), 0) as t FROM soumissions WHERE date_creation >= ?`,
     args: [debut],
-  }).catch(() => ({ rows: [{ n: 0, t: 0 }] }));
+  });
 
   // Projets terminés cette semaine
   const rTermines = await c.execute({
     sql: `SELECT COUNT(*) as n FROM projets WHERE date_fin_reelle >= ?`,
     args: [debut],
-  }).catch(() => ({ rows: [{ n: 0 }] }));
+  });
 
   const heuresTxt = (rHeures.rows as any[]).map((h) => `   • ${h.employe} : ${(+h.h).toFixed(1)} h`).join("\n") || "   (aucune)";
   const totalHeures = (rHeures.rows as any[]).reduce((s, h) => s + +h.h, 0);
@@ -87,6 +92,11 @@ Bonne semaine !
   for (const d of destinataires) {
     const r = await sendEmail({ to: d, subject: `[Viking] Rapport hebdo — ${new Date().toLocaleDateString("fr-CA", { day: "numeric", month: "long" })}`, text: corps });
     if (r.ok) envoyes++;
+  }
+  // `ok: true` avec 0 envoi masquait deux pannes distinctes (aucun destinataire configuré,
+  // ou Resend qui refuse) derrière un succès. Le cron doit échouer si rien n'est parti.
+  if (envoyes === 0) {
+    return NextResponse.json({ ok: false, erreur: destinataires.length === 0 ? "aucun destinataire configuré (FRANCIS_EMAIL / GABRIEL_EMAIL)" : "envoi refusé par le fournisseur de courriel", destinataires: destinataires.length }, { status: 500 });
   }
   return NextResponse.json({ ok: true, envoyes });
 }

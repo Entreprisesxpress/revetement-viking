@@ -9,12 +9,20 @@ import { mapperHoverVersLignes, type HoverMesures } from "@/lib/hover-mapping";
 import { sauvegarderBrouillon, chargerBrouillon, effacerBrouillon } from "@/lib/autosave";
 import { compresserImageBlob } from "@/lib/img";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 
 // Lazy load — composant lourd avec SpeechRecognition + UI complète
-const NotesVocales = dynamic(() => import("@/components/NotesVocales"), { ssr: false });
+// `loading` n'est pas décoratif : il crée une borne Suspense LOCALE. Sans elle, la
+// suspension de ce composant différé remontait jusqu'à app/loading.tsx — le spinner de
+// route couvrait TOUTE la page « Nouvelle soumission », qui restait figée sur
+// « Chargement… » alors que son contenu était bien rendu, mais masqué.
+const NotesVocales = dynamic(() => import("@/components/NotesVocales"), {
+  ssr: false,
+  loading: () => <div className="text-xs text-slate-400">Chargement de la dictée…</div>,
+});
 
 const CATEGORIES_ORDRE: Categorie[] = [
   "soffite", "fascia", "solin",
@@ -25,13 +33,17 @@ const CATEGORIES_ORDRE: Categorie[] = [
 interface ChatMessage { role: "user" | "assistant"; content: string; }
 
 export default function SoumissionForm() {
-  const [modifierNumero, setModifierNumero] = useState<string | null>(null);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const p = new URLSearchParams(window.location.search);
-      setModifierNumero(p.get("modifier"));
-    }
-  }, []);
+  // ?modifier= est lu SYNCHRONEMENT, pendant le rendu.
+  // Avant, il était lu dans un useEffect qui appelait setModifierNumero. Or React exécute
+  // tous les effets d'un même commit avant de re-rendre : l'effet de chargement initial
+  // (plus bas) partait donc avec `modifierNumero` encore à null, posait son verrou
+  // `initialLoadDone` et filait dans la branche « brouillon ». Résultat : « Modifier une
+  // soumission » ouvrait un formulaire VIDE, sans numéro — et l'enregistrement créait une
+  // NOUVELLE soumission au lieu de modifier l'existante.
+  // useSearchParams est la lecture d'URL du routeur : disponible dès le premier rendu
+  // client, sans effet, sans risque d'hydratation. (page.tsx fournit la borne Suspense.)
+  const searchParams = useSearchParams();
+  const modifierNumero = searchParams.get("modifier");
   const { toast } = useToast();
 
   const [client, setClient] = useState({ nom: "", adresse: "", telephone: "", courriel: "", projet: "" });

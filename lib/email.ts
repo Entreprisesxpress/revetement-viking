@@ -36,7 +36,9 @@ export async function sendEmail(opts: EmailOpts): Promise<EmailResult> {
           content: typeof a.content === "string" ? a.content : a.content.toString("base64"),
         }));
       }
+      // Borne de temps : sinon un Resend qui n'aboutit pas gèle l'envoi (et le cron).
       const r = await fetch("https://api.resend.com/emails", {
+        signal: AbortSignal.timeout(20_000),
         method: "POST",
         headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -54,7 +56,7 @@ export async function sendEmail(opts: EmailOpts): Promise<EmailResult> {
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return { ok: false, raison: "non_configure" };
   try {
-    const transporter = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass } });
+    const transporter = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000 });
     const info = await transporter.sendMail({
       from: `"${NOM_EXPEDITEUR}" <${user}>`,
       to: opts.to,

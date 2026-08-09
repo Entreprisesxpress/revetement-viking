@@ -78,6 +78,19 @@ export function driveOAuthConfigure(): boolean {
   return !!getOAuthClientCreds() && !!getFolderId();
 }
 
+// Toutes les requetes Drive sont bornees : sans AbortSignal, un serveur qui accepte la
+// connexion sans jamais repondre gele la fonction jusqu'au timeout de la plateforme.
+const DRIVE_TIMEOUT_MS = 30_000;
+
+/** Marqueur reconnaissable d'un jeton Google révoqué (voir refreshAccessToken). */
+export const DRIVE_DECONNECTE = "DRIVE_DECONNECTE";
+export function estDriveDeconnecte(e: any): boolean {
+  return String(e?.message || e || "").includes(DRIVE_DECONNECTE);
+}
+function fetchBorne(url: any, opts: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...opts, signal: (opts as any).signal ?? AbortSignal.timeout(DRIVE_TIMEOUT_MS) });
+}
+
 export function driveSAConfigure(): boolean {
   return !!getSA() && !!getFolderId();
 }
@@ -118,7 +131,7 @@ export function buildOAuthAuthUrl(): string {
 export async function exchangeCodeForTokens(code: string): Promise<{ refresh_token?: string; access_token: string; expires_in: number }> {
   const creds = getOAuthClientCreds();
   if (!creds) throw new Error("OAuth client non configuré");
-  const r = await fetch(TOKEN_URL, {
+  const r = await fetchBorne(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -137,7 +150,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{ refresh_tok
 async function refreshAccessToken(refresh_token: string): Promise<{ access_token: string; expires_in: number }> {
   const creds = getOAuthClientCreds();
   if (!creds) throw new Error("OAuth client non configuré");
-  const r = await fetch(TOKEN_URL, {
+  const r = await fetchBorne(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -147,7 +160,15 @@ async function refreshAccessToken(refresh_token: string): Promise<{ access_token
       grant_type: "refresh_token",
     }),
   });
-  if (!r.ok) throw new Error(`Refresh token ${r.status}: ${await r.text()}`);
+  if (!r.ok) {
+    const txt = await r.text();
+    // Un jeton révoqué (changement de mot de passe Google, inactivité, re-consentement)
+    // répond `invalid_grant`. Avant, ça devenait une Error texte indistinguable d'un 500
+    // ou d'un 429 : la sauvegarde quotidienne échouait tous les matins en silence et
+    // personne ne savait qu'il fallait simplement se reconnecter dans /sync.
+    if (txt.includes("invalid_grant")) throw new Error(`${DRIVE_DECONNECTE} — reconnecte Google Drive dans /sync (jeton révoqué par Google)`);
+    throw new Error(`Refresh token ${r.status}: ${txt}`);
+  }
   return await r.json();
 }
 
@@ -187,7 +208,7 @@ async function getAccessToken(): Promise<string> {
   const signer = crypto.createSign("RSA-SHA256");
   signer.update(`${header}.${payload}`);
   const signature = base64UrlEncode(signer.sign(sa.private_key));
-  const r = await fetch(TOKEN_URL, {
+  const r = await fetchBorne(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -203,7 +224,7 @@ async function getAccessToken(): Promise<string> {
 
 async function driveFetch(path: string, opts: RequestInit = {}, baseUrl: string = DRIVE_API): Promise<any> {
   const token = await getAccessToken();
-  const r = await fetch(`${baseUrl}${path}`, {
+  const r = await fetchBorne(`${baseUrl}${path}`, {
     ...opts,
     headers: { ...opts.headers, Authorization: `Bearer ${token}` },
   });
@@ -253,7 +274,7 @@ export async function uploaderFichier(params: {
     Buffer.from(`\r\n--${boundary}--`),
   ]);
   const token = await getAccessToken();
-  const r = await fetch(`${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id,webViewLink`, {
+  const r = await fetchBorne(`${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id,webViewLink`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
     body: body as any,
@@ -280,7 +301,7 @@ export async function sauvegarderClasseurCSV(nom: string, csv: string, descripti
   const token = await getAccessToken();
   if (existant) {
     // Met à jour le contenu du Sheet existant (réimport du CSV)
-    const r = await fetch(`${DRIVE_UPLOAD}/files/${existant.id}?uploadType=media&fields=id,webViewLink`, {
+    const r = await fetchBorne(`${DRIVE_UPLOAD}/files/${existant.id}?uploadType=media&fields=id,webViewLink`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "text/csv" },
       body: csvBuf as any,
@@ -301,7 +322,7 @@ export async function sauvegarderClasseurCSV(nom: string, csv: string, descripti
     csvBuf,
     Buffer.from(`\r\n--${boundary}--`),
   ]);
-  const r = await fetch(`${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id,webViewLink`, {
+  const r = await fetchBorne(`${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id,webViewLink`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
     body: body as any,
@@ -319,7 +340,7 @@ export async function creerSessionUploadResumable(params: { nom: string; mimeTyp
   if (!dossier) throw new Error("Dossier Drive introuvable");
   const token = await getAccessToken();
   const metadata = { name: params.nom, parents: [dossier], description: params.description || "Vidéo chantier — Revêtement Viking" };
-  const r = await fetch(`${DRIVE_UPLOAD}/files?uploadType=resumable&fields=id,webViewLink`, {
+  const r = await fetchBorne(`${DRIVE_UPLOAD}/files?uploadType=resumable&fields=id,webViewLink`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
