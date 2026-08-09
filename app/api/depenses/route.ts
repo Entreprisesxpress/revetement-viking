@@ -3,11 +3,16 @@ import { listerDepensesProjet, ajouterDepenseProjet, supprimerDepenseProjet, mod
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { nombreSaisi } from "@/lib/calculs";
+import { validerEcritureArgent } from "@/lib/validation-argent";
 
 function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
 // Accepte la virgule décimale québécoise (« 88,50 ») en plus du point.
 // Implémentation unique dans lib/calculs.ts : « 88,50 », « 1 234,56 $ », etc.
 const parseMontant = nombreSaisi;
+
+// Bornes partagées avec /api/factures et /api/extras (lib/validation-argent.ts).
+// Le négatif reste toléré ici : note de crédit / remboursement fournisseur.
+const validerDepense = (body: any) => validerEcritureArgent(body);
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -29,6 +34,8 @@ export async function POST(req: NextRequest) {
     if (!body.montant || !isFinite(montant) || !body.date) {
       return NextResponse.json({ error: "montant (nombre) et date requis" }, { status: 400 });
     }
+    const invalide = validerDepense(body);
+    if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
     body.montant = montant;
     const user = await utilisateurActif(req);
     const id = await ajouterDepenseProjet({ ...body, ajoute_par: user || undefined });
@@ -50,6 +57,10 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  // Mêmes bornes qu'à la création : sinon on refuse une dépense aberrante à la saisie
+  // et on l'accepte à la modification, ce qui revient à ne rien refuser du tout.
+  const invalide = validerDepense(body);
+  if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
   if (body.montant !== undefined) {
     const montant = parseMontant(body.montant);
     if (!isFinite(montant)) return NextResponse.json({ error: "montant invalide" }, { status: 400 });

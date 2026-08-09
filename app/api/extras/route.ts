@@ -4,6 +4,7 @@ import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { envoyerPushUtilisateur } from "@/lib/push";
 import { nombreSaisi } from "@/lib/calculs";
+import { validerEcritureArgent } from "@/lib/validation-argent";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,11 @@ export async function POST(req: NextRequest) {
     if ((montantVal !== null && !isFinite(montantVal)) || (heuresVal !== null && !isFinite(heuresVal))) {
       return NextResponse.json({ error: "montant ou heures invalide" }, { status: 400 });
     }
+    // Bornes partagées avec dépenses et factures. Un extra est un travail EN PLUS facturé
+    // au client : un montant négatif n'a pas de sens ici (contrairement à une dépense,
+    // qui peut porter une note de crédit) et retranchait du revenu en silence.
+    const invalide = validerEcritureArgent(body, { refuserNegatif: true, champsMontant: ["montant", "heures"], champsDate: ["date"] });
+    if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
     const user = await utilisateurActif(req);
     const id = await ajouterExtra({
       projet_id: body.projet_id ? +body.projet_id : null,
