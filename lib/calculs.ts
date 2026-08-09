@@ -18,8 +18,17 @@ export function revenuAvantTaxes(montantTaxesIncluses: number): number {
 /** Dépenses « avant taxes » : on retire les taxes de la part taxable seulement.
  *  Les factures détaxées (sans TPS/TVQ) sont comptées telles quelles. */
 export function depensesAvantTaxes(total: number, detaxe: number = 0): number {
-  const taxable = Math.max(0, (total || 0) - (detaxe || 0));
-  return revenuAvantTaxes(taxable) + (detaxe || 0);
+  const t = total || 0;
+  const d = detaxe || 0;
+  let taxable = t - d;
+  // `Math.max(0, …)` couvrait bien l'anomalie « plus de détaxé que de total », mais il
+  // écrasait aussi les NOTES DE CRÉDIT. /api/depenses accepte volontairement un montant
+  // négatif (remboursement fournisseur) ; il comptait dans le total taxes incluses mais
+  // ressortait à 0 avant taxes — donc le remboursement ne réduisait JAMAIS les coûts
+  // dans la marge, la rentabilité et /finances. On ne borne que le cas anormal, sur une
+  // dépense positive ; le signe d'un crédit est conservé.
+  if (t >= 0 && taxable < 0) taxable = 0;
+  return revenuAvantTaxes(taxable) + d;
 }
 
 /** Avance une date ISO (yyyy-mm-dd) selon la récurrence, en heure locale. */

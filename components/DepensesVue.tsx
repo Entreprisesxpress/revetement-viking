@@ -7,6 +7,7 @@ import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { exporterCSV } from "@/lib/csv";
 import Pagination, { usePagination } from "@/components/Pagination";
+import { nombreSaisi, depensesAvantTaxes } from "@/lib/calculs";
 
 type TriCol = "date" | "fournisseur" | "categorie" | "projet" | "montant";
 type TriSens = "asc" | "desc";
@@ -112,6 +113,11 @@ export default function DepensesVue() {
   useEffect(() => { pg.reset(); }, [recherche, filtreCat, filtreProj, depuis, jusqu]);
 
   const total = filtrees.reduce((s, d) => s + (d.montant || 0), 0);
+  // Le seul chiffre affiché était le total TAXES INCLUSES, sans le dire. C'est pourtant
+  // l'avant-taxes qui entre dans la marge et dans /finances — deux nombres différents,
+  // et l'écran n'en montrait qu'un, sans étiquette. On affiche les deux.
+  const totalDetaxe = filtrees.filter((d) => (d as any).detaxe).reduce((s, d) => s + (d.montant || 0), 0);
+  const totalAvantTaxes = depensesAvantTaxes(total, totalDetaxe);
   const totalAvecRecu = filtrees.filter((d) => (d as any).a_recu || d.recu_data).reduce((s, d) => s + d.montant, 0);
 
   const parCat = filtrees.reduce((acc: any, d) => {
@@ -155,7 +161,11 @@ export default function DepensesVue() {
       categorie: editing.categorie,
       description: editing.description,
       projet_id: editing.projet_id ? +editing.projet_id : null,
-      montant: +editing.montant,
+      // nombreSaisi et non `+` : « 1 149,75 » (espace + virgule, la saisie québécoise)
+      // donnait NaN, et un champ vidé donnait 0 — ce 0 partait au serveur et ramenait
+      // la dépense à zéro. Même parseur que partout ailleurs dans l'app.
+      montant: nombreSaisi(editing.montant),
+      detaxe: !!editing.detaxe,
       version: editing.version, // verrouillage optimiste (B7)
     };
     const r = await fetch("/api/depenses", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -180,7 +190,11 @@ export default function DepensesVue() {
       categorie: d.categorie || "",
       description: d.description || "",
       projet: projNom(d.projet_id),
-      montant: d.montant.toFixed(2),
+      // L'export part chez le comptable : sans la colonne « détaxé » et l'avant-taxes,
+      // il ne peut pas refaire le calcul de TPS/TVQ à partir du fichier.
+      montant_taxes_incluses: d.montant.toFixed(2),
+      detaxe: (d as any).detaxe ? "Oui" : "Non",
+      montant_avant_taxes: depensesAvantTaxes(d.montant || 0, (d as any).detaxe ? (d.montant || 0) : 0).toFixed(2),
       recu: (d as any).a_recu || d.recu_data ? "Oui" : "Non",
     }));
     exporterCSV(`depenses-${depuis}_${jusqu}`, rows);
@@ -191,7 +205,7 @@ export default function DepensesVue() {
       <div className="space-y-4">
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KPI label="Total filtré" value={formatCAD(total)} couleur="text-orange-700" />
+          <KPI label="Total filtré (taxes incl.)" value={formatCAD(total)} couleur="text-orange-700" sub={`avant taxes : ${formatCAD(totalAvantTaxes)}${totalDetaxe > 0 ? ` · dont ${formatCAD(totalDetaxe)} détaxé` : ""}`} />
           <KPI label="Avec reçu" value={formatCAD(totalAvecRecu)} couleur="text-emerald-700" sub={`${filtrees.filter((d) => (d as any).a_recu || d.recu_data).length} sur ${filtrees.length}`} />
           <KPI label="Sans reçu" value={formatCAD(total - totalAvecRecu)} couleur="text-amber-700" sub="à régulariser" />
           <KPI label="Nb entrées" value={`${filtrees.length}`} />
@@ -300,7 +314,15 @@ export default function DepensesVue() {
                       <td className="p-2 text-xs">
                         {d.projet_id ? <a href={`/projets/${d.projet_id}`} className="text-blue-600 hover:underline">{projNom(d.projet_id)}</a> : <span className="text-slate-400">—</span>}
                       </td>
-                      <td className="p-2 text-right font-bold text-orange-700 whitespace-nowrap">{formatCAD(d.montant)}</td>
+                      <td className="p-2 text-right font-bold text-orange-700 whitespace-nowrap">
+                        {formatCAD(d.montant)}
+                        {/* Marque visible : sans elle, impossible de repérer à l'œil une
+                            facture mal cochée, alors que c'est ce drapeau qui décide si
+                            on retire 14,975 % pour la rentabilité. */}
+                        {(d as any).detaxe ? (
+                          <span className="ml-1 text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded align-middle" title="Facture détaxée : aucune TPS/TVQ à retirer">détaxé</span>
+                        ) : null}
+                      </td>
                       <td className="p-2 text-center">
                         {(d as any).a_recu || d.recu_data ? (
                           <button onClick={() => setRecuOuvert({ id: d.id, type: d.recu_type })} className="text-emerald-700 hover:underline text-xs font-semibold">📎 Voir</button>
@@ -372,6 +394,23 @@ export default function DepensesVue() {
                 <input type="number" step={0.01} min="0" value={editing.montant} onChange={(e) => setEditing({ ...editing, montant: e.target.value })} className="w-full px-3 py-2 border rounded text-sm text-right font-bold" />
               </div>
             </div>
+            {/* Le drapeau « détaxé » n'était visible NULLE PART sur cet écran : ni affiché,
+                ni modifiable. Une facture mal cochée à la saisie ne pouvait se corriger
+                qu'en la supprimant et en la ressaisissant. Or c'est lui qui décide si on
+                retire 14,975 % du montant pour la rentabilité. */}
+            <button
+              type="button"
+              onClick={() => setEditing({ ...editing, detaxe: !editing.detaxe })}
+              className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border-2 text-sm font-semibold transition ${editing.detaxe ? "bg-emerald-50 border-emerald-500 text-emerald-900" : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"}`}
+            >
+              <span>{editing.detaxe ? "Détaxée (aucune TPS/TVQ sur la facture)" : "Taxable (TPS + TVQ incluses)"}</span>
+              <span className={`w-10 h-6 rounded-full flex items-center transition ${editing.detaxe ? "bg-emerald-500 justify-end" : "bg-slate-300 justify-start"} px-0.5`}>
+                <span className="w-5 h-5 bg-white rounded-full shadow" />
+              </span>
+            </button>
+            <p className="text-[11px] text-slate-500">
+              Avant taxes : <strong>{formatCAD(depensesAvantTaxes(nombreSaisi(editing.montant) || 0, editing.detaxe ? (nombreSaisi(editing.montant) || 0) : 0))}</strong> — c'est ce montant qui entre dans la marge.
+            </p>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Projet</label>
               <select value={editing.projet_id || ""} onChange={(e) => setEditing({ ...editing, projet_id: e.target.value })} className="w-full px-3 py-2 border rounded text-sm bg-white">

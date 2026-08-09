@@ -71,6 +71,9 @@ export async function PATCH(req: NextRequest) {
   if (body.montant !== undefined) {
     const montant = parseMontant(body.montant);
     if (!isFinite(montant)) return NextResponse.json({ error: "montant invalide" }, { status: 400 });
+    // Un montant à 0 en modification vient presque toujours d'un champ vidé par erreur
+    // (`+""` vaut 0). On refuse plutôt que de ramener la dépense à zéro en silence.
+    if (montant === 0) return NextResponse.json({ error: "montant à 0 refusé — vide le champ puis ressaisis le vrai montant, ou supprime la dépense" }, { status: 400 });
     body.montant = montant;
   }
   const user = await utilisateurActif(req);

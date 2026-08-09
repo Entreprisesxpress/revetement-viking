@@ -1850,10 +1850,27 @@ export async function supprimerDepenseProjet(id: number) {
   await run("DELETE FROM depenses_projet WHERE id = ?", [id]);
 }
 export async function modifierDepenseProjet(id: number, d: Partial<DepenseProjet>, versionAttendue?: number): Promise<ResultatMaj> {
-  const champs = ["projet_id", "date", "montant", "fournisseur", "description", "categorie"];
+  // `valeur || null` était appliqué à TOUS les champs. Le commentaire plus bas notait
+  // déjà le piège pour `detaxe`, mais `montant` avait exactement le même : un montant à 0
+  // devenait null et violait la contrainte NOT NULL → 500 en pleine modification de
+  // dépense (mesuré). Or un champ « montant » vidé dans l'écran donne `+""` = 0.
+  // On sépare donc par nature : montant est un nombre (0 compris), date une chaîne
+  // obligatoire, le reste du texte optionnel où « vide » veut bien dire null.
+  const champsTexte = ["fournisseur", "description", "categorie"];
   const sets: string[] = [];
   const args: any[] = [];
-  for (const c of champs) {
+  if (d.projet_id !== undefined) { sets.push("projet_id = ?"); args.push(d.projet_id || null); }
+  if (d.date !== undefined) {
+    const dt = String(d.date || "").trim();
+    if (!dt) throw new Error("date requise");
+    sets.push("date = ?"); args.push(dt);
+  }
+  if (d.montant !== undefined) {
+    const m = Number(d.montant);
+    if (!Number.isFinite(m)) throw new Error("montant invalide");
+    sets.push("montant = ?"); args.push(m);   // 0 est une valeur, pas une absence
+  }
+  for (const c of champsTexte) {
     if ((d as any)[c] !== undefined) { sets.push(`${c} = ?`); args.push((d as any)[c] || null); }
   }
   // detaxe est un booléen 0/1 : à traiter à part (sinon `0 || null` l'écraserait).

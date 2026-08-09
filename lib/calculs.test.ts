@@ -90,6 +90,47 @@ describe("depensesAvantTaxes — factures détaxées", () => {
   it("détaxé > 0 réduit toujours la déduction de taxes (marge plus juste)", () => {
     expect(depensesAvantTaxes(1000, 1000)).toBeGreaterThan(depensesAvantTaxes(1000, 0));
   });
+
+  it("détaxé supérieur au total (donnée incohérente) ne fabrique pas de montant négatif", () => {
+    // Peut arriver si un montant est modifié après coup sans décocher « détaxé ».
+    // La part taxable est bornée à 0, donc on retombe sur le détaxé seul.
+    expect(depensesAvantTaxes(500, 800)).toBeCloseTo(800, 6);
+    expect(depensesAvantTaxes(500, 800)).toBeGreaterThan(0);
+  });
+
+  it("note de crédit (montant négatif) reste négative — sinon un remboursement gonflerait les coûts", () => {
+    expect(depensesAvantTaxes(-1149.75, 0)).toBeCloseTo(-1000, 6);
+  });
+
+  it("aucune dépense = 0, pas NaN", () => {
+    expect(depensesAvantTaxes(0, 0)).toBe(0);
+    expect(depensesAvantTaxes(undefined as any, undefined as any)).toBe(0);
+  });
+
+  it("scénario complet vérifié en direct sur l'app", () => {
+    // 1 149,75 $ taxable + 500 $ détaxé, contrat 50 000 $ taxes incluses, 10 h × 40 $
+    const depAvantTaxes = depensesAvantTaxes(1649.75, 500);
+    const revAvantTaxes = revenuAvantTaxes(50000);
+    expect(depAvantTaxes).toBeCloseTo(1500, 6);
+    expect(revAvantTaxes).toBeCloseTo(43487.71, 2);
+    expect(revAvantTaxes - depAvantTaxes - 400).toBeCloseTo(41587.71, 2);
+  });
+});
+
+describe("nombreSaisi sur les montants de dépense (saisie québécoise)", () => {
+  it("lit les formats réellement tapés à l'écran", () => {
+    expect(nombreSaisi("1 149,75")).toBeCloseTo(1149.75, 6);
+    expect(nombreSaisi("1149,75")).toBeCloseTo(1149.75, 6);
+    expect(nombreSaisi("1 149,75 $")).toBeCloseTo(1149.75, 6);
+    expect(nombreSaisi("1,149.75")).toBeCloseTo(1149.75, 6);  // format anglais collé du web
+    expect(nombreSaisi("88,50")).toBeCloseTo(88.5, 6);
+  });
+  it("un champ vidé ne doit pas valoir 0 (c'est ce qui ramenait une dépense à zéro)", () => {
+    expect(Number.isNaN(nombreSaisi(""))).toBe(true);
+    expect(Number.isNaN(nombreSaisi("   "))).toBe(true);
+    // `+""` valait 0 — d'où le garde-fou serveur qui refuse maintenant un montant à 0.
+    expect(+"").toBe(0);
+  });
 });
 
 describe("avancerDateRecurrence", () => {
