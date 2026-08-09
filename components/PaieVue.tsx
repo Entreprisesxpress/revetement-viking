@@ -123,6 +123,12 @@ export default function PaieVue() {
   // ~15 % ce qu'il reste réellement à débourser.
   const aPayerTotal = periodes.filter((p) => !p.paye).reduce((s, p) => s + (p.montant_brut || 0), 0);
 
+  // Calculé sur TOUTES les périodes, pas seulement celles affichées : le filtre par
+  // défaut est « À payer », qui masque justement les périodes payées où ces heures
+  // dorment. Sans ce bandeau, l'alerte serait invisible là où elle compte.
+  const nonPayees = periodes.filter((p) => (p.heures_non_payees || 0) > 0);
+  const totalNonPayees = nonPayees.reduce((s, p) => s + (p.heures_non_payees || 0), 0);
+
   return (
     <>
       <div className="space-y-4">
@@ -173,6 +179,28 @@ export default function PaieVue() {
           );
         })()}
 
+        {/* Heures travaillées après un versement : elles n'entrent dans AUCUNE paye. */}
+        {totalNonPayees > 0 && (
+          <section className="bg-amber-50 border border-amber-300 rounded-lg p-4">
+            <h3 className="font-bold text-amber-900 text-sm">⚠ {totalNonPayees} h travaillées ne sont dans aucune paye</h3>
+            <p className="text-xs text-amber-800 mt-1">
+              Ces heures ont été saisies <strong>après</strong> que la période a été marquée payée. Le montant versé n'a pas été
+              recalculé (et ne doit pas l'être tout seul) : il faut les régler à part, ou annuler le paiement de la période
+              puis le refaire.
+            </p>
+            <ul className="text-xs text-amber-900 mt-2 space-y-0.5">
+              {nonPayees.map((p) => (
+                <li key={p.id}>
+                  • <strong>{p.employe}</strong> — {dateLocale(p.debut).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })} au{" "}
+                  {dateLocale(p.fin).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })} : {p.heures_travaillees} h travaillées,{" "}
+                  {p.heures_normales} h payées → <strong>{p.heures_non_payees} h dues</strong>
+                  {p.taux_horaire ? ` (≈ ${formatCAD((p.heures_non_payees || 0) * p.taux_horaire)})` : ""}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <KPI label="À payer (brut)" value={formatCAD(aPayerTotal)} couleur="text-red-700" />
@@ -213,6 +241,17 @@ export default function PaieVue() {
                       <span className={`text-xs px-2 py-0.5 rounded font-semibold ${p.paye ? "bg-emerald-100 text-emerald-900" : "bg-red-100 text-red-900"}`}>
                         {p.paye ? `✓ Payé ${p.date_paiement ? dateLocale(p.date_paiement).toLocaleDateString("fr-CA", { day: "numeric", month: "short" }) : ""}` : "À payer"}
                       </span>
+                      {/* Feuille de temps saisie APRÈS le versement : ces heures étaient
+                          acceptées en base mais n'atteignaient jamais la paie, sans le
+                          moindre signal. C'est de l'argent dû à l'employé. */}
+                      {(p.heures_non_payees || 0) > 0 && (
+                        <span
+                          className="text-xs px-2 py-0.5 rounded font-semibold bg-amber-100 text-amber-900 border border-amber-300"
+                          title={`${p.heures_travaillees} h travaillées, ${p.heures_normales} h payées. Ces heures ont été saisies après le versement : elles ne sont dans aucune paye.`}
+                        >
+                          ⚠ {p.heures_non_payees} h travaillées non payées
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       Période : <strong>{dateLocale(p.debut).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" })}</strong> → <strong>{dateLocale(p.fin).toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" })}</strong>

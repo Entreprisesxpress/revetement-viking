@@ -2101,6 +2101,10 @@ export interface PaiePeriode {
   taux_horaire: number; das_pct?: number;
   montant_brut: number; das_montant: number; montant_net: number;
   paye?: number; date_paiement?: string; note?: string;
+  heures_travaillees?: number;
+  /** Heures travaillées mais NON payées dans une période déjà versée (feuille de temps
+   *  saisie après le versement). Calculé à la lecture, jamais stocké. */
+  heures_non_payees?: number;
 }
 
 // Logique paie centralisée + testée dans lib/calculs.ts
@@ -2190,8 +2194,15 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
             [payees, travaillees, dispoAvant, appliquee, banque, taux, brut, dasMontant, net, existant.id]
           );
         } else {
-          // Période payée : on ne touche pas la paie, mais on rafraîchit les champs d'affichage de la banque.
-          await run(`UPDATE paies_periodes SET banque_dispo=?, banque_solde=? WHERE id=?`, [dispoAvant, banque, existant.id]);
+          // Période payée : on ne touche JAMAIS aux montants versés. En revanche on
+          // rafraîchit `heures_travaillees`, le fait brut.
+          // Avant, il restait figé : une feuille de temps oubliée et saisie APRÈS le
+          // versement était acceptée en base (donc comptée dans le coût du chantier)
+          // mais n'atteignait jamais la paie, et RIEN ne le signalait. Mesuré : Gabriel
+          // travaille 53 h, la période reste à « 45 h · 1 800 $ payé », les 8 h
+          // disparaissent. Maintenant l'écart travaillées − payées est visible et
+          // remonté comme heures dues (voir heures_non_payees plus bas).
+          await run(`UPDATE paies_periodes SET banque_dispo=?, banque_solde=?, heures_travaillees=? WHERE id=?`, [dispoAvant, banque, travaillees, existant.id]);
         }
       } else {
         await run(
@@ -2206,7 +2217,15 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
   const list = employe
     ? await all<PaiePeriode>("SELECT * FROM paies_periodes WHERE employe = ? ORDER BY debut DESC LIMIT ?", [employe, limit])
     : await all<PaiePeriode>("SELECT * FROM paies_periodes ORDER BY debut DESC, employe ASC LIMIT ?", [limit * 5]);
-  return list;
+  // `heures_non_payees` : heures réellement travaillées dans une période DÉJÀ VERSÉE qui
+  // n'ont pas été payées. C'est de l'argent dû à un employé, jusqu'ici invisible.
+  // Calculé à la lecture (aucune colonne à migrer) et jamais négatif.
+  return list.map((p: any) => ({
+    ...p,
+    heures_non_payees: p.paye
+      ? Math.max(0, Math.round(((p.heures_travaillees || 0) - (p.heures_normales || 0)) * 100) / 100)
+      : 0,
+  }));
 }
 
 export async function supprimerPayePeriode(id: number) {
