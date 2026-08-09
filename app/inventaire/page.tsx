@@ -107,7 +107,9 @@ export default function InventairePage() {
         {/* Filtres + ajout */}
         <div className="flex flex-wrap gap-2 items-center">
           <button onClick={() => { reset(); setCreerOuvert(true); }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold">➕ Nouvel item</button>
-          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="🔎 Rechercher..." className="flex-1 min-w-[200px] px-3 py-2 border rounded text-sm" />
+          {/* text-base (16 px) : en dessous, iOS zoome automatiquement à la mise au point
+              et l'écran reste décalé après la saisie. */}
+          <input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="🔎 Rechercher..." className="flex-1 min-w-[200px] px-3 py-2 border rounded text-base" />
           <select value={filtreEmpl} onChange={(e) => setFiltreEmpl(e.target.value)} className="px-3 py-2 border rounded text-sm bg-white">
             <option value="">📍 Tous les emplacements</option>
             {EMPLACEMENTS.map((e) => <option key={e} value={e}>{e}{stats[e] ? ` (${stats[e]})` : ""}</option>)}
@@ -163,7 +165,9 @@ export default function InventairePage() {
                     setForm({ nom: i.nom, categorie: i.categorie || "", quantite: String(i.quantite || 0), unite: i.unite || "u", emplacement: i.emplacement || "Cabanon", notes: i.notes || "", cout_unit: i.cout_unit ? String(i.cout_unit) : "", photo: i.photo_data ? { data: i.photo_data, type: i.photo_type || "image/jpeg" } : null });
                     setCreerOuvert(true);
                   }} className="flex-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded">✏️ Modifier</button>
-                  <button onClick={() => supprimer(i)} className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded">🗑</button>
+                  {/* Supprimer un item : cible d'au moins 44 px, elle était à 24 px
+                      juste à côté d'un bouton « Modifier » de 299 px. */}
+                  <button onClick={() => supprimer(i)} aria-label="Supprimer l'item" className="min-w-[44px] min-h-[44px] flex items-center justify-center bg-red-50 hover:bg-red-100 text-red-700 rounded">🗑</button>
                 </div>
               </div>
             ))}

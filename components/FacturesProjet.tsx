@@ -149,7 +149,9 @@ export default function FacturesProjet({ projetId, onChange }: { projetId: numbe
               <button onClick={() => basculerPaiement(f)} className={`px-2 py-1 rounded text-[11px] font-bold whitespace-nowrap ${f.payee ? "bg-slate-200 hover:bg-slate-300 text-slate-700" : "bg-emerald-600 hover:bg-emerald-500 text-white"}`}>
                 {f.payee ? "↺ Non payée" : "💵 Encaissée"}
               </button>
-              <button onClick={() => supprimer(f)} className="px-2 py-1 text-red-600 hover:bg-red-50 rounded text-[11px]">🗑</button>
+              {/* Geste destructif sur une facture : cible d'au moins 44 px au doigt,
+                  sinon elle est à 24 px juste à côté du bouton « Encaissée ». */}
+              <button onClick={() => supprimer(f)} aria-label="Supprimer la facture" className="min-w-[44px] min-h-[44px] flex items-center justify-center text-red-600 hover:bg-red-50 rounded text-[13px]">🗑</button>
             </li>
           ))}
         </ul>

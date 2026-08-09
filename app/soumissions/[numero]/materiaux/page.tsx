@@ -54,7 +54,11 @@ export default function MateriauxPage() {
           {data.liste.length === 0 ? (
             <p className="text-center text-slate-500 py-8 italic">Aucun matériau dans cette soumission (seulement de la main d'œuvre ?)</p>
           ) : (
-            <table className="w-full text-sm">
+            // 6 colonnes = ~515 px : sans ce conteneur, la table débordait de l'écran d'un
+            // téléphone (375 px) et poussait toute la page vers la droite. Même parade que
+            // le tableau des Finances.
+            <div className="overflow-x-auto -mx-1 px-1">
+            <table className="w-full text-sm min-w-[520px]">
               <thead className="bg-slate-100">
                 <tr>
                   <th className="text-left p-2">Description</th>
@@ -87,6 +91,7 @@ export default function MateriauxPage() {
                 </tr>
               </tfoot>
             </table>
+            </div>
           )}
           <div className="mt-6 text-[10px] text-slate-400 border-t pt-3 print:block">
             Revêtement Viking Inc. · RBQ 5811-4299-01 · Liste générée le {new Date().toLocaleDateString("fr-CA")}
