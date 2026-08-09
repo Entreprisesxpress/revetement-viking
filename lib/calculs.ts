@@ -111,3 +111,30 @@ export function calculerPaye(normales: number, sup: number, taux: number, dasPct
 export function indexJourSemaine(iso: string): number {
   return (dateISOLocale(iso).getDay() + 6) % 7;
 }
+
+/** Convertit un montant/nombre SAISI À LA MAIN en nombre.
+ *
+ *  Au Québec on écrit « 5 000,50 $ » : virgule décimale, espace pour les milliers (souvent
+ *  une espace insécable) et parfois le symbole. Les anciens parsers faisaient seulement
+ *  `.replace(",", ".")`, donc `Number("5 000.50")` valait NaN et la saisie était refusée
+ *  sans que rien ne l'explique — alors que le champ proposait « 5 000,00 » en exemple.
+ *
+ *  Renvoie NaN si la chaîne n'est pas un nombre, pour que l'appelant puisse refuser. */
+export function nombreSaisi(v: any): number {
+  if (typeof v === "number") return v;
+  let s = String(v ?? "").trim();
+  if (!s) return NaN;
+  // Retire le symbole monétaire et TOUTES les espaces (normale, insécable, fine insécable)
+  s = s.replace(/[$\s\u00A0\u202F\u2009]/g, "");
+  const virgule = s.lastIndexOf(",");
+  const point = s.lastIndexOf(".");
+  if (virgule >= 0 && point >= 0) {
+    // Les deux présents : le DERNIER est le séparateur décimal, l'autre marque les milliers.
+    if (virgule > point) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (virgule >= 0) {
+    // Une seule virgule = décimale ; plusieurs = séparateurs de milliers.
+    s = s.split(",").length === 2 ? s.replace(",", ".") : s.replace(/,/g, "");
+  }
+  return Number(s);
+}

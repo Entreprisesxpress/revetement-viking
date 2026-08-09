@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listerFacturesProjet, ajouterFactureProjet, marquerFacturePayee, annulerPaiementFacture, supprimerFactureProjet } from "@/lib/db";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { nombreSaisi } from "@/lib/calculs";
 
 function fail(e: any, status = 500) { console.error("[/api/factures]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
 
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     // Montant : NOMBRE fini exigé (« abc » passait). Virgule décimale acceptée.
     // Négatif toléré (note de crédit).
-    const montant = Number(String(body.montant ?? "").replace(",", ".").trim());
+    const montant = nombreSaisi(body.montant);
     if (!body.projet_id || !body.montant || !isFinite(montant) || !body.date) {
       return NextResponse.json({ error: "projet_id, montant (nombre) et date requis" }, { status: 400 });
     }

@@ -3,6 +3,7 @@ import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compter
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { envoyerPushUtilisateur } from "@/lib/push";
+import { nombreSaisi } from "@/lib/calculs";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "description requise" }, { status: 400 });
     }
     // Virgule décimale québécoise acceptée (« 88,50 »).
-    const num = (v: any) => Number(String(v ?? "").replace(",", ".").trim());
+    const num = nombreSaisi;
     const montantVal = body.montant != null && body.montant !== "" ? num(body.montant) : null;
     const heuresVal = body.heures != null && body.heures !== "" ? num(body.heures) : null;
     if ((montantVal !== null && !isFinite(montantVal)) || (heuresVal !== null && !isFinite(heuresVal))) {

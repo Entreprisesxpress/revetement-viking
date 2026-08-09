@@ -31,7 +31,6 @@ export async function envoyer<T = any>(
   }
 }
 
-/** Normalise un nombre saisi au Québec : « 8,5 » doit valoir 8.5, pas NaN. */
-export function nombreSaisi(v: any): number {
-  return Number(String(v ?? "").replace(",", ".").trim());
-}
+// Implémentation unique et testée dans lib/calculs.ts (gère « 5 000,50 $ » : virgule
+// décimale, espaces de milliers, symbole). Ré-exportée ici pour les écrans.
+export { nombreSaisi } from "@/lib/calculs";

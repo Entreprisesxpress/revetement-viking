@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
+import { nombreSaisi } from "@/lib/calculs";
 
 /** Facturation d'un projet : la table `factures_projet` et son API existaient depuis
  *  longtemps, mais AUCUN écran ne les alimentait — d'où « Facturé / Encaissé / À recevoir »
@@ -29,7 +30,7 @@ export default function FacturesProjet({ projetId, onChange }: { projetId: numbe
 
   const ajouter = async () => {
     // Virgule décimale acceptée, comme partout ailleurs dans l'app.
-    const montant = Number(String(form.montant).replace(",", ".").trim());
+    const montant = nombreSaisi(form.montant);
     if (!isFinite(montant) || montant === 0) { toast("Montant invalide", "warning"); return; }
     if (!form.date) { toast("Date requise", "warning"); return; }
     setBusy(true);

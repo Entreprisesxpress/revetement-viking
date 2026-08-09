@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { listerDepensesProjet, ajouterDepenseProjet, supprimerDepenseProjet, modifierDepenseProjet, fournisseursConnus, listerToutesDepenses, categoriesParFournisseur } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
+import { nombreSaisi } from "@/lib/calculs";
 
 function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
 // Accepte la virgule décimale québécoise (« 88,50 ») en plus du point.
-function parseMontant(v: any): number { return Number(String(v ?? "").replace(",", ".").trim()); }
+// Implémentation unique dans lib/calculs.ts : « 88,50 », « 1 234,56 $ », etc.
+const parseMontant = nombreSaisi;
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;

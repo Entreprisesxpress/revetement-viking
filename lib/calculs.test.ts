@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  calculerMargeProjet, revenuAvantTaxes, depensesAvantTaxes, avancerDateRecurrence,
+  calculerMargeProjet, revenuAvantTaxes, depensesAvantTaxes, avancerDateRecurrence, nombreSaisi,
   dateISOLocale, periodeBiHebdo, calculerHeuresPaye, calculerPaye, indexJourSemaine,
 } from "./calculs";
 
@@ -178,5 +178,42 @@ describe("calculerPaye (brut/DAS/net)", () => {
     expect(r.brut).toBe(1200);
     expect(r.das).toBeCloseTo(180, 2);
     expect(r.net).toBeCloseTo(1020, 2);
+  });
+});
+
+// Saisie de montants au Québec : virgule décimale ET espace de milliers. Un parser qui
+// ne faisait que `.replace(",", ".")` refusait « 5 000,50 » (Number("5 000.50") = NaN),
+// alors que c'est exactement le format proposé en exemple dans les champs.
+describe("nombreSaisi — montants saisis à la main", () => {
+  it("accepte la virgule décimale", () => {
+    expect(nombreSaisi("88,50")).toBeCloseTo(88.5, 6);
+  });
+  it("accepte l'espace des milliers (le cas qui échouait)", () => {
+    expect(nombreSaisi("5 000,50")).toBeCloseTo(5000.5, 6);
+  });
+  it("accepte l'espace insécable produite par un copier-coller", () => {
+    expect(nombreSaisi("1\u00A0234,56")).toBeCloseTo(1234.56, 6);
+    expect(nombreSaisi("1\u202F234,56")).toBeCloseTo(1234.56, 6);
+  });
+  it("accepte le symbole de dollar", () => {
+    expect(nombreSaisi("1 234,56 $")).toBeCloseTo(1234.56, 6);
+  });
+  it("accepte le format anglais avec virgule de milliers", () => {
+    expect(nombreSaisi("1,234.56")).toBeCloseTo(1234.56, 6);
+  });
+  it("accepte le point décimal simple et un nombre déjà numérique", () => {
+    expect(nombreSaisi("88.50")).toBeCloseTo(88.5, 6);
+    expect(nombreSaisi(88.5)).toBeCloseTo(88.5, 6);
+  });
+  it("accepte un négatif (note de crédit)", () => {
+    expect(nombreSaisi("-1 500,25")).toBeCloseTo(-1500.25, 6);
+  });
+  it("refuse ce qui n'est pas un nombre", () => {
+    expect(Number.isNaN(nombreSaisi("abc"))).toBe(true);
+    expect(Number.isNaN(nombreSaisi(""))).toBe(true);
+    expect(Number.isNaN(nombreSaisi(null))).toBe(true);
+  });
+  it("zéro reste zéro (et non NaN)", () => {
+    expect(nombreSaisi("0")).toBe(0);
   });
 });
