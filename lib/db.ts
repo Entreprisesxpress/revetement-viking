@@ -1208,6 +1208,17 @@ export async function creerProjetDepuisContrat(token: string): Promise<{ ok: boo
   }
 
   await run("UPDATE pipeline_contrats SET projet_id = ? WHERE token = ?", [projetId, token]);
+
+  // La fiche CRM suit le dossier. C'était l'ancien bouton « Accepter » qui faisait ça ;
+  // maintenant que le contrat se prépare sur sa propre page, plus rien ne le faisait :
+  // un client pouvait avoir signé et rester affiché en « Soumission à envoyer » dans le
+  // kanban. On ne rétrograde jamais un client déjà marqué perdu ou inactif à la main.
+  if (c.client_id) {
+    const cl = await one<{ statut: string | null }>("SELECT statut FROM clients WHERE id = ?", [c.client_id]);
+    const statut = cl?.statut === "perdu" || cl?.statut === "inactif" ? cl.statut : "actif";
+    await run("UPDATE clients SET pipeline_stage = 'accepte', statut = ?, projet_lien_id = ? WHERE id = ?",
+      [statut, projetId, c.client_id]);
+  }
   // Le PDF signé est aussi rattaché à la fiche projet : c'est là que Francis le cherche.
   if (c.pdf_signe) {
     await modifierProjet(projetId, { contrat_signe_data: c.pdf_signe, contrat_signe_type: "application/pdf" } as any);

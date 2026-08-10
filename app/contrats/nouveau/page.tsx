@@ -71,6 +71,8 @@ function NouveauContrat() {
   const [devis, setDevis] = useState<{ nom: string; type: string; data: string; taille: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [resultat, setResultat] = useState<{ token: string; numero: string } | null>(null);
+  const [courrielEnvoi, setCourrielEnvoi] = useState("");
+  const [envoye, setEnvoye] = useState(false);
   const [apercu, setApercu] = useState<string | null>(null);
   const fichierRef = useRef<HTMLInputElement>(null);
   const maj = (p: Partial<Champs>) => setF((x) => ({ ...x, ...p }));
@@ -199,7 +201,27 @@ function NouveauContrat() {
       });
       if (!r.ok) { toast(`Contrat NON créé : ${r.erreur}`, "error"); return; }
       setResultat({ token: r.data.token, numero: r.data.numero });
+      setCourrielEnvoi(f.client_courriel.trim());
       toast(`Contrat ${r.data.numero} prêt à envoyer`, "success");
+    } finally { setBusy(false); }
+  };
+
+  const envoyerAuClient = async () => {
+    if (busy || !resultat) return;
+    setBusy(true);
+    try {
+      const r = await envoyer(`/api/contrats-pipeline/${resultat.token}/envoyer`, { corps: { to: courrielEnvoi.trim() } });
+      // `ok:false` avec une raison (courriel non configuré, refus du fournisseur) n'est
+      // pas une erreur réseau : on montre la vraie cause au lieu d'un échec générique.
+      if (!r.ok) { toast(`Courriel NON envoyé : ${r.erreur}`, "error"); return; }
+      if (r.data?.ok === false) {
+        toast(r.data.raison === "email_non_configure"
+          ? "Courriel non configuré sur le serveur — copie le lien et envoie-le toi-même."
+          : `Courriel NON envoyé : ${r.data.error || r.data.raison}`, "error");
+        return;
+      }
+      setEnvoye(true);
+      toast(`Contrat envoyé à ${courrielEnvoi.trim()}`, "success");
     } finally { setBusy(false); }
   };
 
@@ -227,10 +249,24 @@ function NouveauContrat() {
                 >Copier</button>
               </div>
             </div>
+            {/* Envoi depuis ici : sans ce bouton, il fallait ressortir, retrouver le
+                client dans le CRM et rouvrir sa fiche juste pour expédier le lien. */}
+            <label className="block text-left">
+              <span className="block text-xs font-medium text-slate-600 mb-1">Envoyer le lien de signature à</span>
+              <input type="email" value={courrielEnvoi} onChange={(e) => setCourrielEnvoi(e.target.value)}
+                placeholder="client@exemple.com" className="w-full px-3 py-2 border rounded text-sm min-h-[44px]" />
+            </label>
             <div className="flex flex-col sm:flex-row gap-2">
               <a href={`/contrat/${resultat.token}`} target="_blank" rel="noreferrer" className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-sm min-h-[48px] flex items-center justify-center">👁 Voir la page du client</a>
-              <button onClick={() => router.push("/contrats")} className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-sm min-h-[48px]">Envoyer au client →</button>
+              <button
+                onClick={envoyerAuClient}
+                disabled={busy || !courrielEnvoi.trim() || envoye}
+                className="flex-1 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-lg font-bold text-sm min-h-[48px]"
+              >
+                {envoye ? "✓ Envoyé" : busy ? "⏳ Envoi…" : "📧 Envoyer au client"}
+              </button>
             </div>
+            <button onClick={() => router.push("/clients")} className="text-xs text-slate-500 hover:underline">Retour au CRM</button>
             {devis && <p className="text-xs text-emerald-700">📎 Devis joint : {devis.nom}</p>}
           </div>
         </main>

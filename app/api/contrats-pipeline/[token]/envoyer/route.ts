@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getContratPipelineParId, getClient, marquerContratEnvoye } from "@/lib/db";
+import { getContratPipelineParId, getContratPipelineParToken, getClient, marquerContratEnvoye } from "@/lib/db";
 import { sendEmail, emailEstConfigure } from "@/lib/email";
 import { publicOrigin } from "@/lib/origin";
 
@@ -7,7 +7,13 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
-  const co = await getContratPipelineParId(+token);
+  // Le segment d'URL s'appelle `token`, mais cette route ne cherchait QUE par id (`+token`).
+  // Avec un vrai jeton hexadécimal, `+token` vaut NaN et la requête SQL levait un
+  // RangeError → 500 au lieu d'un 404 lisible. Les routes voisines (/pdf, /certificat,
+  // /annexe, /envoyer-signe) attendent un jeton : on accepte donc les deux.
+  const co = /^\d+$/.test(token)
+    ? await getContratPipelineParId(+token)
+    : await getContratPipelineParToken(token);
   if (!co) return NextResponse.json({ error: "contrat introuvable" }, { status: 404 });
   if (co.statut === "signe") return NextResponse.json({ error: "déjà signé" }, { status: 409 });
 
@@ -63,10 +69,10 @@ Revêtement Viking Inc. · 1634 Rue Joliette, Montréal H1W 3E9<br>
 
   const r = await sendEmail({ to: destinataire, subject: sujet, text: corps, html });
   if (r.ok) {
-    await marquerContratEnvoye(+token, destinataire, r.messageId);
+    await marquerContratEnvoye(co.id, destinataire, r.messageId);
     return NextResponse.json({ ok: true, messageId: r.messageId, destinataire });
   } else {
-    await marquerContratEnvoye(+token, destinataire, undefined, r.error || r.raison);
+    await marquerContratEnvoye(co.id, destinataire, undefined, r.error || r.raison);
     return NextResponse.json({ ok: false, error: r.error || r.raison });
   }
 }
