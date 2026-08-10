@@ -46,7 +46,7 @@ const VIDE: Champs = {
   charge_projet: "Francis Quinchon",
   date_debut_travaux: "",
   prix_total: "",
-  depot_pct: "25", paiement_milieu_pct: "50", paiement_fin_pct: "25",
+  depot_pct: "33.3333", paiement_milieu_pct: "33.3333", paiement_fin_pct: "33.3334",
   soumission_numero: "", soumission_date: "",
   notes_travaux: "",
 };
@@ -158,7 +158,11 @@ function NouveauContrat() {
     date_debut_travaux: f.date_debut_travaux.trim(),
     prix_total: prix,
     depot_pct: nombreSaisi(f.depot_pct) || 0,
-    paiement_signature_pct: nombreSaisi(f.depot_pct) || 0,
+    // PAS de `paiement_signature_pct` : le PDF ajoute une ligne « À l'envoi du contrat »
+    // dès que ce champ est > 0. On y recopiait le dépôt, ce qui donnait un tableau à
+    // QUATRE lignes totalisant 133 % du contrat. Le modèle en a exactement trois :
+    // dépôt à la signature, après la 1re semaine, balance à la fin.
+    paiement_signature_pct: 0,
     paiement_milieu_pct: nombreSaisi(f.paiement_milieu_pct) || 0,
     paiement_fin_pct: nombreSaisi(f.paiement_fin_pct) || 0,
     soumission_numero: f.soumission_numero.trim(),

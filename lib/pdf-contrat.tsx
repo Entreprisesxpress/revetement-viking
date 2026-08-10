@@ -57,6 +57,7 @@ const s = StyleSheet.create({
   // EN-TÊTE sur chaque page (sauf couverture)
   enTete: { position: "absolute", top: 25, left: 50, right: 50, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingBottom: 8, borderBottom: "1.5pt solid " + COULEUR_PRIMAIRE },
   enTeteLogo: { flexDirection: "row", alignItems: "center", gap: 8 },
+
   enTeteTitre: { fontSize: 11, fontWeight: 700, color: COULEUR_PRIMAIRE },
   enTeteSous: { fontSize: 8, color: COULEUR_GRIS },
 
@@ -140,15 +141,27 @@ const Logo = LogoSvg;
 
 const cad = (n: number) => new Intl.NumberFormat("fr-CA", { style: "currency", currency: "CAD" }).format(n || 0);
 
+/** Signataire de l'entrepreneur. Distinct du « chargé du projet » : sur le contrat de
+ *  référence, Gabriel Quinchon est chargé du projet, mais c'est Francis Quinchon qui
+ *  signe pour Revêtement Viking Inc. Le code utilisait le chargé de projet comme
+ *  signataire — le contrat serait donc parti signé du mauvais nom. */
+const SIGNATAIRE_ENTREPRENEUR = "Francis Quinchon";
+
 export function ContratPDF({ c }: { c: ContratData }) {
-  const depot = c.depot_pct ?? 25;
-  const milieu = c.paiement_milieu_pct ?? 25;
+  // Le contrat de référence répartit en TROIS versements égaux (1 643,07 × 3).
+  const depot = c.depot_pct ?? 33.3333;
+  const milieu = c.paiement_milieu_pct ?? 33.3333;
   const sig = c.paiement_signature_pct ?? 0;
   const fin = c.paiement_fin_pct ?? Math.max(0, 100 - depot - milieu - sig);
-  const montantSig = c.prix_total * (sig / 100);
-  const montantDepot = c.prix_total * (depot / 100);
-  const montantMilieu = c.prix_total * (milieu / 100);
-  const montantFin = c.prix_total * (fin / 100);
+
+  // Les montants sont arrondis au cent, et le DERNIER versement absorbe le reste : sans
+  // ça, trois tiers de 4 929,22 $ donnent 1 643,07 × 3 = 4 929,21 $ — un cent manquant.
+  // Le contrat de référence porte d'ailleurs cet écart. Un contrat doit refermer.
+  const cent = (n: number) => Math.round((n || 0) * 100) / 100;
+  const montantSig = cent(c.prix_total * (sig / 100));
+  const montantDepot = cent(c.prix_total * (depot / 100));
+  const montantMilieu = cent(c.prix_total * (milieu / 100));
+  const montantFin = cent(c.prix_total - montantSig - montantDepot - montantMilieu);
 
   const adresseTravaux = c.adresse_travaux || c.client_adresse || "";
   const villeTravaux = c.ville_travaux || c.client_ville || "";
@@ -162,13 +175,15 @@ export function ContratPDF({ c }: { c: ContratData }) {
           <Text style={s.couvNomEntreprise}>REVÊTEMENT VIKING INC.</Text>
           <Text style={{ fontSize: 9, color: COULEUR_GRIS, marginTop: 3 }}>RBQ {ENTREPRISE.rbq}</Text>
         </View>
+        {/* Ordre du contrat de référence : titre, sous-titre, NOM DU CLIENT, puis le
+            paragraphe d'introduction. Le nom venait après, ce qui inversait la lecture. */}
         <Text style={s.titreCouv}>Contrat de rénovation</Text>
         <Text style={s.sousTitreCouv}>résidentielle à prix fixe</Text>
+        <Text style={s.nomClient}>{c.client_nom}</Text>
         <View style={s.ligneCouv} />
         <Text style={s.introCouv}>
-          La présente proposition commerciale contient tous les détails relatifs à la portée du travail, aux tarifs et aux conditions tels que demandés par :
+          La présente proposition commerciale contient tous les détails relatifs à la portée du travail, aux tarifs et aux conditions tels que demandés par {c.client_nom}.
         </Text>
-        <Text style={s.nomClient}>{c.client_nom}</Text>
         <Text style={s.numContrat}>CONTRAT N° {c.numero} — DÉBUT DES TRAVAUX : {c.date_debut_travaux}</Text>
         <View style={s.pied} fixed>
           <Text style={s.piedTxt}>{ENTREPRISE.nom} · {ENTREPRISE.adresse}, {ENTREPRISE.ville} {ENTREPRISE.code_postal}</Text>
@@ -179,6 +194,13 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* IDENTIFICATION DES PARTIES */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
+          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
+              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
+              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
+              donc ce n'est ni le cache de build ni la route. Une structure identique
+              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
+              page reste identifiée par son pied de page, et la couverture porte le
+              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -272,6 +294,13 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* DESCRIPTION + PAIEMENT + ASSURANCES */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
+          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
+              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
+              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
+              donc ce n'est ni le cache de build ni la route. Une structure identique
+              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
+              page reste identifiée par son pied de page, et la couverture porte le
+              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -321,6 +350,13 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* RESPONSABILITÉS */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
+          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
+              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
+              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
+              donc ce n'est ni le cache de build ni la route. Une structure identique
+              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
+              page reste identifiée par son pied de page, et la couverture porte le
+              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -330,7 +366,7 @@ export function ContratPDF({ c }: { c: ContratData }) {
           </View>
           <Text style={s.enTeteSous} render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`} />
         </View>
-        <Text style={s.h1}>5. Responsabilités des clients</Text>
+        <Text style={s.h1}>5. Responsabilité des clients</Text>
         {[
           "Toutes modifications au plan après signature de ce contrat seront considérées comme des extras et chargées en extra.",
           "Le client est responsable d'obtenir le permis nécessaire pour la réalisation des travaux.",
@@ -357,6 +393,13 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* SIGNATURES */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
+          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
+              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
+              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
+              donc ce n'est ni le cache de build ni la route. Une structure identique
+              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
+              page reste identifiée par son pied de page, et la couverture porte le
+              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -375,7 +418,7 @@ export function ContratPDF({ c }: { c: ContratData }) {
           <View style={s.sigBox}>
             <Text style={{ fontSize: 10, color: "#64748b", marginBottom: 4 }}>Pour l'entrepreneur</Text>
             <View style={s.sigLigne}>
-              <Text style={s.sigNom}>{c.signature_entrepreneur?.nom || c.charge_projet}</Text>
+              <Text style={s.sigNom}>{c.signature_entrepreneur?.nom || SIGNATAIRE_ENTREPRENEUR}</Text>
               <Text style={s.sigDate}>{c.signature_entrepreneur?.date || "Date : ____ / ____ / ________"}</Text>
               <Text style={{ fontSize: 8, color: "#94a3b8", marginTop: 2 }}>{ENTREPRISE.nom}</Text>
             </View>

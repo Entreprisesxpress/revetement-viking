@@ -35,9 +35,24 @@ export async function POST(req: NextRequest) {
   const user = await utilisateurActif(req);
   const token = genererToken();
   const numero = b.numero || `C-${new Date().getFullYear()}-${String(b.client_id).padStart(3, "0")}`;
+
+  // Le brouillon est régénéré ICI, côté serveur, avec le numéro — que le navigateur ne
+  // connaît pas encore au moment où il compose son PDF. Sans ça, le contrat envoyé au
+  // client portait « CONTRAT N° — » sur la couverture et un en-tête vide sur chaque page
+  // (constaté en extrayant le texte du PDF). C'est aussi la même règle que pour le PDF
+  // signé : la pièce vient du data_json autoritaire, jamais du payload du navigateur.
+  let pdfBrouillon: string = b.pdf_brouillon;
+  try {
+    const { genererContratBlob } = await import("@/lib/pdf-contrat");
+    const blob = await genererContratBlob({ ...(b.data_json || {}), numero });
+    pdfBrouillon = `data:application/pdf;base64,${Buffer.from(await blob.arrayBuffer()).toString("base64")}`;
+  } catch (e) {
+    // Repli sur le PDF du navigateur : mieux vaut un contrat sans numéro que pas de contrat.
+    console.error("[contrats-pipeline] régénération du brouillon échouée, repli navigateur", e);
+  }
   const id = await creerContratPipeline({
     client_id: +b.client_id, numero, token,
-    data_json: b.data_json, pdf_brouillon: b.pdf_brouillon,
+    data_json: b.data_json, pdf_brouillon: pdfBrouillon,
     cree_par: user || undefined,
     annexe_data: annexe?.data || null, annexe_nom: annexe?.nom || null, annexe_type: annexe?.type || null,
   });

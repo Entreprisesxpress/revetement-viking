@@ -63,6 +63,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   if (!signatureNom) return NextResponse.json({ error: "signature_nom requis" }, { status: 400 });
 
   const data = JSON.parse(co.data_json || "{}");
+  // Le numéro vit dans une COLONNE du contrat, pas dans data_json : sans cette ligne, le
+  // PDF signé — la pièce archivée — sortait avec « CONTRAT N° — » sur la couverture et un
+  // en-tête « Contrat n° » vide sur chaque page. Vérifié en extrayant le texte du PDF.
+  data.numero = co.numero || data.numero || "";
   data.signature_client = { nom: signatureNom, date: new Date().toLocaleDateString("fr-CA") };
   data.signature_client_image = b.signature_dataurl;
 
