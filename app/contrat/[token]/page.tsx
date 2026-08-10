@@ -12,6 +12,10 @@ export default function SignatureContratPage() {
   const [nom, setNom] = useState("");
   const [busy, setBusy] = useState(false);
   const [signe, setSigne] = useState(false);
+  // Acceptation explicite : le consentement ne se déduit plus d'un clic sur un bouton.
+  // C'est ce que fait DocuSign, et c'est ce que le certificat d'authentification atteste.
+  const [accepte, setAccepte] = useState(false);
+  const [devisVu, setDevisVu] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
   const dernierePos = useRef<{ x: number; y: number } | null>(null);
@@ -60,8 +64,13 @@ export default function SignatureContratPage() {
   };
 
   const signer = async () => {
-    if (signatureVide()) { alert("Veuillez signer dans la zone prévue."); return; }
+    // `busy` en tête : deux taps sur mobile envoyaient deux signatures. La seconde
+    // recevait 409 « déjà signé » et affichait une erreur alors que tout s'était bien
+    // passé — le client croyait que sa signature avait échoué.
+    if (busy) return;
+    if (!accepte) { alert("Coche la case d'acceptation avant de signer."); return; }
     if (!nom.trim()) { alert("Veuillez saisir votre nom complet."); return; }
+    if (signatureVide()) { alert("Veuillez signer dans la zone prévue."); return; }
     setBusy(true);
     try {
       // Le PDF signé est régénéré côté serveur à partir du contrat autoritaire en base
@@ -72,9 +81,11 @@ export default function SignatureContratPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signature_dataurl: signatureUrl, signature_nom: nom.trim() }),
       });
-      const d = await r.json();
-      if (d.ok) setSigne(true);
-      else alert(d.error || "Échec de la signature");
+      const d = await r.json().catch(() => ({} as any));
+      // 409 = le contrat était déjà signé (double envoi, retour arrière du navigateur).
+      // C'est un succès du point de vue du client, pas une erreur à lui montrer.
+      if (d.ok || r.status === 409) setSigne(true);
+      else alert(d.message || d.error || `Échec de la signature (${r.status})`);
     } catch (e: any) {
       alert("Erreur : " + (e?.message || ""));
     } finally { setBusy(false); }
@@ -92,6 +103,11 @@ export default function SignatureContratPage() {
         <div className="flex flex-col gap-2">
           <a href={`/api/contrats-pipeline/${token}/pdf?signe=1`} target="_blank" rel="noreferrer" className="inline-block px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-sm">📄 Télécharger ma copie signée</a>
           <a href={`/api/contrats-pipeline/${token}/certificat`} target="_blank" rel="noreferrer" className="inline-block px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-sm">🔏 Certificat d'authentification</a>
+          {/* Le devis reste accessible après signature : il fait partie du dossier que le
+              client vient d'accepter, il doit pouvoir le retrouver. */}
+          {meta?.annexe && (
+            <a href={`/api/contrats-pipeline/${token}/annexe`} target="_blank" rel="noreferrer" className="inline-block px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-bold text-sm">📎 Devis joint</a>
+          )}
         </div>
         <p className="text-[11px] text-slate-500">Le certificat atteste de l'historique et de l'intégrité de votre signature. Conservez les deux documents.</p>
         <p className="text-xs text-slate-500 pt-3">Revêtement Viking Inc. · RBQ 5811-4299-01 · revetementviking@gmail.com · (438) 493-2041</p>
@@ -123,8 +139,53 @@ export default function SignatureContratPage() {
           />
         </section>
 
+        {/* Devis joint — pièce du dossier contractuel. Le client doit pouvoir le lire
+            AVANT de signer, pas le découvrir dans le courriel de confirmation. */}
+        {meta?.annexe && (
+          <section className="bg-white rounded-lg shadow p-4">
+            <h2 className="font-bold text-base">📎 Devis joint au contrat</h2>
+            <p className="text-xs text-slate-600 mt-1">
+              Ce document fait partie du contrat. Consulte-le avant de signer — il te sera renvoyé avec ta copie signée.
+            </p>
+            <a
+              href={`/api/contrats-pipeline/${token}/annexe`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setDevisVu(true)}
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-sm min-h-[44px]"
+            >
+              📄 Ouvrir le devis — {meta.annexe.nom}
+            </a>
+            {devisVu && <span className="ml-2 text-xs text-emerald-700 font-semibold">✓ ouvert</span>}
+          </section>
+        )}
+
         <section className="bg-white rounded-lg shadow p-4 space-y-3">
           <h2 className="font-bold text-base">✍️ Ta signature</h2>
+
+          {/* Rappel du montant : le client ne devrait pas avoir à rouvrir le PDF pour
+              vérifier ce qu'il s'apprête à accepter. */}
+          {meta?.data?.prix_total != null && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Montant du contrat</span>
+                <strong className="text-slate-900">
+                  {Number(meta.data.prix_total).toLocaleString("fr-CA", { style: "currency", currency: "CAD" })}
+                </strong>
+              </div>
+              {meta.data.depot_pct ? (
+                <div className="flex justify-between mt-1 text-xs text-slate-600">
+                  <span>Dépôt à la signature ({meta.data.depot_pct} %)</span>
+                  <span>{(Number(meta.data.prix_total) * Number(meta.data.depot_pct) / 100).toLocaleString("fr-CA", { style: "currency", currency: "CAD" })}</span>
+                </div>
+              ) : null}
+              {meta.data.date_debut_travaux ? (
+                <div className="flex justify-between mt-1 text-xs text-slate-600">
+                  <span>Début des travaux</span><span>{meta.data.date_debut_travaux}</span>
+                </div>
+              ) : null}
+            </div>
+          )}
           <label className="block">
             <span className="text-xs font-semibold text-slate-600">Nom complet (tel qu'écrit sur la signature)</span>
             <input type="text" value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Prénom Nom" className="w-full mt-1 px-3 py-2 border rounded text-sm" />
@@ -141,12 +202,34 @@ export default function SignatureContratPage() {
             </div>
           </div>
 
+          {/* Consentement explicite. Il est daté, horodaté et repris dans le certificat
+              d'authentification : c'est lui qui rend la signature opposable, pas le clic
+              sur le bouton vert. */}
+          <label className="flex items-start gap-3 p-3 bg-amber-50 border-2 border-amber-200 rounded-lg cursor-pointer">
+            <input
+              type="checkbox"
+              checked={accepte}
+              onChange={(e) => setAccepte(e.target.checked)}
+              className="mt-0.5 w-5 h-5 flex-shrink-0 accent-emerald-600"
+            />
+            <span className="text-xs text-slate-800">
+              J'ai lu et j'accepte les conditions du contrat n° <strong>{meta?.numero}</strong>
+              {meta?.annexe ? <> ainsi que le <strong>devis joint</strong></> : null}. Je consens à signer
+              électroniquement, et je comprends que cette signature a la même valeur qu'une signature manuscrite
+              (Loi concernant le cadre juridique des technologies de l'information, RLRQ c. C-1.1).
+            </span>
+          </label>
+
           <p className="text-[10px] text-slate-500">
-            En cliquant sur « Signer le contrat », tu acceptes les conditions du contrat ci-dessus. Une copie PDF signée te sera fournie immédiatement et conservée par Revêtement Viking Inc.
+            Une copie PDF signée et un certificat d'authentification te seront fournis immédiatement, et conservés par Revêtement Viking Inc.
           </p>
 
-          <button onClick={signer} disabled={busy} className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-bold">
-            {busy ? "⏳ Signature en cours…" : "✍️ Signer le contrat"}
+          <button
+            onClick={signer}
+            disabled={busy || !accepte}
+            className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-bold min-h-[48px]"
+          >
+            {busy ? "⏳ Signature en cours…" : accepte ? "✍️ Signer le contrat" : "Coche la case pour signer"}
           </button>
         </section>
 

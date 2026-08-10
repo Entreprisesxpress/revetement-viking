@@ -105,7 +105,13 @@ RBQ 5811-4299-01`;
       <Navigation
         titre="📝 Contrats"
         soustitre={`${contrats.length} contrat(s)`}
-        actions={<button onClick={() => setCreerOuvert(true)} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold text-left">➕ Nouveau contrat</button>}
+        actions={<>
+          {/* Deux parcours distincts : le contrat interne de cet écran (suivi maison), et
+              le contrat à faire signer en ligne par le client (page dédiée, devis joint,
+              certificat d'authentification, projet créé à la signature). */}
+          <a href="/contrats/nouveau" className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded text-sm font-semibold text-left inline-block">✍️ Contrat à faire signer</a>
+          <button onClick={() => setCreerOuvert(true)} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold text-left">➕ Nouveau contrat</button>
+        </>}
       />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">

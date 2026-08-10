@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { getContratPipelineParToken, signerContratPipeline, getClient, marquerContratVu } from "@/lib/db";
+import { getContratPipelineParToken, signerContratPipeline, getClient, marquerContratVu, creerProjetDepuisContrat } from "@/lib/db";
 import { genererContratBlob } from "@/lib/pdf-contrat";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     signature_date: c.signature_date,
     client_nom: cl?.nom,
     a_pdf_signe: !!c.pdf_signe,
+    // Métadonnées de l'annexe seulement — le fichier lui-même passe par sa propre route,
+    // sinon on renverrait plusieurs Mo de base64 à chaque affichage de la page.
+    annexe: c.annexe_data ? { nom: c.annexe_nom || "devis", type: c.annexe_type || "application/pdf" } : null,
   });
 }
 
@@ -85,5 +88,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     user_agent: (req.headers.get("user-agent") || "").slice(0, 300) || undefined,
   });
   if (!ok) return NextResponse.json({ error: "déjà signé ou introuvable" }, { status: 409 });
-  return NextResponse.json({ ok: true });
+
+  // Le projet naît ICI, à la signature. La création ne doit jamais faire échouer la
+  // signature elle-même : le client a signé, c'est acquis. Si la création échoue, on le
+  // dit dans la réponse (Francis le verra sur la fiche contrat) plutôt que de renvoyer
+  // une erreur qui laisserait croire que la signature n'a pas pris.
+  let projet: any = null;
+  try {
+    projet = await creerProjetDepuisContrat(token);
+  } catch (e: any) {
+    projet = { ok: false, raison: e?.message || "erreur inconnue" };
+  }
+  return NextResponse.json({ ok: true, projet });
 }

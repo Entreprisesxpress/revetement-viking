@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toasts";
 import { compresserImage } from "@/lib/img";
 import { PIPELINE_STAGES } from "@/components/PipelineCRM";
@@ -46,6 +47,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const [autoSaveStatut, setAutoSaveStatut] = useState<"idle" | "saving" | "saved">("idle");
   const [moiUtilisateur, setMoiUtilisateur] = useState<string | null>(null);
   const { toast } = useToast();
+  const router = useRouter();
   const firstRender = useRef(true);
   const autoSaveT = useRef<any>(null);
 
@@ -147,89 +149,11 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
       return;
     }
 
-    // Saisie unique : prix, date début, dépôt, n° de devis
-    const prixStr = prompt(`Accepter « ${form.nom} » et générer le contrat\n\nPrix total du contrat :`, "");
-    if (prixStr === null) return;
-    const prix = parseFloat(prixStr.replace(",", ".")) || 0;
-    const dateStr = prompt("Date de début des travaux (ex: 15 juin 2026) :", "");
-    if (dateStr === null) return;
-    const depotStr = prompt("% de dépôt à la signature (défaut 25) :", "25");
-    if (depotStr === null) return;
-    const depot = parseFloat(depotStr) || 25;
-    const soumNum = prompt("N° de devis/soumission lié (laisser vide si aucun) :", "") || "";
-
-    setBusy(true);
-    try {
-      // 1. Créer ou récupérer le projet lié
-      let projetId = form.projet_lien_id || null;
-      let projetNumero = "";
-      if (!projetId) {
-        const r = await fetch("/api/projets", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nom: form.nom, client_nom: form.nom, adresse_chantier: form.adresse,
-            description: form.notes, prix_contrat: prix || null, budget_estime: prix || null,
-            statut: "actif", date_debut: new Date().toISOString().slice(0, 10), reno_assistance: 0,
-          }),
-        });
-        const d = await r.json();
-        if (!d.ok) { toast("Erreur création projet", "error"); return; }
-        projetId = d.id;
-      }
-      // Récupère le numéro du projet pour l'utiliser comme numéro de contrat
-      try {
-        const pr = await fetch(`/api/projets?id=${projetId}`, { cache: "no-store" }).then((r) => r.json());
-        projetNumero = pr?.numero || `C-${new Date().getFullYear()}-${String(client.id).padStart(3, "0")}`;
-      } catch { projetNumero = `C-${new Date().getFullYear()}-${String(client.id).padStart(3, "0")}`; }
-
-      // 2. Lier le client au projet + déplacer dans pipeline_stage = accepte
-      setForm({ ...form, pipeline_stage: "accepte", projet_lien_id: projetId });
-      await fetch("/api/clients", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: client.id, pipeline_stage: "accepte", projet_lien_id: projetId, statut: "actif" }),
-      });
-
-      // 3. Générer le PDF du contrat
-      const { genererContratBlob } = await import("@/lib/pdf-contrat");
-      const data = {
-        numero: projetNumero,
-        charge_projet: moiUtilisateur || "Francis Quinchon",
-        client_nom: form.nom,
-        client_adresse: form.adresse,
-        client_telephone: form.telephone,
-        client_courriel: form.courriel,
-        proprietaire: form.nom,
-        soumission_numero: soumNum || undefined,
-        soumission_date: soumNum ? new Date().toLocaleDateString("fr-CA") : undefined,
-        date_debut_travaux: dateStr,
-        prix_total: prix,
-        depot_pct: depot,
-        notes_travaux: form.notes,
-      };
-      const blob = await genererContratBlob(data);
-      const pdf64 = await new Promise<string>((res, rej) => {
-        const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(blob);
-      });
-      // 4. Sauvegarder côté serveur
-      const r = await fetch("/api/contrats-pipeline", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: client.id, numero: projetNumero, data_json: data, pdf_brouillon: pdf64 }),
-      });
-      const d = await r.json();
-      if (!d.ok) { toast("Projet créé, mais erreur sauvegarde contrat", "warning"); onUpdate(); return; }
-
-      // 5. Téléchargement local + lien copié
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `Contrat-${projetNumero}-${form.nom.replace(/[^a-z0-9]/gi, "_")}.pdf`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      const lien = `${window.location.origin}/contrat/${d.token}`;
-      try { await navigator.clipboard.writeText(lien); } catch {}
-      rechargerContrats();
-      onUpdate();
-      toast(`✅ Projet activé · 📝 Contrat ${projetNumero} créé · 🔗 Lien copié`, "success");
-    } finally { setBusy(false); }
+    // Préparation du contrat : on ouvre la vraie page de rédaction, avec tous les champs
+    // du contrat, l'aperçu du PDF et le devis à joindre. Les quatre `prompt()` enchaînés
+    // qui suivaient ne permettaient ni de se relire, ni de revenir en arrière, ni de
+    // renseigner l'adresse des travaux — et ils créaient le projet AVANT toute signature.
+    router.push(`/contrats/nouveau?client_id=${client.id}`);
   };
 
   const genererContrat = async () => {

@@ -86,7 +86,9 @@ export async function proxy(req: NextRequest) {
     // toujours. On l'ouvre uniquement s'il porte le secret de cron.
     (path === "/api/prix-web" && req.method === "POST" && !!process.env.CRON_SECRET
       && req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`) ||
-    /^\/api\/contrats-pipeline\/[^/]+(\/pdf|\/certificat)?$/.test(path) // GET infos + PDF + certificat d'authentification + POST signature (token = secret)
+    // GET infos + PDF + certificat d'authentification + devis joint + POST signature
+    // (le jeton EST le secret ; chaque route revérifie qu'il correspond à un contrat)
+    /^\/api\/contrats-pipeline\/[^/]+(\/pdf|\/certificat|\/annexe)?$/.test(path)
   ) {
     return avecHeaders(NextResponse.next());
   }

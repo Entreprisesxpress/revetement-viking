@@ -75,6 +75,7 @@ revetementviking@gmail.com
 <ul style="padding-left:18px">
 <li>Le <strong>contrat signé</strong> (PDF)</li>
 <li>Le <strong>certificat d'authentification</strong> de votre signature électronique</li>
+${/^data:/.test((r.data as any).annexe_data || "") ? "<li>Le <strong>devis</strong> joint au contrat</li>" : ""}
 </ul>
 <p style="font-size:13px;color:#475569">Le certificat consigne l'historique complet du dossier — envoi, consultation, signature, avec horodatage et adresse IP — ainsi que l'empreinte numérique du contrat, qui permet de démontrer en tout temps que le document n'a pas été modifié depuis votre signature.</p>
 <p style="text-align:center;margin:24px 0">
@@ -87,15 +88,28 @@ Revêtement Viking Inc. · 1634 Rue Joliette, Montréal H1W 3E9<br>
 <a href="mailto:revetementviking@gmail.com" style="color:#1e3a5f">revetementviking@gmail.com</a> · (438) 493-2041
 </td></tr></table></body></html>`;
 
+  // Le devis joint fait partie du dossier que le client vient d'accepter : il repart
+  // avec, sans quoi il n'aurait plus qu'un lien à jeton pour le retrouver.
+  const piecesJointes: any[] = [
+    { filename: `contrat-${num}-signe.pdf`, content: contratBuf, contentType: "application/pdf" },
+    { filename: `certificat-${num}.pdf`, content: certificatBuf, contentType: "application/pdf" },
+  ];
+  const brut: string = (r.data as any).annexe_data || "";
+  const mAnnexe = /^data:([^;]+);base64,([\s\S]*)$/.exec(brut);
+  if (mAnnexe) {
+    piecesJointes.push({
+      filename: (r.data as any).annexe_nom || `devis-${num}.pdf`,
+      content: Buffer.from(mAnnexe[2], "base64"),
+      contentType: (r.data as any).annexe_type || mAnnexe[1],
+    });
+  }
+
   const envoi = await sendEmail({
     to: destinataire,
     subject: `Votre contrat signé ${r.data.numero} + certificat d'authentification — Revêtement Viking Inc.`,
     text: texte,
     html,
-    attachments: [
-      { filename: `contrat-${num}-signe.pdf`, content: contratBuf, contentType: "application/pdf" },
-      { filename: `certificat-${num}.pdf`, content: certificatBuf, contentType: "application/pdf" },
-    ],
+    attachments: piecesJointes,
   });
 
   if (!envoi.ok) return NextResponse.json({ ok: false, error: envoi.error || envoi.raison });

@@ -18,7 +18,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 22;
+const SCHEMA_VERSION = 23;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -379,6 +379,15 @@ async function doInitDb() {
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_destinataire TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_message_id TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN courriel_erreur TEXT");
+  // Devis joint au contrat : le client le consulte depuis la page de signature et le
+  // reçoit avec le contrat signé. C'est une pièce du dossier, donc elle est archivée
+  // avec le contrat plutôt que rangée à part.
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN annexe_data TEXT");
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN annexe_nom TEXT");
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN annexe_type TEXT");
+  // Projet créé à la SIGNATURE (et non à la préparation du contrat) : ce lien évite d'en
+  // créer un deuxième si le contrat est resigné ou si un projet existait déjà.
+  await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN projet_id INTEGER");
   // Certificat d'authentification : empreinte scellée du PDF signé (preuve d'intégrité),
   // navigateur du signataire, et traçage de l'envoi du dossier signé au client.
   // Journal des coûts IA. Était créée par un CREATE TABLE IF NOT EXISTS à CHAQUE appel au
@@ -1092,13 +1101,26 @@ FROM projets p LEFT JOIN clients c ON c.id = p.client_id`;
 export async function creerContratPipeline(p: {
   client_id: number; numero: string; token: string;
   data_json: any; pdf_brouillon: string; cree_par?: string;
+  annexe_data?: string | null; annexe_nom?: string | null; annexe_type?: string | null;
 }): Promise<number> {
   const r = await run(
-    `INSERT INTO pipeline_contrats (client_id, numero, token, data_json, pdf_brouillon, cree_par, date_creation, statut)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'brouillon')`,
-    [p.client_id, p.numero, p.token, JSON.stringify(p.data_json), p.pdf_brouillon, p.cree_par || null, new Date().toISOString()]
+    `INSERT INTO pipeline_contrats (client_id, numero, token, data_json, pdf_brouillon, cree_par, date_creation, statut, annexe_data, annexe_nom, annexe_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'brouillon', ?, ?, ?)`,
+    [p.client_id, p.numero, p.token, JSON.stringify(p.data_json), p.pdf_brouillon, p.cree_par || null, new Date().toISOString(),
+     p.annexe_data || null, p.annexe_nom || null, p.annexe_type || null]
   );
   return r.lastInsertRowid;
+}
+
+/** Joint (ou remplace) le devis d'un contrat. Refusé une fois le contrat SIGNÉ : le
+ *  dossier signé est une pièce figée, on n'y ajoute pas une annexe après coup. */
+export async function definirAnnexeContrat(id: number, a: { data: string; nom: string; type: string } | null): Promise<{ ok: boolean; raison?: string }> {
+  const c = await one<{ statut: string }>("SELECT statut FROM pipeline_contrats WHERE id = ?", [id]);
+  if (!c) return { ok: false, raison: "contrat introuvable" };
+  if (c.statut === "signe") return { ok: false, raison: "Ce contrat est déjà signé : son dossier ne peut plus être modifié." };
+  await run("UPDATE pipeline_contrats SET annexe_data=?, annexe_nom=?, annexe_type=? WHERE id=?",
+    [a?.data || null, a?.nom || null, a?.type || null, id]);
+  return { ok: true };
 }
 export async function listerContratsParClient(client_id: number): Promise<any[]> {
   return await all<any>(
@@ -1131,6 +1153,80 @@ export async function signerContratPipeline(token: string, p: {
   );
   return r.rowsAffected > 0;
 }
+/** Crée le projet à partir d'un contrat SIGNÉ, et le lie au contrat.
+ *
+ *  Le projet naît ici — pas à la préparation du contrat. Avant, préparer un contrat
+ *  créait déjà un projet : tout brouillon jamais signé laissait un chantier fantôme dans
+ *  la liste et dans les chiffres. Idempotent : si le contrat porte déjà un projet (ou si
+ *  un projet a été créé à la main pour ce même numéro), on le met à jour au lieu d'en
+ *  créer un second. */
+export async function creerProjetDepuisContrat(token: string): Promise<{ ok: boolean; projet_id?: number; cree?: boolean; raison?: string }> {
+  const c = await one<any>("SELECT * FROM pipeline_contrats WHERE token = ?", [token]);
+  if (!c) return { ok: false, raison: "contrat introuvable" };
+  if (c.statut !== "signe") return { ok: false, raison: "contrat non signé" };
+
+  const d = JSON.parse(c.data_json || "{}");
+  const prix = Number(d.prix_total) || null;
+  const nom = String(d.nom_projet || d.client_nom || `Contrat ${c.numero || ""}`).trim().slice(0, 200);
+
+  // 1. Déjà lié ? 2. Sinon, un projet porte-t-il déjà ce numéro de contrat ?
+  let projetId: number | null = c.projet_id || null;
+  if (!projetId && c.numero) {
+    const existant = await one<{ id: number }>("SELECT id FROM projets WHERE numero = ?", [c.numero]);
+    if (existant) projetId = existant.id;
+  }
+
+  const champs = {
+    client_id: c.client_id || null,
+    nom,
+    adresse_chantier: d.adresse_chantier || d.client_adresse || null,
+    description: d.notes_travaux || null,
+    statut: "actif",
+    date_debut: isoDepuisDateFr(d.date_debut_travaux),
+    soumission_numero: d.soumission_numero || null,
+    prix_contrat: prix,
+    budget_estime: prix,
+  };
+
+  let cree = false;
+  if (projetId) {
+    // On ne réécrit que ce qui est vide côté projet : si Francis a déjà ajusté l'adresse
+    // ou la date à la main, la signature ne doit pas écraser son travail.
+    const p = await one<any>("SELECT * FROM projets WHERE id = ?", [projetId]);
+    const maj: any = {};
+    for (const [k, v] of Object.entries(champs)) {
+      if (v === null || v === undefined || v === "") continue;
+      if (k === "statut") { maj.statut = "actif"; continue; }
+      if (p?.[k] === null || p?.[k] === undefined || p?.[k] === "") maj[k] = v;
+    }
+    // Le prix du contrat signé fait foi, même si un budget estimé existait.
+    if (prix) { maj.prix_contrat = prix; maj.budget_estime = prix; }
+    if (Object.keys(maj).length) await modifierProjet(projetId, maj);
+  } else {
+    projetId = await ajouterProjet({ ...(champs as any), numero: c.numero || undefined, cree_par: "Signature client" } as any);
+    cree = true;
+  }
+
+  await run("UPDATE pipeline_contrats SET projet_id = ? WHERE token = ?", [projetId, token]);
+  // Le PDF signé est aussi rattaché à la fiche projet : c'est là que Francis le cherche.
+  if (c.pdf_signe) {
+    await modifierProjet(projetId, { contrat_signe_data: c.pdf_signe, contrat_signe_type: "application/pdf" } as any);
+  }
+  return { ok: true, projet_id: projetId, cree };
+}
+
+/** « 2026-08-15 » ou « 15 août 2026 » → ISO, ou null si illisible. Le contrat stocke la
+ *  date telle qu'affichée au client ; le projet, lui, exige un AAAA-MM-JJ. */
+function isoDepuisDateFr(v: any): string | null {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Trace l'envoi du dossier signé (contrat + certificat) au client. */
 export async function marquerDossierSigneEnvoye(token: string, destinataire: string): Promise<void> {
   await run("UPDATE pipeline_contrats SET date_signe_envoye=?, signe_destinataire=? WHERE token=?",
