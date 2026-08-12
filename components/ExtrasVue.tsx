@@ -15,6 +15,8 @@ export default function ExtrasVue() {
   const [extras, setExtras] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
+  const [edition, setEdition] = useState<{ id: number; description: string; montant: string; heures: string; nature: string } | null>(null);
+  const [busy, setBusy] = useState(false);
   const { toast } = useToast();
 
   const charger = async () => {
@@ -40,6 +42,31 @@ export default function ExtrasVue() {
     if (!r.ok) { toast(`Échec de la suppression : ${r.erreur}`, "error"); return; }
     toast("Extra supprimé", "info");
     setExtras((arr) => arr.filter((x) => x.id !== e.id));
+  };
+
+  // === Modification en place (texte, montant, heures) ===
+  const ouvrirEdition = (e: any) => setEdition({
+    id: e.id,
+    description: e.description || "",
+    montant: e.montant != null ? String(e.montant) : "",
+    heures: e.heures != null ? String(e.heures) : "",
+    nature: e.nature || "montant",
+  });
+
+  const enregistrer = async () => {
+    if (!edition || busy) return;
+    if (!edition.description.trim()) { toast("La description ne peut pas être vide", "warning"); return; }
+    // On n'envoie que les champs pertinents à la nature choisie : un extra « heures » ne
+    // doit pas traîner un montant, et inversement.
+    const corps: any = { id: edition.id, description: edition.description.trim(), nature: edition.nature };
+    corps.montant = edition.nature === "heures" ? null : (edition.montant.trim() || null);
+    corps.heures = edition.nature === "heures" ? (edition.heures.trim() || null) : null;
+    setBusy(true);
+    const r = await envoyer("/api/extras", { methode: "PATCH", corps }).finally(() => setBusy(false));
+    if (!r.ok) { toast(`Modification refusée : ${r.erreur}`, "error"); return; }
+    toast("Extra modifié", "success");
+    setEdition(null);
+    charger();
   };
 
   const total = extras.reduce((s, e) => s + (e.montant || 0), 0);
@@ -68,7 +95,67 @@ export default function ExtrasVue() {
         </div>
       ) : (
         <div className="space-y-2">
-          {extras.map((e) => (
+          {extras.map((e) => {
+          // `ed` (const local) plutôt que `edition` directement : TypeScript ne peut pas
+          // garantir qu'un état lu dans une fermeture reste non-null au moment du rendu.
+          const ed = edition && edition.id === e.id ? edition : null;
+          return ed ? (
+            /* Modification EN PLACE : la ligne se transforme en formulaire. Pas de fenêtre
+               par-dessus — on veut garder sous les yeux le projet et la date de l'extra. */
+            <div key={e.id} className="bg-white rounded-lg shadow p-4 space-y-3 border-2 border-amber-400">
+              <div className="text-xs text-slate-500">{e.projet_nom || "Sans projet"} · {e.date}</div>
+              <label className="block">
+                <span className="block text-xs font-medium text-slate-600 mb-1">Description</span>
+                <textarea
+                  value={ed.description}
+                  onChange={(ev) => setEdition({ ...ed, description: ev.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border rounded text-sm"
+                />
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-600 mb-1">Nature</span>
+                  <select
+                    value={ed.nature}
+                    onChange={(ev) => setEdition({ ...ed, nature: ev.target.value })}
+                    className="w-full px-3 py-2 border rounded text-sm bg-white min-h-[44px]"
+                  >
+                    <option value="montant">💰 Montant</option>
+                    <option value="heures">⏱️ Heures</option>
+                    <option value="materiaux">📦 Matériaux</option>
+                  </select>
+                </label>
+                {ed.nature === "heures" ? (
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-600 mb-1">Heures</span>
+                    <input
+                      value={ed.heures}
+                      onChange={(ev) => setEdition({ ...ed, heures: ev.target.value })}
+                      inputMode="decimal" placeholder="Ex. : 6,5"
+                      className="w-full px-3 py-2 border rounded text-sm text-right font-bold min-h-[44px]"
+                    />
+                  </label>
+                ) : (
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-600 mb-1">Montant (laisser vide si à déterminer)</span>
+                    <input
+                      value={ed.montant}
+                      onChange={(ev) => setEdition({ ...ed, montant: ev.target.value })}
+                      inputMode="decimal" placeholder="Ex. : 1 250,75"
+                      className="w-full px-3 py-2 border rounded text-sm text-right font-bold min-h-[44px]"
+                    />
+                  </label>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={enregistrer} disabled={busy} className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-sm font-bold min-h-[44px]">
+                  {busy ? "⏳ Enregistrement…" : "✓ Enregistrer"}
+                </button>
+                <button onClick={() => setEdition(null)} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-semibold min-h-[44px]">Annuler</button>
+              </div>
+            </div>
+          ) : (
             <div key={e.id} className="bg-white rounded-lg shadow p-4 flex gap-3">
               {e.a_photo && (
                 <a href={`/api/extras/${e.id}/photo`} target="_blank" rel="noreferrer" className="flex-shrink-0">
@@ -86,14 +173,21 @@ export default function ExtrasVue() {
               </div>
               <div className="flex flex-col gap-1.5 flex-shrink-0">
                 {onglet === "a_charger" ? (
-                  <button onClick={() => basculer(e, true)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold whitespace-nowrap">✓ Facturé</button>
+                  <>
+                    <button onClick={() => basculer(e, true)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold whitespace-nowrap">✓ Facturé</button>
+                    <button onClick={() => ouvrirEdition(e)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded text-xs font-bold whitespace-nowrap">✏️ Modifier</button>
+                  </>
                 ) : (
+                  /* Pas de bouton Modifier sur un extra FACTURÉ : son montant a servi à
+                     facturer le client. Le serveur refuse d'ailleurs la modification —
+                     il faut le rouvrir, corriger, puis le remarquer facturé. */
                   <button onClick={() => basculer(e, false)} className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded text-xs font-bold whitespace-nowrap">↩ Rouvrir</button>
                 )}
                 <button onClick={() => supprimer(e)} className="px-3 py-1.5 text-red-600 hover:bg-red-50 rounded text-xs font-semibold">🗑 Suppr.</button>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 

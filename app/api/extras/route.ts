@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compterExtrasACharger, getProjet, projetReferenceValide } from "@/lib/db";
+import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compterExtrasACharger, getProjet, projetReferenceValide, modifierExtra } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { envoyerPushUtilisateur } from "@/lib/push";
@@ -82,6 +82,37 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
   const user = await utilisateurActif(req);
+
+  // MODIFICATION du contenu (texte, montant, heures…). Distinct du changement de statut
+  // ci-dessous : `statut` absent du corps = on modifie l'extra lui-même.
+  if (body.statut === undefined) {
+    const invalide = validerEcritureArgent(body, { refuserNegatif: true, champsMontant: ["montant", "heures"], champsDate: ["date"] });
+    if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
+    if (body.projet_id !== undefined && !(await projetReferenceValide(body.projet_id))) {
+      return NextResponse.json({ error: "projet introuvable" }, { status: 400 });
+    }
+    const num = (v: any) => (v === null || v === undefined || v === "" ? null : nombreSaisi(v));
+    const res = await modifierExtra(+body.id, {
+      ...(body.description !== undefined ? { description: body.description } : {}),
+      ...(body.nature !== undefined ? { nature: body.nature } : {}),
+      ...(body.date !== undefined ? { date: body.date } : {}),
+      ...(body.projet_id !== undefined ? { projet_id: body.projet_id ? +body.projet_id : null } : {}),
+      ...(body.montant !== undefined ? { montant: num(body.montant) } : {}),
+      ...(body.heures !== undefined ? { heures: num(body.heures) } : {}),
+    });
+    if (!res.ok) {
+      // 409 quand c'est un refus métier (extra déjà facturé), 404 s'il n'existe pas.
+      const code = res.raison?.includes("introuvable") ? 404 : res.raison?.includes("FACTURÉ") ? 409 : 400;
+      return NextResponse.json({ error: "modification refusée", message: res.raison }, { status: code });
+    }
+    journaliser("extra.modifie", {
+      ref_type: "extra", ref_id: body.id, utilisateur: user || undefined,
+      description: `${body.description ? `« ${String(body.description).slice(0, 50)} » · ` : ""}${body.montant != null ? `${body.montant} $` : ""}`.trim() || `extra #${body.id}`,
+      ip: ipDe(req),
+    }).catch(() => {});
+    return NextResponse.json({ ok: true });
+  }
+
   const charge = body.statut === "charge";
   await marquerExtraCharge(+body.id, charge);
   journaliser(charge ? "extra.charge" : "extra.rouvert", {

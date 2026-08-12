@@ -1867,6 +1867,47 @@ export async function marquerExtraCharge(id: number, charge: boolean): Promise<v
   await run("UPDATE extras SET statut = ?, date_charge = ? WHERE id = ?",
     [charge ? "charge" : "a_charger", charge ? new Date().toISOString() : null, id]);
 }
+/** Modifie le texte ou les montants d'un extra.
+ *
+ *  REFUSE un extra déjà FACTURÉ : le montant a servi à facturer le client, le changer
+ *  après coup ferait diverger la facture et le dossier sans laisser de trace. Il faut le
+ *  rouvrir (« ↩ Rouvrir »), corriger, puis le remarquer facturé — trois gestes explicites
+ *  et journalisés plutôt qu'une modification silencieuse. */
+export async function modifierExtra(
+  id: number,
+  x: { description?: string; montant?: number | null; heures?: number | null; nature?: string; date?: string; projet_id?: number | null },
+): Promise<{ ok: boolean; raison?: string }> {
+  const e = await one<{ statut: string; description: string }>("SELECT statut, description FROM extras WHERE id = ?", [id]);
+  if (!e) return { ok: false, raison: "Extra introuvable." };
+  if (e.statut === "charge") {
+    return { ok: false, raison: "Cet extra est déjà marqué FACTURÉ. Rouvre-le d'abord (↩ Rouvrir), corrige-le, puis remets-le à facturé." };
+  }
+
+  const sets: string[] = [];
+  const args: any[] = [];
+  if (x.description !== undefined) {
+    const d = String(x.description || "").trim();
+    if (!d) return { ok: false, raison: "La description ne peut pas être vide." };
+    sets.push("description = ?"); args.push(d.slice(0, 500));
+  }
+  if (x.nature !== undefined) { sets.push("nature = ?"); args.push(x.nature || null); }
+  if (x.date !== undefined) { sets.push("date = ?"); args.push(x.date || null); }
+  if (x.projet_id !== undefined) { sets.push("projet_id = ?"); args.push(x.projet_id || null); }
+  // montant et heures : 0 est une valeur, pas une absence — on ne passe donc PAS par
+  // `valeur || null` (le piège qui transformait un montant à 0 en null ailleurs).
+  if (x.montant !== undefined) {
+    if (x.montant !== null && !Number.isFinite(Number(x.montant))) return { ok: false, raison: "Montant invalide." };
+    sets.push("montant = ?"); args.push(x.montant === null ? null : Number(x.montant));
+  }
+  if (x.heures !== undefined) {
+    if (x.heures !== null && !Number.isFinite(Number(x.heures))) return { ok: false, raison: "Heures invalides." };
+    sets.push("heures = ?"); args.push(x.heures === null ? null : Number(x.heures));
+  }
+  if (!sets.length) return { ok: true };
+  await run(`UPDATE extras SET ${sets.join(", ")} WHERE id = ?`, [...args, id]);
+  return { ok: true };
+}
+
 export async function supprimerExtra(id: number): Promise<void> {
   await run("DELETE FROM extras WHERE id = ?", [id]);
 }

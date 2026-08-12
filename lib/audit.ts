@@ -29,6 +29,7 @@ export type ActiviteType =
   | "depense.modifiee"
   | "depense.supprimee"
   | "extra.ajoute"
+  | "extra.modifie"
   | "extra.charge"
   | "extra.rouvert"
   | "extra.supprime"
