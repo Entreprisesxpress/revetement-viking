@@ -194,13 +194,11 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* IDENTIFICATION DES PARTIES */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
-          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
-              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
-              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
-              donc ce n'est ni le cache de build ni la route. Une structure identique
-              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
-              page reste identifiée par son pied de page, et la couverture porte le
-              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
+          {/* L'en-tête EST bien dessiné sur chaque page. Ne pas se fier à une
+              extraction de texte pour en juger : pdf-parse ne remonte qu'une partie
+              du contenu positionné en absolu, de façon incohérente. Mesuré autrement
+              — en comptant les opérateurs de dessin de texte du flux PDF, titre
+              rempli vs vide : +2 par page, soit exactement le titre et le numéro. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -294,13 +292,11 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* DESCRIPTION + PAIEMENT + ASSURANCES */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
-          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
-              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
-              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
-              donc ce n'est ni le cache de build ni la route. Une structure identique
-              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
-              page reste identifiée par son pied de page, et la couverture porte le
-              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
+          {/* L'en-tête EST bien dessiné sur chaque page. Ne pas se fier à une
+              extraction de texte pour en juger : pdf-parse ne remonte qu'une partie
+              du contenu positionné en absolu, de façon incohérente. Mesuré autrement
+              — en comptant les opérateurs de dessin de texte du flux PDF, titre
+              rempli vs vide : +2 par page, soit exactement le titre et le numéro. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -330,7 +326,7 @@ export function ContratPDF({ c }: { c: ContratData }) {
         <View style={s.row}><Text>À la fin des travaux — Balance ({fin}%)</Text><Text style={{ fontWeight: 700 }}>{cad(montantFin)}</Text></View>
         <View style={s.rowFort}><Text>Total du contrat</Text><Text>{cad(c.prix_total)}</Text></View>
 
-        <Text style={s.h1}>4. Assurances</Text>
+        <Text style={s.h1}>5. Assurances</Text>
         <View style={s.twoCol}>
           <View style={s.col}>
             <Text style={s.label}>Nom de la compagnie d'assurance</Text>
@@ -350,13 +346,11 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* RESPONSABILITÉS */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
-          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
-              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
-              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
-              donc ce n'est ni le cache de build ni la route. Une structure identique
-              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
-              page reste identifiée par son pied de page, et la couverture porte le
-              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
+          {/* L'en-tête EST bien dessiné sur chaque page. Ne pas se fier à une
+              extraction de texte pour en juger : pdf-parse ne remonte qu'une partie
+              du contenu positionné en absolu, de façon incohérente. Mesuré autrement
+              — en comptant les opérateurs de dessin de texte du flux PDF, titre
+              rempli vs vide : +2 par page, soit exactement le titre et le numéro. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -366,7 +360,7 @@ export function ContratPDF({ c }: { c: ContratData }) {
           </View>
           <Text style={s.enTeteSous} render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`} />
         </View>
-        <Text style={s.h1}>5. Responsabilité des clients</Text>
+        <Text style={s.h1}>6. Responsabilité des clients</Text>
         {[
           "Toutes modifications au plan après signature de ce contrat seront considérées comme des extras et chargées en extra.",
           "Le client est responsable d'obtenir le permis nécessaire pour la réalisation des travaux.",
@@ -393,13 +387,11 @@ export function ContratPDF({ c }: { c: ContratData }) {
       {/* SIGNATURES */}
       <Page size="LETTER" style={s.page}>
         <View style={s.enTete} fixed>
-          {/* NOTE — le nom de l'entreprise et le numéro de contrat de cet en-tête ne
-              ressortent PAS à l'extraction de texte du PDF, alors que « Page N / M »
-              (même conteneur) et le pied de page en sortent. Reproduit hors serveur,
-              donc ce n'est ni le cache de build ni la route. Une structure identique
-              isolée fonctionne pourtant, logo compris — cause non identifiée. Chaque
-              page reste identifiée par son pied de page, et la couverture porte le
-              numéro de contrat. À confirmer à l'œil sur un PDF réel avant d'y toucher. */}
+          {/* L'en-tête EST bien dessiné sur chaque page. Ne pas se fier à une
+              extraction de texte pour en juger : pdf-parse ne remonte qu'une partie
+              du contenu positionné en absolu, de façon incohérente. Mesuré autrement
+              — en comptant les opérateurs de dessin de texte du flux PDF, titre
+              rempli vs vide : +2 par page, soit exactement le titre et le numéro. */}
           <View style={s.enTeteLogo}>
             <Logo size={26} />
             <View>
@@ -409,7 +401,7 @@ export function ContratPDF({ c }: { c: ContratData }) {
           </View>
           <Text style={s.enTeteSous} render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`} />
         </View>
-        <Text style={s.h1}>6. Signatures</Text>
+        <Text style={s.h1}>Signatures</Text>
         <Text style={s.para}>
           Votre signature ci-dessous indique que vous acceptez la présente proposition de gestion de projet et que vous concluez un accord contractuel avec {ENTREPRISE.nom} à compter de la date de signature ci-dessous.
         </Text>
