@@ -15,7 +15,11 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   if (sp.get("compteur") === "1") return noStore(await compterExtrasACharger());
   const statut = sp.get("statut") || undefined;
-  return noStore(await listerExtras(statut));
+  // Filtre par chantier, pour l'onglet Extras de la fiche projet. Sans lui il aurait
+  // fallu rapatrier les 500 extras de l'app pour n'en afficher que quelques-uns.
+  const pid = sp.get("projet_id");
+  const projet_id = pid !== null && pid !== "" && Number.isFinite(+pid) ? +pid : null;
+  return noStore(await listerExtras(statut, projet_id));
 }
 
 export async function POST(req: NextRequest) {

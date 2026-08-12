@@ -10,6 +10,7 @@ import { getProjetPrefetch, setProjetPrefetch } from "@/lib/prefetchProjet";
 import MeteoProjet from "@/components/MeteoProjet";
 import ZoneDepot from "@/components/ZoneDepot";
 import FacturesProjet from "@/components/FacturesProjet";
+import ExtrasVue from "@/components/ExtrasVue";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
@@ -63,7 +64,10 @@ export default function ProjetDetail() {
   const [heures, setHeures] = useState<any[]>(seed?.heures || []);
   const [depenses, setDepenses] = useState<any[]>(seed?.depenses || []);
   const [photos, setPhotos] = useState<any[]>(seed?.photos || []);
-  const [onglet, setOnglet] = useState<"heures" | "depenses" | "photos" | "description">("heures");
+  const [onglet, setOnglet] = useState<"heures" | "depenses" | "extras" | "photos" | "description">("heures");
+  // Compteur d'extras du chantier, affiché sur l'onglet. `null` tant qu'on ne sait pas :
+  // afficher « (0) » avant d'avoir la réponse ferait croire qu'il n'y en a aucun.
+  const [nbExtras, setNbExtras] = useState<number | null>(null);
 
   // Forms
   const today = new Date().toISOString().slice(0, 10);
@@ -123,6 +127,12 @@ export default function ProjetDetail() {
       setDepenses(d.depenses || []);
       setPhotos(d.photos || []);
       setProjetPrefetch(id, d); // garde le cache à jour pour les retours rapides
+      // Compteur de l'onglet Extras — requête à part et non bloquante : elle ne doit ni
+      // ralentir l'affichage de la fiche, ni la faire échouer si elle rate.
+      fetch(`/api/extras?projet_id=${id}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((l) => Array.isArray(l) && setNbExtras(l.length))
+        .catch(() => {});
     } catch {
       // Repli : anciennes requêtes séparées si l'endpoint combiné échoue
       const noStore = { cache: "no-store" as RequestCache };
@@ -529,12 +539,23 @@ ${VIKING_EMAIL}
 
         {/* Onglets */}
         <div className="flex gap-2 border-b overflow-x-auto">
-          {(["heures", "depenses", "description"] as const).map((o) => (
+          {(["heures", "depenses", "extras", "description"] as const).map((o) => (
             <button key={o} onClick={() => setOnglet(o)} className={`px-4 py-2 text-sm font-semibold border-b-2 transition whitespace-nowrap ${onglet === o ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
-              {o === "heures" ? `⏱️ Heures (${heures.length})` : o === "depenses" ? `💸 Dépenses (${depenses.length})` : `📝 Description / Photos`}
+              {o === "heures" ? `⏱️ Heures (${heures.length})`
+                : o === "depenses" ? `💸 Dépenses (${depenses.length})`
+                : o === "extras" ? `💲 Extras${nbExtras != null ? ` (${nbExtras})` : ""}`
+                : `📝 Description / Photos`}
             </button>
           ))}
         </div>
+
+        {/* ONGLET EXTRAS — même composant que /extras et l'onglet Extras des Finances,
+            limité à ce chantier. `onChange` recharge la fiche : un extra facturé entre
+            dans le revenu reconnu du projet, donc la rentabilité affichée plus haut doit
+            bouger tout de suite. */}
+        {onglet === "extras" && (
+          <ExtrasVue projetId={projet.id} onChange={charger} />
+        )}
 
         {/* ONGLET DESCRIPTION / PHOTOS */}
         {onglet === "description" && (

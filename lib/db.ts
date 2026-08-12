@@ -1851,9 +1851,14 @@ export async function ajouterExtra(x: Extra): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function listerExtras(statut?: string): Promise<any[]> {
-  const where = statut ? "WHERE e.statut = ?" : "";
-  const args = statut ? [statut] : [];
+export async function listerExtras(statut?: string, projet_id?: number | null): Promise<any[]> {
+  // Chaque condition est poussée séparément puis jointe par AND : construire la clause
+  // à la main invite les OR non parenthésés qui annulent les autres filtres.
+  const conds: string[] = [];
+  const args: any[] = [];
+  if (statut) { conds.push("e.statut = ?"); args.push(statut); }
+  if (projet_id != null) { conds.push("e.projet_id = ?"); args.push(projet_id); }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
   return await all<any>(`SELECT ${EXTRAS_COLS_LITES} FROM extras e LEFT JOIN projets p ON p.id = e.projet_id ${where} ORDER BY e.date DESC, e.id DESC LIMIT 500`, args);
 }
 export async function compterExtrasACharger(): Promise<{ n: number; total: number }> {

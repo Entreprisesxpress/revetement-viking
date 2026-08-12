@@ -8,9 +8,13 @@ import { envoyer } from "@/lib/envoi";
 
 const ICONE: Record<string, string> = { montant: "💰", heures: "⏱️", materiaux: "📦" };
 
-/** Liste + gestion des extras à facturer. Réutilisé par la page /extras et l'onglet
- *  Extras des Finances. */
-export default function ExtrasVue() {
+/** Liste + gestion des extras à facturer. Réutilisé par la page /extras, l'onglet Extras
+ *  des Finances, et l'onglet Extras d'une fiche projet.
+ *
+ *  `projetId` limite la vue à un seul chantier et pré-remplit le projet à la création :
+ *  le même écran, avec les mêmes gestes (modifier, marquer facturé, supprimer), plutôt
+ *  qu'une deuxième liste à maintenir en parallèle. */
+export default function ExtrasVue({ projetId, onChange }: { projetId?: number; onChange?: () => void } = {}) {
   const [onglet, setOnglet] = useState<"a_charger" | "charge">("a_charger");
   const [extras, setExtras] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,11 +25,16 @@ export default function ExtrasVue() {
 
   const charger = async () => {
     setLoading(true);
-    const d = await fetch(`/api/extras?statut=${onglet}`).then((r) => r.json()).catch(() => []);
+    const q = `statut=${onglet}${projetId ? `&projet_id=${projetId}` : ""}`;
+    const d = await fetch(`/api/extras?${q}`).then((r) => r.json()).catch(() => []);
     setExtras(Array.isArray(d) ? d : []);
     setLoading(false);
   };
-  useEffect(() => { charger(); }, [onglet]);
+  useEffect(() => { charger(); }, [onglet, projetId]);
+
+  // Un extra change le revenu du projet (les extras facturés entrent dans le revenu
+  // reconnu) : la fiche doit se recalculer, pas seulement cette liste.
+  const rafraichir = () => { charger(); onChange?.(); };
 
   // On ne retire la ligne de l'écran QUE si le serveur a confirmé : avant, une session
   // expirée faisait disparaître l'extra à l'écran alors qu'il restait « à charger » en
@@ -35,6 +44,7 @@ export default function ExtrasVue() {
     if (!r.ok) { toast(`Échec : ${r.erreur}`, "error"); return; }
     toast(charge ? "✓ Marqué facturé" : "Remis à facturer", "success");
     setExtras((arr) => arr.filter((x) => x.id !== e.id));
+    onChange?.();
   };
   const supprimer = async (e: any) => {
     if (!confirm("Supprimer cet extra ?")) return;
@@ -42,6 +52,7 @@ export default function ExtrasVue() {
     if (!r.ok) { toast(`Échec de la suppression : ${r.erreur}`, "error"); return; }
     toast("Extra supprimé", "info");
     setExtras((arr) => arr.filter((x) => x.id !== e.id));
+    onChange?.();
   };
 
   // === Modification en place (texte, montant, heures) ===
@@ -66,7 +77,7 @@ export default function ExtrasVue() {
     if (!r.ok) { toast(`Modification refusée : ${r.erreur}`, "error"); return; }
     toast("Extra modifié", "success");
     setEdition(null);
-    charger();
+    rafraichir();
   };
 
   const total = extras.reduce((s, e) => s + (e.montant || 0), 0);
@@ -191,7 +202,7 @@ export default function ExtrasVue() {
         </div>
       )}
 
-      <ModalExtra ouvert={modal} onClose={() => setModal(false)} onSuccess={charger} />
+      <ModalExtra ouvert={modal} onClose={() => setModal(false)} onSuccess={rafraichir} projetIdInitial={projetId} />
     </div>
   );
 }
