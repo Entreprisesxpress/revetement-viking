@@ -28,7 +28,7 @@ export default function ProjetsPage() {
   const [triAsc, setTriAsc] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creerOuvert, setCreerOuvert] = useState(false);
-  const [nouveau, setNouveau] = useState({ nom: "", client_nom: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: new Date().toISOString().slice(0, 10), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
+  const [nouveau, setNouveau] = useState({ nom: "", client_nom: "", client_telephone: "", client_courriel: "", client_adresse: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: new Date().toISOString().slice(0, 10), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
   const [facture, setFacture] = useState<{ data: string; type: string; nom: string } | null>(null);
   const [clientsExistants, setClientsExistants] = useState<any[]>([]);
   const [suggClient, setSuggClient] = useState(false);
@@ -66,8 +66,11 @@ export default function ProjetsPage() {
         date_debut: nouveau.date_debut || new Date().toISOString().slice(0, 10),
       }),
     });
-    const d = await r.json();
-    if (d.ok) {
+    const d = await r.json().catch(() => ({} as any));
+    // Échec silencieux avant : un refus du serveur (courriel invalide, statut inconnu)
+    // ne produisait AUCUN message — la fenêtre restait ouverte et on recliquait.
+    if (!d.ok) { toast(`Projet NON créé : ${d.message || d.error || `erreur ${r.status}`}`, "error"); return; }
+    {
       // Si une facture a été jointe, la sauvegarder via PATCH
       if (facture && d.id) {
         await fetch("/api/projets", {
@@ -75,9 +78,10 @@ export default function ProjetsPage() {
           body: JSON.stringify({ id: d.id, facture_finale_data: facture.data, facture_finale_type: facture.type }),
         });
       }
-      toast("Projet créé", "success");
+      // Créer une fiche client au passage est un effet de bord : on le dit.
+      toast(d.client_cree ? `Projet créé · fiche client « ${nouveau.client_nom.trim()} » ajoutée au CRM` : "Projet créé", "success");
       setCreerOuvert(false);
-      setNouveau({ nom: "", client_nom: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: new Date().toISOString().slice(0, 10), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
+      setNouveau({ nom: "", client_nom: "", client_telephone: "", client_courriel: "", client_adresse: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: new Date().toISOString().slice(0, 10), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
       setFacture(null);
       charger();
     }
@@ -307,6 +311,38 @@ export default function ProjetsPage() {
                 );
               })()}
             </div>
+
+            {/* Nouveau client : les coordonnées se saisissent ICI, pas plus tard dans le
+                CRM. Avant, seul le nom partait au serveur et la fiche naissait vide —
+                impossible d'envoyer un contrat ou une relance depuis le projet sans
+                retourner la compléter. Le bloc n'apparaît que si le nom saisi ne
+                correspond à aucune fiche existante. */}
+            {(() => {
+              const saisi = nouveau.client_nom.trim().toLowerCase();
+              if (!saisi) return null;
+              const existe = clientsExistants.some((c: any) => (c.nom || "").trim().toLowerCase() === saisi);
+              if (existe) {
+                return (
+                  <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2 -mt-1">
+                    ✓ Client existant — le projet sera rattaché à sa fiche.
+                  </p>
+                );
+              }
+              return (
+                <div className="border-2 border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2 -mt-1">
+                  <div className="text-xs font-bold text-amber-900">
+                    ✨ Nouveau client « {nouveau.client_nom.trim()} » — sa fiche sera créée avec le projet
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input label="Téléphone" value={nouveau.client_telephone} onChange={(v) => setNouveau({ ...nouveau, client_telephone: v })} placeholder="450-555-1234" />
+                    <Input label="Courriel" value={nouveau.client_courriel} onChange={(v) => setNouveau({ ...nouveau, client_courriel: v })} placeholder="client@exemple.com" />
+                  </div>
+                  <Input label="Adresse du client" value={nouveau.client_adresse} onChange={(v) => setNouveau({ ...nouveau, client_adresse: v })} placeholder="Laisser vide = même que l'adresse du chantier" />
+                  <p className="text-[10px] text-amber-800">Facultatif, mais sans courriel ni téléphone tu ne pourras ni relancer ce client ni lui envoyer un contrat depuis l'app.</p>
+                </div>
+              );
+            })()}
+
             <Input label="Adresse chantier" value={nouveau.adresse_chantier} onChange={(v) => setNouveau({ ...nouveau, adresse_chantier: v })} />
             <Input label="💰 Prix total du contrat $ *" value={nouveau.prix_contrat} onChange={(v) => setNouveau({ ...nouveau, prix_contrat: v })} type="number" placeholder="Ex: 45000" />
             <p className="text-[10px] text-slate-500 -mt-2">Ce prix devient la référence pour calculer la marge et la rentabilité du projet.</p>

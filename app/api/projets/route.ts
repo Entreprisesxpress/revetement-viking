@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerProjets, listerProjetsLite, listerProjetsAFacturer, getProjet, ajouterProjet, modifierProjet, supprimerProjet, trouverOuCreerClient, charger } from "@/lib/db";
+import { listerProjets, listerProjetsLite, listerProjetsAFacturer, getProjet, ajouterProjet, modifierProjet, supprimerProjet, trouverOuCreerClient, clientParNom, charger } from "@/lib/db";
 import { envoyerPushUtilisateur } from "@/lib/push";
 import { STATUTS_PROJET } from "@/lib/statuts-projet";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
+import { courrielValide } from "@/lib/vocabulaire";
 
 // Statuts reconnus par l'app (filtres, CA, dashboard). Un statut hors liste rendait
 // le projet invisible des filtres ET du CA — silencieusement.
@@ -66,13 +67,33 @@ export async function POST(req: NextRequest) {
       return ok({ ok: true, id });
     }
     if (statutInvalide(body.statut)) return NextResponse.json({ error: `statut invalide : ${body.statut}` }, { status: 400 });
+    // Client créé au passage, AVEC ses coordonnées si elles sont fournies. Avant, seul le
+    // nom était transmis : la fiche naissait vide, sans téléphone ni courriel, et il
+    // fallait retourner dans le CRM la compléter — donc la relance et l'envoi de contrat
+    // ne pouvaient pas partir depuis le projet.
+    let clientCree = false;
     if (!body.client_id && body.client_nom) {
-      body.client_id = await trouverOuCreerClient(body.client_nom);
+      if (!courrielValide(body.client_courriel)) {
+        return NextResponse.json({ error: `courriel du client invalide « ${body.client_courriel} »` }, { status: 400 });
+      }
+      const avant = await clientParNom(body.client_nom);
+      body.client_id = await trouverOuCreerClient(body.client_nom, {
+        telephone: body.client_telephone || undefined,
+        courriel: body.client_courriel || undefined,
+        // À défaut d'adresse de client, celle du chantier : c'est la même dans
+        // l'écrasante majorité des dossiers, et une fiche sans adresse ne sert à rien.
+        adresse: body.client_adresse || body.adresse_chantier || undefined,
+        statut: "actif",
+        source: body.client_source || undefined,
+      } as any);
+      clientCree = !avant && !!body.client_id;
     }
     const user = await utilisateurActif(req);
     const id = await ajouterProjet({ ...body, cree_par: user || undefined });
     journaliser("projet.cree", { ref_type: "projet", ref_id: id, utilisateur: user || undefined, description: body.nom || `Projet #${id}` });
-    return ok({ ok: true, id });
+    // `client_cree` remonte à l'écran pour qu'il puisse le dire : créer une fiche client
+    // au passage est un effet de bord, il ne doit pas être invisible.
+    return ok({ ok: true, id, client_id: body.client_id || null, client_cree: clientCree });
   } catch (e) { return fail(e); }
 }
 

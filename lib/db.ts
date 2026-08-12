@@ -913,6 +913,16 @@ export async function supprimerClient(id: number): Promise<{ ok: boolean; raison
   await run("DELETE FROM clients WHERE id = ?", [id]);
   return { ok: true };
 }
+/** Cherche un client par son nom exact (insensible à la casse et aux espaces de bord).
+ *  Sert à savoir si une création de projet a AJOUTÉ un client ou réutilisé une fiche —
+ *  pour pouvoir le dire à l'écran plutôt que de laisser deviner. */
+export async function clientParNom(nom: string): Promise<{ id: number; nom: string } | null> {
+  if (!nom?.trim()) return null;
+  return await one<{ id: number; nom: string }>(
+    "SELECT id, nom FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?)", [nom.trim()]
+  );
+}
+
 export async function trouverOuCreerClient(nom: string, infos?: Partial<ClientType>): Promise<number> {
   if (!nom?.trim()) return 0;
   const existant = await one<{ id: number }>("SELECT id FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?)", [nom.trim()]);
