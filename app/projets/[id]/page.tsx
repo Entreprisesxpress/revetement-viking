@@ -1270,6 +1270,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   const [factureOuverte, setFactureOuverte] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [sauveBusy, setSauveBusy] = useState(false);
+  const { toast } = useToast();
   // Le champ n'était initialisé qu'au tout premier rendu. Or l'OCR de facture (plus bas)
   // écrit `prix_contrat` dans la même page : le champ restait donc VIDE, et un « Modifier »
   // suivi de « ✓ » renvoyait prix_contrat: null — rentabilité, marge et % budget tombaient
@@ -1332,27 +1333,49 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
       });
       if (!rp.ok) { alert(`Facture NON jointe : ${rp.erreur}\n\nEssaie un fichier plus léger (PDF compressé ou photo réduite).`); return; }
       onUpdate();
-      // OCR : si le prix du contrat n'est pas défini, lit le total de la facture et le propose.
-      if (!projet.prix_contrat) {
-        setOcrBusy(true);
-        try {
-          const r = await fetch("/api/facture-ocr", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ dataUrl }),
-          }).then((x) => x.json());
-          if (r?.ok && r.total) {
-            const fmt = (+r.total).toLocaleString("fr-CA", { style: "currency", currency: "CAD" });
-            if (confirm(`💡 Total détecté sur la facture : ${fmt}\n\nL'utiliser comme prix du contrat ?`)) {
-              const rp2 = await envoyer("/api/projets", {
-                methode: "PATCH",
-                corps: { id: projet.id, prix_contrat: r.total, budget_estime: r.total },
-              });
-              if (!rp2.ok) alert(`Prix du contrat NON enregistré : ${rp2.erreur}`);
-              else onUpdate();
-            }
-          }
-        } catch { /* OCR best-effort */ } finally { setOcrBusy(false); }
-      }
+
+      // OCR AUTOMATIQUE : joindre la facture remplit le prix du contrat, sans saisie.
+      // Avant, la lecture ne partait que si le prix était vide, et elle demandait
+      // confirmation par une fenêtre — donc il fallait quand même intervenir, et une
+      // facture déposée sur un projet déjà chiffré n'était jamais lue.
+      setOcrBusy(true);
+      try {
+        const r = await fetch("/api/facture-ocr", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl }),
+        }).then((x) => x.json()).catch(() => null);
+
+        if (!r?.ok || !r.total) {
+          // On le DIT au lieu d'échouer en silence : sans message, il croirait que le
+          // prix s'est rempli et repartirait avec un projet à 0 $.
+          toast(`Facture jointe, mais le total n'a pas pu être lu${r?.error ? ` (${r.error})` : ""}. Saisis-le à la main dans « Prix du contrat ».`, "warning");
+          return;
+        }
+
+        const ancien = +projet.prix_contrat || 0;
+        const nouveau = +r.total;
+        const fmt = (n: number) => n.toLocaleString("fr-CA", { style: "currency", currency: "CAD" });
+
+        const rp2 = await envoyer("/api/projets", {
+          methode: "PATCH",
+          corps: { id: projet.id, prix_contrat: nouveau, budget_estime: nouveau },
+        });
+        if (!rp2.ok) { toast(`Total lu (${fmt(nouveau)}) mais NON enregistré : ${rp2.erreur}`, "error"); return; }
+        onUpdate();
+
+        // Le message change selon ce qui s'est réellement passé : remplacer un prix
+        // existant par un autre doit se voir, même si le geste reste automatique.
+        const bas = r.confiance === "basse" ? " — lecture peu sûre, vérifie le montant" : "";
+        if (!ancien) {
+          toast(`✓ Prix du contrat rempli depuis la facture : ${fmt(nouveau)}${bas}`, "success");
+        } else if (Math.abs(ancien - nouveau) < 0.01) {
+          toast(`✓ Total lu sur la facture : ${fmt(nouveau)} — identique au prix déjà au dossier`, "success");
+        } else {
+          toast(`✓ Prix du contrat mis à jour depuis la facture : ${fmt(ancien)} → ${fmt(nouveau)}${bas}`, "info");
+        }
+      } catch (e: any) {
+        toast(`Facture jointe, mais la lecture du total a échoué : ${e?.message || e}`, "warning");
+      } finally { setOcrBusy(false); }
     };
     reader.readAsDataURL(file);
   };
@@ -1416,8 +1439,10 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
               </label>
             </div>
           ) : (
-            <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 rounded p-3 text-center transition flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
-              🧾 Joindre la facture (ou glisse-dépose)
+            <label className="cursor-pointer bg-white border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 rounded p-3 text-center transition flex flex-col items-center justify-center gap-1 text-sm font-semibold text-slate-700">
+              <span>🧾 Joindre la facture (ou glisse-dépose)</span>
+              {/* On annonce l'effet : la facture remplit le prix du contrat toute seule. */}
+              <span className="text-[11px] font-normal text-slate-500">Le total sera lu automatiquement et inscrit comme prix du contrat</span>
               <input type="file" accept="image/*,application/pdf" className="hidden" onChange={uploadFacture} />
             </label>
           )}
