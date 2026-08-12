@@ -84,6 +84,12 @@ export default function SoumissionForm() {
   const [chargementPDF, setChargementPDF] = useState(false);
   const [chargementCmd, setChargementCmd] = useState(false);
   const [chargementPrix, setChargementPrix] = useState<string | null>(null);
+  // Clients du CRM, seulement pour dire à l'écran si la fiche existe déjà ou sera créée.
+  // Chargement non bloquant : le formulaire doit s'ouvrir même si l'appel rate.
+  const [clientsCrm, setClientsCrm] = useState<any[]>([]);
+  useEffect(() => {
+    fetch("/api/clients").then((r) => (r.ok ? r.json() : [])).then((l) => Array.isArray(l) && setClientsCrm(l)).catch(() => {});
+  }, []);
   const initialLoadDone = useRef(false);
 
   const fournisseurs = useMemo(() => Array.from(new Set(MATERIAUX.map((m) => m.fournisseur))), []);
@@ -494,7 +500,8 @@ export default function SoumissionForm() {
           }).catch(() => {});
         }
       }
-      toast(`Sauvegardée : ${d.numero}`, "success");
+      // Créer une fiche CRM au passage est un effet de bord : on le dit.
+      toast(d.client_cree ? `Sauvegardée : ${d.numero} · fiche client « ${client.nom.trim()} » ajoutée au CRM` : `Sauvegardée : ${d.numero}`, "success");
     } catch (e: any) {
       toast(`Échec de la sauvegarde (${e?.message || "réseau"}) — ton brouillon est conservé`, "error");
     } finally { setChargementSave(false); }
@@ -852,6 +859,24 @@ info@entreprisesxpress.ca`;
               <Input label="Projet" value={client.projet} onChange={(v) => setClient({ ...client, projet: v })} />
               <div className="md:col-span-2"><AdresseAutocomplete label="Adresse" value={client.adresse} onChange={(v) => setClient({ ...client, adresse: v })} placeholder="Commence à taper l'adresse du chantier…" /></div>
             </div>
+            {/* Effet de bord annoncé : enregistrer une NOUVELLE soumission crée aussi la
+                fiche CRM du client, avec les coordonnées saisies ici. Avant, la soumission
+                portait ces informations mais aucun prospect n'existait dans le CRM —
+                ni relance, ni pipeline, ni contrat sans tout ressaisir. */}
+            {!modifierNumero && client.nom.trim() && (() => {
+              const saisi = client.nom.trim().toLowerCase();
+              const existe = clientsCrm.some((c: any) => (c.nom || "").trim().toLowerCase() === saisi);
+              return existe ? (
+                <p className="mt-3 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+                  ✓ Client déjà au CRM — la soumission sera rattachée à sa fiche.
+                </p>
+              ) : (
+                <p className="mt-3 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">
+                  ✨ Nouveau client : la fiche de <strong>{client.nom.trim()}</strong> sera créée dans le CRM
+                  (étape « Info 1<sup>re</sup> soumission ») avec le téléphone, le courriel et l'adresse saisis ci-dessus.
+                </p>
+              );
+            })()}
           </section>
 
           {/* LIGNES */}

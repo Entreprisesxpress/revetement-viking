@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sauvegarder, lister, charger, supprimer, changerStatut, enregistrerHeuresReelles, statistiques } from "@/lib/db";
+import { sauvegarder, lister, charger, supprimer, changerStatut, enregistrerHeuresReelles, statistiques, trouverOuCreerClient, clientParNom } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
+import { courrielValide } from "@/lib/vocabulaire";
 
 function ipDe(req: NextRequest): string | undefined {
   return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || undefined;
@@ -27,13 +28,39 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     if (!body || typeof body !== "object") return NextResponse.json({ error: "payload invalide" }, { status: 400 });
     const nouveau = !body.numero;
+
+    // Fiche client créée au passage, comme à la création d'un projet. Une soumission
+    // porte déjà toutes les coordonnées du client (nom, adresse, téléphone, courriel)
+    // mais ne créait AUCUNE fiche CRM : le prospect n'existait nulle part, donc ni
+    // relance, ni pipeline, ni contrat possible sans le ressaisir à la main.
+    // Uniquement à la CRÉATION : modifier une soumission ne doit pas créer de fiche.
+    let clientCree = false;
+    let clientId: number | null = null;
+    const c = body.client || {};
+    if (nouveau && c.nom?.trim()) {
+      if (!courrielValide(c.courriel)) {
+        return NextResponse.json({ error: `courriel du client invalide « ${c.courriel} »` }, { status: 400 });
+      }
+      const avant = await clientParNom(c.nom);
+      clientId = await trouverOuCreerClient(c.nom, {
+        telephone: c.telephone || undefined,
+        courriel: c.courriel || undefined,
+        adresse: c.adresse || undefined,
+        // Une soumission, c'est un prospect au tout début du pipeline — pas un client
+        // actif. Le statut suit quand le contrat est signé.
+        statut: "prospect",
+        pipeline_stage: "info_1",
+      } as any);
+      clientCree = !avant && !!clientId;
+    }
+
     const numero = await sauvegarder(body);
     journaliser(nouveau ? "soumission.creee" : "soumission.modifiee", {
       ref_type: "soumission", ref_id: numero,
       description: `${body.client?.nom || "?"} · ${body.total ? body.total + " $" : "0 $"}`,
       ip: ipDe(req), user_agent: req.headers.get("user-agent") || undefined,
     });
-    return NextResponse.json({ numero, ok: true });
+    return NextResponse.json({ numero, ok: true, client_id: clientId, client_cree: clientCree });
   } catch (e: any) {
     // Refus métier (soumission signée) ≠ panne. 409 pour que l'écran affiche le motif
     // au lieu de « erreur serveur », et pour ne pas polluer le suivi d'incidents.
