@@ -7,6 +7,7 @@ import BottomSheet from "@/components/BottomSheet";
 import { compresserImage, genererVignette } from "@/lib/img";
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
+import { accepteSaisieTardive } from "@/lib/statuts-projet";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; onExtra?: () => void; }
 interface LigneJour {
@@ -69,8 +70,11 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
       fetch("/api/projets").then((r) => r.json()).catch(() => []),
       fetch("/api/heures").then((r) => r.json()).catch(() => []),
     ]).then(([tous, heures]: [any[], any[]]) => {
+      // Même tolérance que les dépenses : un chantier complété reste saisissable deux
+      // semaines (retouches de garantie, finition pointée après la fermeture).
+      // Règle commune — voir lib/statuts-projet.ts.
       const dispo = (Array.isArray(tous) ? tous : [])
-        .filter((p) => p.statut !== "complete" && p.statut !== "annule")
+        .filter((p) => accepteSaisieTardive(p))
         .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
       setProjets(dispo);
       if (dispo.length > 0 && lignes.length === 0) {
