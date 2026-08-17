@@ -1051,15 +1051,23 @@ function DescriptionTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { pro
   const [texte, setTexte] = useState(projet.description || "");
   const [busy, setBusy] = useState(false);
   const [notesOuvert, setNotesOuvert] = useState(false);
+  const enCours = useRef(false);
   const { toast } = useToast();
   useEffect(() => { setTexte(projet.description || ""); }, [projet.id]);
   const sauver = async () => {
+    // Verrou par ref (voir lib/verrou.ts) : l'état ne bloque pas deux clics du même instant.
+    if (enCours.current) return;
+    enCours.current = true;
     setBusy(true);
-    try {
-      await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: projet.id, description: texte }) });
-      toast("Notes du projet enregistrées", "success");
-      onUpdate();
-    } finally { setBusy(false); }
+    // Réponse vérifiée : le succès s'affichait quoi qu'il arrive. Une session expirée ou
+    // un refus du serveur donnait quand même « enregistrées » en vert, et la description
+    // était perdue au rechargement. La description reste modifiable sur un chantier
+    // COMPLÉTÉ — rien ne la verrouille, et c'est voulu.
+    const r = await envoyer("/api/projets", { methode: "PATCH", corps: { id: projet.id, description: texte } })
+      .finally(() => { enCours.current = false; setBusy(false); });
+    if (!r.ok) { toast(`Description NON enregistrée : ${r.erreur}`, "error"); return; }
+    toast("Notes du projet enregistrées", "success");
+    onUpdate();
   };
   const modifie = texte !== (projet.description || "");
 
@@ -1190,9 +1198,11 @@ function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: (
   const [date, setDate] = useState(today);
   const [description, setDescription] = useState("");
   const [autoScan, setAutoScan] = useState(false); // off par défaut sur les photos de chantier (paysages)
+  const { toast } = useToast();
 
   const upload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const echecs: string[] = [];
     const { compresserImage, genererVignette } = await import("@/lib/img");
     const scanner = autoScan ? await import("@/lib/imgScanner") : null;
     setBusy(true);
@@ -1200,7 +1210,8 @@ function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: (
     try {
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        if (f.size > 20 * 1024 * 1024) continue;
+        // Passée sous silence avant : la photo était sautée et la barre avançait quand même.
+        if (f.size > 20 * 1024 * 1024) { echecs.push(`${f.name} (trop lourde, max 20 Mo)`); setProgress({ total: files.length, done: i + 1 }); continue; }
         let data = await compresserImage(f);
         if (scanner) {
           try {
@@ -1209,14 +1220,20 @@ function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: (
           } catch { /* garde l'original si scan échoue */ }
         }
         const thumb = await genererVignette(f).catch(() => null);
-        await fetch("/api/photos", {
+        // Réponse vérifiée : sans ça, une photo refusée (session expirée, image trop
+        // lourde) avançait quand même la barre de progression et disparaissait sans un
+        // mot — on quittait le chantier en croyant l'avoir documenté.
+        const rp = await fetch("/api/photos", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ projet_id, date, description: description || f.name, photo_data: data, photo_type: "image/jpeg", employes: "Manuel", thumb_data: thumb }),
-        });
+        }).catch(() => null);
+        if (!rp || !rp.ok) echecs.push(f.name);
         setProgress({ total: files.length, done: i + 1 });
       }
       onUpload();
       setDescription("");
+      if (echecs.length) toast(`${echecs.length} photo(s) NON enregistrée(s) : ${echecs.join(", ")}`, "error");
+      else if (files.length) toast(`${files.length} photo(s) ajoutée(s)`, "success");
     } finally {
       setBusy(false);
     }

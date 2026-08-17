@@ -24,8 +24,14 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
   useEffect(() => {
     if (!ouvert) return;
     fetch("/api/projets?lite=1").then((r) => r.json()).then((tous: any[]) => {
+      // Les chantiers COMPLÉTÉS restent disponibles : des photos arrivent après la fin
+      // des travaux (retouches, inspection, avant/après pour le marketing, réclamation
+      // de garantie). Ils étaient exclus d'office, donc introuvables même en cherchant
+      // leur nom — la seule façon d'ajouter une photo était de passer par la fiche du
+      // projet. ProjetPicker ne les propose pas par défaut mais les trouve à la recherche,
+      // et les marque « ✅ complété ». Les projets ANNULÉS, eux, restent écartés.
       const dispo = (Array.isArray(tous) ? tous : [])
-        .filter((p) => p.statut !== "complete" && p.statut !== "annule")
+        .filter((p) => p.statut !== "annule")
         .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
       setProjets(dispo);
       if (!projet_id && dispo.length > 0) setProjetId(projetIdInitial || dispo[0].id);
