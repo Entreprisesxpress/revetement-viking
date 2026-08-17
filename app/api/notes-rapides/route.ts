@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, initDb } from "@/lib/db";
+import { db, initDb, projetReferenceValide } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 
 const c: any = () => db();
@@ -21,6 +21,11 @@ export async function POST(req: NextRequest) {
   await initDb();
   const b = await req.json();
   if (!b.texte || !b.texte.trim()) return NextResponse.json({ error: "texte requis" }, { status: 400 });
+  // Même garde-fou que les autres écritures rattachées à un chantier : une note pointant
+  // sur un projet inexistant ne s'afficherait nulle part et serait perdue d'avance.
+  if (!(await projetReferenceValide(b.projet_id))) {
+    return NextResponse.json({ error: "projet introuvable" }, { status: 400 });
+  }
   const auteur = (await utilisateurActif(req)) || "?";
   const r = await c().execute({
     sql: "INSERT INTO notes_rapides (projet_id, client_id, texte, source, auteur, date_creation) VALUES (?,?,?,?,?,?)",

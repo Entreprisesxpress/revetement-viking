@@ -75,6 +75,9 @@ function NouveauContrat() {
   const [envoye, setEnvoye] = useState(false);
   const [apercu, setApercu] = useState<string | null>(null);
   const fichierRef = useRef<HTMLInputElement>(null);
+  // Verrou synchrone : un état laisse passer deux clics du même instant (voir lib/verrou.ts).
+  // Ici l'enjeu est réel — deux contrats créés, deux numéros, deux liens de signature.
+  const envoiContrat = useRef(false);
   const maj = (p: Partial<Champs>) => setF((x) => ({ ...x, ...p }));
 
   useEffect(() => {
@@ -187,8 +190,9 @@ function NouveauContrat() {
   useEffect(() => () => { if (apercu) URL.revokeObjectURL(apercu); }, [apercu]);
 
   const creer = async () => {
-    if (busy) return;
+    if (envoiContrat.current) return;
     if (manques.length) { toast(`Il manque ${manques.join(", ")}.`, "warning"); return; }
+    envoiContrat.current = true;
     setBusy(true);
     try {
       const data = donneesContrat();
@@ -207,7 +211,7 @@ function NouveauContrat() {
       setResultat({ token: r.data.token, numero: r.data.numero });
       setCourrielEnvoi(f.client_courriel.trim());
       toast(`Contrat ${r.data.numero} prêt à envoyer`, "success");
-    } finally { setBusy(false); }
+    } finally { envoiContrat.current = false; setBusy(false); }
   };
 
   const envoyerAuClient = async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
@@ -12,6 +12,7 @@ import ZoneDepot from "@/components/ZoneDepot";
 import FacturesProjet from "@/components/FacturesProjet";
 import ExtrasVue from "@/components/ExtrasVue";
 import DocumentsProjet from "@/components/DocumentsProjet";
+import MicVocal from "@/components/MicVocal";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
@@ -164,18 +165,25 @@ export default function ProjetDetail() {
   // qu'après la réponse du serveur.
   const [busyHeures, setBusyHeures] = useState(false);
   const [busyDepense, setBusyDepense] = useState(false);
+  // Le verrou qui compte est le REF, pas l'état : `if (busyX) return` sur un useState
+  // laisse passer deux clics tirés dans le même instant — React n'a pas encore re-rendu,
+  // ni appliqué `disabled` au bouton. Mesuré ailleurs dans l'app : le double-clic créait
+  // bien deux enregistrements. L'état ne sert plus qu'à griser le bouton. Voir lib/verrou.ts.
+  const envoiHeures = useRef(false);
+  const envoiDepense = useRef(false);
 
   const ajouterHeures = async () => {
-    if (busyHeures) return;
+    if (envoiHeures.current) return;
     if (!hForm.heures) { toast("Heures requises", "warning"); return; }
     if (!hForm.employe) { toast("Sélectionne un employé", "warning"); return; }
     if (!hForm.taux_horaire) { toast("Taux horaire manquant", "warning"); return; }
+    envoiHeures.current = true;
     setBusyHeures(true);
     // postOuFile (et non envoyer) : réseau coupé sur un toit = la saisie est mise en file
     // locale et repartira au retour du réseau, au lieu d'être à ressaisir.
     const r = await postOuFile("/api/heures",
       { projet_id: id, date: hForm.date, heures: nombreSaisi(hForm.heures), description: hForm.description, employe: hForm.employe, taux_horaire: nombreSaisi(hForm.taux_horaire) },
-    ).finally(() => setBusyHeures(false));
+    ).finally(() => { envoiHeures.current = false; setBusyHeures(false); });
     if (!r.ok) { toast(`Heures NON enregistrées : ${r.erreur}`, "error"); return; }
     if (r.offline) {
       toast(`📴 Hors ligne — ${hForm.heures} h en attente d'envoi`, "warning");
@@ -199,12 +207,13 @@ export default function ProjetDetail() {
   };
 
   const ajouterDepense = async () => {
-    if (busyDepense) return;
+    if (envoiDepense.current) return;
     if (!dForm.montant) { toast("Montant requis", "warning"); return; }
+    envoiDepense.current = true;
     setBusyDepense(true);
     const r = await postOuFile("/api/depenses",
       { projet_id: id, date: dForm.date, montant: nombreSaisi(dForm.montant), fournisseur: dForm.fournisseur, description: dForm.description, categorie: dForm.categorie },
-    ).finally(() => setBusyDepense(false));
+    ).finally(() => { envoiDepense.current = false; setBusyDepense(false); });
     if (!r.ok) { toast(`Dépense NON enregistrée : ${r.erreur}`, "error"); return; }
     if (r.offline) {
       toast(`📴 Hors ligne — dépense ${formatCAD(nombreSaisi(dForm.montant))} en attente d'envoi`, "warning");
@@ -1535,17 +1544,79 @@ function FieldDate({ label, value, onChange }: { label: string; value: string; o
 
 function NotesRapidesProjet({ projet_id }: { projet_id: number }) {
   const [notes, setNotes] = useState<any[]>([]);
+  const [texte, setTexte] = useState("");
+  const [busy, setBusy] = useState(false);
+  const enCours = useRef(false);   // verrou synchrone — voir `ajouter`
+  const { toast } = useToast();
   const charger = () => fetch(`/api/notes-rapides?projet_id=${projet_id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNotes(Array.isArray(d) ? d : []));
   useEffect(() => { charger(); }, [projet_id]);
+
+  const ajouter = async () => {
+    // Verrou par RÉFÉRENCE, pas par état : deux clics dans le même instant passent tous
+    // les deux avant que React n'ait re-rendu avec `busy = true` (et avant que l'attribut
+    // `disabled` ne s'applique). Mesuré : un double-clic créait bien DEUX notes
+    // identiques en base. Un ref change tout de suite, donc le second clic est bloqué.
+    if (enCours.current) return;
+    const t = texte.trim();
+    if (!t) { toast("Écris une note avant d'ajouter", "warning"); return; }
+    enCours.current = true;
+    setBusy(true);
+    const r = await envoyer("/api/notes-rapides", { corps: { projet_id, texte: t, source: "manuel" } })
+      .finally(() => { enCours.current = false; setBusy(false); });
+    if (!r.ok) { toast(`Note NON enregistrée : ${r.erreur}`, "error"); return; }
+    setTexte("");
+    charger();
+    toast("Note ajoutée", "success");
+  };
+
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer cette note ?")) return;
-    await fetch(`/api/notes-rapides?id=${id}`, { method: "DELETE" });
-    charger();
+    // Réponse vérifiée : sans ça, une session expirée faisait disparaître la note de
+    // l'écran alors qu'elle restait en base — elle « revenait » au rechargement.
+    const r = await envoyer(`/api/notes-rapides?id=${id}`, { methode: "DELETE" });
+    if (!r.ok) { toast(`Échec de la suppression : ${r.erreur}`, "error"); return; }
+    setNotes((arr) => arr.filter((n) => n.id !== id));
   };
-  if (notes.length === 0) return null;
+
   return (
     <section className="bg-white rounded-lg shadow p-4 border-l-4 border-emerald-400">
-      <h3 className="font-bold text-slate-900 mb-3 flex items-center gap-2">🎤 Notes du chantier <span className="text-xs font-normal text-slate-500">({notes.length})</span></h3>
+      <h3 className="font-bold text-slate-900 mb-3 flex items-center gap-2">
+        📝 Notes du chantier {notes.length > 0 && <span className="text-xs font-normal text-slate-500">({notes.length})</span>}
+      </h3>
+
+      {/* Zone d'écriture. La section était AFFICHÉE seulement s'il existait déjà des
+          notes, et sans champ de saisie : on ne pouvait en écrire une que par la dictée
+          du micro flottant, et rien n'indiquait que l'endroit existait. */}
+      <div className="mb-3">
+        <div className="flex gap-2 items-start">
+          <textarea
+            value={texte}
+            onChange={(e) => setTexte(e.target.value)}
+            onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") ajouter(); }}
+            rows={2}
+            placeholder="Ex. : le client veut décaler le début d'une semaine · fenêtre du salon à recommander · voisin à prévenir avant l'échafaudage"
+            className="flex-1 px-3 py-2 border rounded text-sm resize-y min-h-[60px]"
+          />
+          <MicVocal onTranscript={(t) => setTexte((v) => (v ? `${v} ${t}` : t))} />
+        </div>
+        <div className="flex justify-between items-center mt-2 gap-2">
+          <span className="text-[10px] text-slate-400">Ctrl+Entrée pour ajouter · le micro dicte dans le champ</span>
+          <button
+            onClick={ajouter}
+            disabled={busy || !texte.trim()}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold min-h-[44px]"
+          >
+            {busy ? "⏳…" : "＋ Ajouter la note"}
+          </button>
+        </div>
+      </div>
+
+      {notes.length === 0 && (
+        <p className="text-sm text-slate-500 bg-slate-50 rounded p-3">
+          Aucune note pour l'instant. Tout ce qui se dit sur le chantier et qui doit se retrouver plus tard va ici.
+        </p>
+      )}
+
       <ul className="space-y-2">
         {notes.map((n) => (
           <li key={n.id} className="bg-slate-50 rounded p-3 flex justify-between items-start gap-2">
