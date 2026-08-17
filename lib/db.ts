@@ -18,7 +18,7 @@ let _initPromise: Promise<void> | null = null;
 // Incrémenter à CHAQUE changement de schéma (nouvelle colonne/table/index).
 // Tant que la version stockée (PRAGMA user_version) ≥ cette valeur, initDb saute
 // toutes les migrations → 1 seul aller-retour réseau au lieu de ~70 (clé de la rapidité).
-const SCHEMA_VERSION = 23;
+const SCHEMA_VERSION = 24;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -208,6 +208,17 @@ async function doInitDb() {
     data TEXT NOT NULL, ajoute_par TEXT, date_ajout TEXT NOT NULL
   )`);
   await tryExec("CREATE INDEX IF NOT EXISTS idx_client_fichiers_cli ON client_fichiers(client_id, date_ajout DESC)");
+  // Documents d'un CHANTIER : permis, plans, garanties, fiches techniques, rapports
+  // d'inspection… Distinct des photos de chantier (galerie datée), du contrat signé et de
+  // la facture finale, qui ont chacun leur emplacement dédié. Même forme que
+  // client_fichiers pour que les deux espaces se comportent pareil.
+  await tryExec(`CREATE TABLE IF NOT EXISTS projet_fichiers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    projet_id INTEGER NOT NULL, nom TEXT, type TEXT, taille INTEGER,
+    categorie TEXT, description TEXT,
+    data TEXT NOT NULL, ajoute_par TEXT, date_ajout TEXT NOT NULL
+  )`);
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_projet_fichiers_proj ON projet_fichiers(projet_id, date_ajout DESC)");
   // Sous-tâches d'une carte pipeline (checklist style Asana)
   await tryExec(`CREATE TABLE IF NOT EXISTS client_taches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1298,6 +1309,46 @@ export async function ajouterFichierClient(f: { client_id: number; nom: string; 
 }
 export async function supprimerFichierClient(id: number): Promise<void> {
   await run("DELETE FROM client_fichiers WHERE id = ?", [id]);
+}
+
+// === DOCUMENTS DE CHANTIER (permis, plans, garanties…) ===
+/** La colonne `data` (le fichier en base64) est volontairement EXCLUE de la liste :
+ *  quelques documents de 3 Mo suffiraient à rendre l'ouverture de l'onglet interminable.
+ *  Le contenu passe par sa propre route, un fichier à la fois. */
+export async function listerFichiersProjet(projet_id: number): Promise<any[]> {
+  return await all<any>(
+    "SELECT id, projet_id, nom, type, taille, categorie, description, ajoute_par, date_ajout FROM projet_fichiers WHERE projet_id = ? ORDER BY date_ajout DESC",
+    [projet_id]
+  );
+}
+export async function getFichierProjet(id: number): Promise<{ data: string; type: string; nom: string } | null> {
+  return await one<any>("SELECT data, type, nom FROM projet_fichiers WHERE id = ?", [id]);
+}
+export async function ajouterFichierProjet(f: {
+  projet_id: number; nom: string; type: string; data: string;
+  taille?: number; categorie?: string; description?: string; ajoute_par?: string;
+}): Promise<number> {
+  const r = await run(
+    "INSERT INTO projet_fichiers (projet_id, nom, type, taille, categorie, description, data, ajoute_par, date_ajout) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [f.projet_id, f.nom, f.type, f.taille || null, f.categorie || null, f.description || null, f.data, f.ajoute_par || null, new Date().toISOString()]
+  );
+  return r.lastInsertRowid;
+}
+export async function modifierFichierProjet(id: number, f: { nom?: string; categorie?: string; description?: string }): Promise<boolean> {
+  const sets: string[] = []; const args: any[] = [];
+  if (f.nom !== undefined) { const n = String(f.nom || "").trim(); if (!n) return false; sets.push("nom = ?"); args.push(n.slice(0, 200)); }
+  if (f.categorie !== undefined) { sets.push("categorie = ?"); args.push(f.categorie || null); }
+  if (f.description !== undefined) { sets.push("description = ?"); args.push(f.description || null); }
+  if (!sets.length) return true;
+  const r = await run(`UPDATE projet_fichiers SET ${sets.join(", ")} WHERE id = ?`, [...args, id]);
+  return r.rowsAffected > 0;
+}
+export async function supprimerFichierProjet(id: number): Promise<void> {
+  await run("DELETE FROM projet_fichiers WHERE id = ?", [id]);
+}
+export async function compterFichiersProjet(projet_id: number): Promise<number> {
+  const r = await one<{ n: number }>("SELECT COUNT(*) AS n FROM projet_fichiers WHERE projet_id = ?", [projet_id]);
+  return r?.n || 0;
 }
 
 /** Catégorie la plus utilisée par fournisseur (auto-suggestion). */
@@ -2595,6 +2646,11 @@ export const TABLES_SAUVEGARDE: { champ: string; table: string; tri?: string; sa
   { champ: "parametres", table: "parametres_app" },
   { champ: "parametres_ia", table: "parametres_ia" },
   { champ: "profils", table: "utilisateur_profil", tri: "id ASC" },
+  // Documents de chantier : on garde l'INVENTAIRE (nom, type, taille, catégorie, qui et
+  // quand) mais pas les octets — même arbitrage que les reçus de dépense, sinon quelques
+  // PDF de 3 Mo suffisent à faire exploser le fichier de sauvegarde. Après une restauration
+  // on sait donc quels documents existaient et lesquels sont à retrouver.
+  { champ: "projet_fichiers", table: "projet_fichiers", tri: "date_ajout DESC", sansColonnes: ["data"] },
 ];
 
 /** Volontairement HORS sauvegarde — chaque exclusion doit avoir sa raison ici. */

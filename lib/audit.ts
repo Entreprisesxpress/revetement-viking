@@ -19,6 +19,8 @@ export type ActiviteType =
   | "client.supprime"
   | "projet.cree"
   | "projet.statut_change"
+  | "projet.document_ajoute"
+  | "projet.document_supprime"
   | "projet.supprime"
   | "contrat.cree"
   | "contrat.signe"
