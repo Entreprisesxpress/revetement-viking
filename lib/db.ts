@@ -921,6 +921,13 @@ export async function supprimerClient(id: number): Promise<{ ok: boolean; raison
     await run(`DELETE FROM ${t} WHERE client_id = ?`, [id]).catch(() => {});
   }
   await run("DELETE FROM pipeline_contrats WHERE client_id = ? AND statut != 'signe'", [id]).catch(() => {});
+  // Ce qui SURVIT au client garde une référence morte si on ne la coupe pas : un projet
+  // pointant sur un client_id disparu, une note ou un contrat rattachés à personne.
+  // On ne les supprime pas — un chantier ne disparaît pas parce qu'on efface une fiche —
+  // on coupe seulement le lien.
+  await run("UPDATE projets SET client_id = NULL WHERE client_id = ?", [id]).catch(() => {});
+  await run("UPDATE notes_rapides SET client_id = NULL WHERE client_id = ?", [id]).catch(() => {});
+  await run("UPDATE contrats SET client_id = NULL WHERE client_id = ?", [id]).catch(() => {});
   await run("DELETE FROM clients WHERE id = ?", [id]);
   return { ok: true };
 }
@@ -1642,8 +1649,15 @@ export async function supprimerProjet(id: number): Promise<{ ok: boolean; raison
   // sans pouvoir être rattachés), les tâches et les notes.
   await run("DELETE FROM photos_chantier WHERE projet_id = ?", [id]).catch(() => {});
   await run("DELETE FROM extras WHERE projet_id = ?", [id]).catch(() => {});
+  // Les DOCUMENTS de chantier tombent dans le même piège que les photos : des blobs qui
+  // survivraient au projet, invisibles (plus aucune fiche ne les affiche) et impurgeables.
+  await run("DELETE FROM projet_fichiers WHERE projet_id = ?", [id]).catch(() => {});
   await run("UPDATE taches_client SET projet_id = NULL WHERE projet_id = ?", [id]).catch(() => {});
   await run("UPDATE notes_rapides SET projet_id = NULL WHERE projet_id = ?", [id]).catch(() => {});
+  // Le contrat signé, lui, se GARDE (pièce juridique) : on coupe seulement le lien vers
+  // un projet qui n'existe plus, sinon il pointerait dans le vide.
+  await run("UPDATE pipeline_contrats SET projet_id = NULL WHERE projet_id = ?", [id]).catch(() => {});
+  await run("UPDATE contrats SET projet_id = NULL WHERE projet_id = ?", [id]).catch(() => {});
   await run("DELETE FROM projets WHERE id = ?", [id]);
   return { ok: true };
 }
