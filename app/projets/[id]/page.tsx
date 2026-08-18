@@ -66,11 +66,12 @@ export default function ProjetDetail() {
   const [heures, setHeures] = useState<any[]>(seed?.heures || []);
   const [depenses, setDepenses] = useState<any[]>(seed?.depenses || []);
   const [photos, setPhotos] = useState<any[]>(seed?.photos || []);
-  const [onglet, setOnglet] = useState<"heures" | "depenses" | "extras" | "documents" | "photos" | "description">("heures");
+  const [onglet, setOnglet] = useState<"heures" | "depenses" | "extras" | "documents" | "notes" | "photos">("heures");
   // Compteur d'extras du chantier, affiché sur l'onglet. `null` tant qu'on ne sait pas :
   // afficher « (0) » avant d'avoir la réponse ferait croire qu'il n'y en a aucun.
   const [nbExtras, setNbExtras] = useState<number | null>(null);
   const [nbDocs, setNbDocs] = useState<number | null>(null);
+  const [nbNotes, setNbNotes] = useState<number | null>(null);
 
   // Forms
   const today = new Date().toISOString().slice(0, 10);
@@ -130,9 +131,9 @@ export default function ProjetDetail() {
       setDepenses(d.depenses || []);
       setPhotos(d.photos || []);
       setProjetPrefetch(id, d); // garde le cache à jour pour les retours rapides
-      // Compteurs des onglets Extras et Documents — requêtes à part et non bloquantes :
-      // elles ne doivent ni ralentir l'affichage de la fiche, ni la faire échouer si
-      // elles ratent.
+      // Compteurs des onglets Extras, Documents et Notes — requêtes à part et non
+      // bloquantes : elles ne doivent ni ralentir l'affichage de la fiche, ni la faire
+      // échouer si elles ratent.
       fetch(`/api/extras?projet_id=${id}`, { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((l) => Array.isArray(l) && setNbExtras(l.length))
@@ -140,6 +141,10 @@ export default function ProjetDetail() {
       fetch(`/api/projet-fichiers?projet_id=${id}`, { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((l) => Array.isArray(l) && setNbDocs(l.length))
+        .catch(() => {});
+      fetch(`/api/notes-rapides?projet_id=${id}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((l) => Array.isArray(l) && setNbNotes(l.length))
         .catch(() => {});
     } catch {
       // Repli : anciennes requêtes séparées si l'endpoint combiné échoue
@@ -441,8 +446,8 @@ ${VIKING_EMAIL}
           {projet.date_debut && <span className="text-xs text-slate-500">Démarré : {new Date(projet.date_debut).toLocaleDateString("fr-CA")}</span>}
         </div>
 
-        {/* NOTES RAPIDES (vocales) */}
-        <NotesRapidesProjet projet_id={projet.id} />
+        {/* Les notes du chantier vivent dans leur propre onglet (« 🗒️ Notes »), avec les
+            autres. Elles étaient ici, en plein milieu de l'en-tête du projet. */}
 
         {/* RÉSUMÉ IA */}
         {resumeIa && (
@@ -555,13 +560,14 @@ ${VIKING_EMAIL}
 
         {/* Onglets */}
         <div className="flex gap-2 border-b overflow-x-auto">
-          {(["heures", "depenses", "extras", "documents", "description"] as const).map((o) => (
+          {(["heures", "depenses", "extras", "documents", "notes", "photos"] as const).map((o) => (
             <button key={o} onClick={() => setOnglet(o)} className={`px-4 py-2 text-sm font-semibold border-b-2 transition whitespace-nowrap ${onglet === o ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
               {o === "heures" ? `⏱️ Heures (${heures.length})`
                 : o === "depenses" ? `💸 Dépenses (${depenses.length})`
                 : o === "extras" ? `💲 Extras${nbExtras != null ? ` (${nbExtras})` : ""}`
                 : o === "documents" ? `📁 Documents${nbDocs != null ? ` (${nbDocs})` : ""}`
-                : `📝 Description / Photos`}
+                : o === "notes" ? `🗒️ Notes${nbNotes != null ? ` (${nbNotes})` : ""}`
+                : `📸 Photos (${photos.length})`}
             </button>
           ))}
         </div>
@@ -587,9 +593,20 @@ ${VIKING_EMAIL}
           />
         )}
 
-        {/* ONGLET DESCRIPTION / PHOTOS */}
-        {onglet === "description" && (
-          <DescriptionTab
+        {/* ONGLET NOTES — la description générale du chantier et le fil de notes datées.
+            Les deux sont des notes ; les tenir ensemble évite de chercher laquelle est
+            où. Le compteur se rafraîchit quand une note est ajoutée ou supprimée. */}
+        {onglet === "notes" && (
+          <NotesTab
+            projet={projet}
+            onUpdate={charger}
+            onNotesChange={(n) => setNbNotes(n)}
+          />
+        )}
+
+        {/* ONGLET PHOTOS — dépôt de photos et journal de chantier jour par jour. */}
+        {onglet === "photos" && (
+          <PhotosTab
             projet={projet}
             photos={photos}
             heures={heures}
@@ -1047,10 +1064,12 @@ ${VIKING_EMAIL}
   );
 }
 
-function DescriptionTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { projet: any; photos: any[]; heures: any[]; onUpdate: () => void; onOpenPhoto: (id: number) => void }) {
+/** Onglet « 🗒️ Notes » — la description générale du chantier et le fil de notes datées.
+ *  Les deux étaient séparées : la description repliée au fond de l'onglet Photos, le fil
+ *  de notes en plein milieu de l'en-tête du projet, hors des onglets. */
+function NotesTab({ projet, onUpdate, onNotesChange }: { projet: any; onUpdate: () => void; onNotesChange: (n: number) => void }) {
   const [texte, setTexte] = useState(projet.description || "");
   const [busy, setBusy] = useState(false);
-  const [notesOuvert, setNotesOuvert] = useState(false);
   const enCours = useRef(false);
   const { toast } = useToast();
   useEffect(() => { setTexte(projet.description || ""); }, [projet.id]);
@@ -1071,6 +1090,32 @@ function DescriptionTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { pro
   };
   const modifie = texte !== (projet.description || "");
 
+  return (
+    <div className="space-y-3">
+      {/* Description générale du chantier */}
+      <div className="bg-white rounded-lg shadow p-4 space-y-2">
+        <h3 className="font-semibold">📝 Description générale du chantier</h3>
+        <textarea
+          value={texte}
+          onChange={(e) => setTexte(e.target.value)}
+          rows={4}
+          placeholder="Portée des travaux, type de revêtement, particularités du chantier…"
+          className="w-full px-3 py-2 border rounded text-sm"
+        />
+        <div className="flex justify-end">
+          <button onClick={sauver} disabled={!modifie || busy} className={`px-4 py-2 rounded text-sm font-bold ${modifie && !busy ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}>
+            {busy ? "…" : "💾 Enregistrer"}
+          </button>
+        </div>
+      </div>
+
+      {/* Fil de notes datées (saisie au clavier ou au micro) */}
+      <NotesRapidesProjet projet_id={projet.id} onChange={onNotesChange} />
+    </div>
+  );
+}
+
+function PhotosTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { projet: any; photos: any[]; heures: any[]; onUpdate: () => void; onOpenPhoto: (id: number) => void }) {
   // === Journal de chantier : regroupe par jour les descriptions d'heures + les photos ===
   const dateLisible = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -1092,30 +1137,6 @@ function DescriptionTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { pro
       {/* Ajout rapide de photos */}
       <div className="bg-white rounded-lg shadow p-4">
         <PhotoUploader projet_id={projet.id} onUpload={onUpdate} />
-      </div>
-
-      {/* Notes générales du projet (repliable) */}
-      <div className="bg-white rounded-lg shadow">
-        <button onClick={() => setNotesOuvert(!notesOuvert)} className="w-full flex items-center justify-between p-4 text-left">
-          <h3 className="font-semibold">🗒️ Notes générales du projet</h3>
-          <span className="text-slate-400">{notesOuvert ? "▾" : "▸"}</span>
-        </button>
-        {notesOuvert && (
-          <div className="px-4 pb-4 space-y-2">
-            <textarea
-              value={texte}
-              onChange={(e) => setTexte(e.target.value)}
-              rows={4}
-              placeholder="Portée des travaux, type de revêtement, particularités du chantier…"
-              className="w-full px-3 py-2 border rounded text-sm"
-            />
-            <div className="flex justify-end">
-              <button onClick={sauver} disabled={!modifie || busy} className={`px-4 py-2 rounded text-sm font-bold ${modifie && !busy ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`}>
-                {busy ? "…" : "💾 Enregistrer"}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Journal de chantier jour par jour */}
@@ -1559,13 +1580,21 @@ function FieldDate({ label, value, onChange }: { label: string; value: string; o
   return <div><label className="block text-xs font-medium text-slate-600 mb-1">{label}</label><input type="date" value={value} onChange={(e) => onChange(e.target.value)} className="w-full px-3 py-2 border rounded text-sm" /></div>;
 }
 
-function NotesRapidesProjet({ projet_id }: { projet_id: number }) {
+function NotesRapidesProjet({ projet_id, onChange }: { projet_id: number; onChange?: (n: number) => void }) {
   const [notes, setNotes] = useState<any[]>([]);
   const [texte, setTexte] = useState("");
   const [busy, setBusy] = useState(false);
   const enCours = useRef(false);   // verrou synchrone — voir `ajouter`
   const { toast } = useToast();
-  const charger = () => fetch(`/api/notes-rapides?projet_id=${projet_id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNotes(Array.isArray(d) ? d : []));
+  // `onChange` tient à jour le compteur de l'onglet. Passé par une ref : le parent le
+  // recrée à chaque rendu, et le mettre en dépendance du useEffect relancerait le
+  // chargement en boucle.
+  const signaler = useRef(onChange);
+  signaler.current = onChange;
+  const charger = () => fetch(`/api/notes-rapides?projet_id=${projet_id}`, { cache: "no-store" })
+    .then((r) => r.json())
+    .then((d) => { const l = Array.isArray(d) ? d : []; setNotes(l); signaler.current?.(l.length); })
+    .catch(() => {});
   useEffect(() => { charger(); }, [projet_id]);
 
   const ajouter = async () => {
