@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import ZoneDepot from "@/components/ZoneDepot";
 import { useToast } from "@/components/Toasts";
 import { envoyer } from "@/lib/envoi";
+import { jourMontreal } from "@/lib/date";
 
 // 4 Mo : au-delà, la requête encodée en base64 dépasse la limite de la plateforme.
 const TAILLE_MAX = 4 * 1024 * 1024;
@@ -187,7 +188,7 @@ export default function DocumentsProjet({ projetId, onChange }: { projetId: numb
                   <button onClick={() => setApercu(f)} className="min-w-0 flex-1 text-left">
                     <div className="font-semibold text-sm text-slate-900 truncate">{f.nom}</div>
                     <div className="text-[11px] text-slate-500 truncate">
-                      {poids(f.taille)}{f.taille ? " · " : ""}{(f.date_ajout || "").slice(0, 10)}
+                      {poids(f.taille)}{f.taille ? " · " : ""}{jourMontreal(f.date_ajout)}
                       {f.ajoute_par ? ` · ${f.ajoute_par}` : ""}
                       {f.description ? ` · ${f.description}` : ""}
                     </div>

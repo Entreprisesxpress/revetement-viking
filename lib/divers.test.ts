@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toCSV } from "./csv";
-import { estDateISO } from "./date";
+import { estDateISO, jourMontreal } from "./date";
 import { genererTokenSoumission, verifierTokenSoumission } from "./lien-public";
 
 describe("toCSV (export Excel)", () => {
@@ -28,6 +28,28 @@ describe("estDateISO", () => {
     expect(estDateISO("banane")).toBe(false);
     expect(estDateISO("")).toBe(false);
     expect(estDateISO(null)).toBe(false);
+  });
+});
+
+describe("jourMontreal (affichage d'un horodatage)", () => {
+  it("rend le jour de MONTRÉAL, pas le jour UTC", () => {
+    // 17 août 20 h 30 à Montréal = 18 août 00 h 30 UTC. Découper l'ISO donnait « demain ».
+    expect(jourMontreal("2026-08-18T00:30:00.000Z")).toBe("2026-08-17");
+    // 17 août 21 h à Montréal, dernier instant avant minuit UTC+0 côté serveur
+    expect(jourMontreal("2026-08-18T03:59:00.000Z")).toBe("2026-08-17");
+    // en pleine journée, aucun décalage
+    expect(jourMontreal("2026-08-17T16:00:00.000Z")).toBe("2026-08-17");
+  });
+
+  it("laisse une date nue intacte (sinon elle reculerait d'un jour)", () => {
+    expect(jourMontreal("2026-08-17")).toBe("2026-08-17");
+  });
+
+  it("ne fabrique pas de date à partir de rien", () => {
+    expect(jourMontreal("")).toBe("");
+    expect(jourMontreal(null)).toBe("");
+    expect(jourMontreal(undefined)).toBe("");
+    expect(jourMontreal("banane")).toBe("");
   });
 });
 
