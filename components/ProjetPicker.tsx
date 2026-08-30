@@ -1,24 +1,29 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { estProjetActif } from "@/lib/statuts-projet";
+import { estProjetActif, trierProjetsPourSaisie } from "@/lib/statuts-projet";
 
 interface ProjetItem { id: number; nom: string; adresse_chantier?: string; client_nom?: string; statut?: string }
 
 /**
  * Sélecteur de projet cherchable.
- * - Par défaut (champ vide) : n'affiche que les projets EN COURS (statut "actif") → liste courte.
+ * - Par défaut (champ vide) : les projets EN COURS (statut "actif") → liste courte.
+ *   Avec `afficherTous`, la liste montre tout ce que le parent a fourni, dans l'ordre
+ *   voulu par Francis : en cours, puis à venir, puis les complétés en bas.
  * - En tapant : cherche dans TOUS les projets fournis (incluant "à venir", etc.) par nom,
  *   adresse de chantier ou nom de client.
+ * Dans les deux cas le résultat est trié par état de chantier, jamais mélangé.
  * Le parent décide quels projets sont éligibles via la liste `projets` qu'il passe.
  */
-export default function ProjetPicker({ value, onChange, projets, placeholder, className, aucunLabel }: {
+export default function ProjetPicker({ value, onChange, projets, placeholder, className, aucunLabel, afficherTous }: {
   value: number;
   onChange: (id: number) => void;
   projets: ProjetItem[];
   placeholder?: string;
   className?: string;
   aucunLabel?: string; // si fourni, ajoute une entrée "Aucun" (valeur 0)
+  /** Champ vide : proposer tous les chantiers (triés) plutôt que les seuls en cours. */
+  afficherTous?: boolean;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const [q, setQ] = useState("");
@@ -33,11 +38,13 @@ export default function ProjetPicker({ value, onChange, projets, placeholder, cl
   }, []);
 
   const ql = q.trim().toLowerCase();
-  const liste = ql
-    ? projets.filter((p) => `${p.nom} ${p.adresse_chantier || ""} ${p.client_nom || ""}`.toLowerCase().includes(ql))
-    : projets.filter((p) => estProjetActif(p.statut)); // par défaut : chantiers en activité
+  const liste = trierProjetsPourSaisie(
+    ql
+      ? projets.filter((p) => `${p.nom} ${p.adresse_chantier || ""} ${p.client_nom || ""}`.toLowerCase().includes(ql))
+      : afficherTous ? projets : projets.filter((p) => estProjetActif(p.statut)),
+  );
 
-  const tag = (s?: string) => s === "a_venir" ? " · 📅 à venir" : s === "complete" ? " · ✅ complété" : "";
+  const tag = (s?: string) => s === "a_venir" ? " · 📅 à venir" : s === "complete" ? " · ✅ complété" : s === "en_pause" ? " · ⏸️ en pause" : "";
 
   return (
     <div ref={wrap} className="relative">

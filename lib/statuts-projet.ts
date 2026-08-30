@@ -21,6 +21,27 @@ export function estProjetActif(statut?: string | null): boolean {
  *  Valeurs en dur volontairement : aucune donnée utilisateur n'entre ici. */
 export const SQL_PROJET_ACTIF = "statut IN ('actif', 'en_cours')";
 
+/**
+ * Ordre d'affichage d'un chantier dans un sélecteur de saisie.
+ *
+ * Règle de Francis : les chantiers EN COURS en premier — c'est 99 % des saisies
+ * d'heures — puis ceux À VENIR, puis le reste, et les COMPLÉTÉS tout en bas.
+ * Plus petit = plus haut.
+ */
+export function rangProjet(statut?: string | null): number {
+  if (estProjetActif(statut)) return 0;
+  if (statut === "a_venir") return 1;
+  if (statut === "complete") return 3;
+  return 2; // en_pause, et tout statut inattendu : avant les complétés
+}
+
+/** Trie une liste de chantiers pour un sélecteur de saisie, sans toucher au tableau
+ *  d'origine. Le tri de `Array.prototype.sort` est stable : à rang égal, l'ordre
+ *  fourni par l'appelant (le plus récent d'abord) est conservé. */
+export function trierProjetsPourSaisie<T extends { statut?: string | null }>(liste: T[]): T[] {
+  return [...liste].sort((a, b) => rangProjet(a.statut) - rangProjet(b.statut));
+}
+
 /** Délai de grâce après la fin d'un chantier, pour la saisie tardive. */
 export const JOURS_GRACE_SAISIE = 14;
 

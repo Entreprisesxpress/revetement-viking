@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { estProjetActif, accepteSaisieTardive, JOURS_GRACE_SAISIE, STATUTS_PROJET } from "./statuts-projet";
+import { estProjetActif, accepteSaisieTardive, JOURS_GRACE_SAISIE, STATUTS_PROJET, rangProjet, trierProjetsPourSaisie } from "./statuts-projet";
 
 describe("estProjetActif", () => {
   it("couvre les DEUX statuts d'activité", () => {
@@ -11,6 +11,46 @@ describe("estProjetActif", () => {
     for (const s of ["a_venir", "en_pause", "complete", "annule", "", null, undefined]) {
       expect(estProjetActif(s as any)).toBe(false);
     }
+  });
+});
+
+describe("ordre des chantiers dans un sélecteur de saisie", () => {
+  it("en cours d'abord, puis à venir, puis en pause, complétés en dernier", () => {
+    expect(rangProjet("actif")).toBeLessThan(rangProjet("a_venir"));
+    expect(rangProjet("en_cours")).toBeLessThan(rangProjet("a_venir"));
+    expect(rangProjet("a_venir")).toBeLessThan(rangProjet("en_pause"));
+    expect(rangProjet("en_pause")).toBeLessThan(rangProjet("complete"));
+  });
+
+  it("les deux statuts d'activité sont à égalité, tout en haut", () => {
+    expect(rangProjet("actif")).toBe(rangProjet("en_cours"));
+  });
+
+  it("trie une liste mélangée dans l'ordre voulu", () => {
+    const melange = [
+      { id: 1, statut: "complete" },
+      { id: 2, statut: "a_venir" },
+      { id: 3, statut: "actif" },
+      { id: 4, statut: "en_pause" },
+      { id: 5, statut: "en_cours" },
+    ];
+    expect(trierProjetsPourSaisie(melange).map((p) => p.id)).toEqual([3, 5, 2, 4, 1]);
+  });
+
+  it("à rang égal, garde l'ordre reçu (le plus récent d'abord)", () => {
+    const l = [{ id: 10, statut: "actif" }, { id: 11, statut: "en_cours" }, { id: 12, statut: "actif" }];
+    expect(trierProjetsPourSaisie(l).map((p) => p.id)).toEqual([10, 11, 12]);
+  });
+
+  it("ne modifie pas le tableau d'origine", () => {
+    const l = [{ id: 1, statut: "complete" }, { id: 2, statut: "actif" }];
+    trierProjetsPourSaisie(l);
+    expect(l.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  it("un statut inattendu passe avant les complétés, jamais avant les chantiers actifs", () => {
+    expect(rangProjet("zzz")).toBeGreaterThan(rangProjet("actif"));
+    expect(rangProjet(undefined)).toBeLessThan(rangProjet("complete"));
   });
 });
 

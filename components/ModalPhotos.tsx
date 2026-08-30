@@ -5,6 +5,7 @@ import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
+import { trierProjetsPourSaisie } from "@/lib/statuts-projet";
 import { compresserImage, genererVignette } from "@/lib/img";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
@@ -30,9 +31,9 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
       // leur nom — la seule façon d'ajouter une photo était de passer par la fiche du
       // projet. ProjetPicker ne les propose pas par défaut mais les trouve à la recherche,
       // et les marque « ✅ complété ». Les projets ANNULÉS, eux, restent écartés.
-      const dispo = (Array.isArray(tous) ? tous : [])
-        .filter((p) => p.statut !== "annule")
-        .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
+      const dispo = trierProjetsPourSaisie(
+        (Array.isArray(tous) ? tous : []).filter((p) => p.statut !== "annule"),
+      );
       setProjets(dispo);
       if (!projet_id && dispo.length > 0) setProjetId(projetIdInitial || dispo[0].id);
     });

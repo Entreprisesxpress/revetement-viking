@@ -6,6 +6,8 @@ import { aujourdhuiMontreal } from "@/lib/date";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 import { courrielValide } from "@/lib/vocabulaire";
+import { avertirProjetComplete, destinataireNotifications } from "@/lib/notif-projet";
+import { publicOrigin } from "@/lib/origin";
 
 // Statuts reconnus par l'app (filtres, CA, dashboard). Un statut hors liste rendait
 // le projet invisible des filtres ET du CA — silencieusement.
@@ -121,6 +123,20 @@ export async function PATCH(req: NextRequest) {
         url: `/projets/${body.id}`,
         tag: "complete-" + body.id,
       }).catch(() => {});
+
+      // Courriel d'avis à la boîte interne. Relu APRÈS l'écriture : `avant` n'a ni la
+      // date de fin qu'on vient de poser, ni les derniers totaux. L'envoi est détaché
+      // (pas de `await`) et ne lève jamais — un courriel raté ne doit pas faire échouer
+      // la fermeture du chantier, qui est le geste demandé. L'issue est journalisée
+      // pour qu'un envoi muet reste traçable.
+      const origine = publicOrigin(req);
+      getProjet(+body.id)
+        .then((apres) => avertirProjetComplete((apres || avant) as any, origine))
+        .then((r) => journaliser(r.ok ? "projet.avis_courriel" : "projet.avis_courriel_echec", {
+          ref_type: "projet", ref_id: +body.id, utilisateur: user || undefined,
+          description: r.ok ? `Avis envoyé à ${destinataireNotifications()}` : `Avis NON envoyé : ${r.raison}`,
+        }))
+        .catch(() => {});
     }
     return ok({ ok: true });
   } catch (e) { return fail(e); }

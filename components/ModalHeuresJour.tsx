@@ -7,7 +7,7 @@ import BottomSheet from "@/components/BottomSheet";
 import { compresserImage, genererVignette } from "@/lib/img";
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
-import { accepteSaisieTardive } from "@/lib/statuts-projet";
+import { accepteSaisieTardive, estProjetActif, trierProjetsPourSaisie } from "@/lib/statuts-projet";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; onExtra?: () => void; }
 interface LigneJour {
@@ -62,10 +62,9 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
   useEffect(() => {
     if (!ouvert) return;
     chargerEmployes();
-    // On charge TOUS les projets (pas seulement 'actif') puis on garde ceux
-    // qui ne sont ni complétés ni annulés. Trie actif en premier.
-    // On charge aussi les dernières heures pour pré-sélectionner le « projet en cours »
-    // (celui où on a travaillé en dernier), modifiable ensuite.
+    // On charge TOUS les projets (pas seulement 'actif') puis on garde ceux qui
+    // acceptent encore une saisie. On charge aussi les dernières heures pour
+    // pré-sélectionner le chantier où on a travaillé en dernier, modifiable ensuite.
     Promise.all([
       fetch("/api/projets").then((r) => r.json()).catch(() => []),
       fetch("/api/heures").then((r) => r.json()).catch(() => []),
@@ -73,15 +72,20 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
       // Même tolérance que les dépenses : un chantier complété reste saisissable deux
       // semaines (retouches de garantie, finition pointée après la fermeture).
       // Règle commune — voir lib/statuts-projet.ts.
-      const dispo = (Array.isArray(tous) ? tous : [])
-        .filter((p) => accepteSaisieTardive(p))
-        .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
+      // Ordre voulu par Francis pour la saisie d'heures : les chantiers EN COURS en
+      // premier, puis ceux à venir, les complétés tout en bas.
+      const dispo = trierProjetsPourSaisie(
+        (Array.isArray(tous) ? tous : []).filter((p) => accepteSaisieTardive(p)),
+      );
       setProjets(dispo);
       if (dispo.length > 0 && lignes.length === 0) {
-        // Projet « en cours » = projet des dernières heures saisies (si toujours
-        // disponible), sinon le projet actif le plus récent. Reste modifiable.
-        const dernierProjet = Array.isArray(heures) && heures.length > 0 ? heures[0]?.projet_id : null;
-        const defautId = dispo.some((p) => p.id === dernierProjet) ? dernierProjet : dispo[0].id;
+        // Projet pré-sélectionné : celui des dernières heures saisies, mais SEULEMENT
+        // s'il roule encore. Une retouche de garantie sur un chantier fermé ne doit pas
+        // devenir le défaut du lendemain — la saisie d'heures vise les chantiers en
+        // cours. Sinon : le chantier en activité le plus récent (dispo est déjà trié).
+        const dernier = Array.isArray(heures) && heures.length > 0 ? heures[0]?.projet_id : null;
+        const dernierEncoreActif = dispo.some((p) => p.id === dernier && estProjetActif(p.statut));
+        const defautId = dernierEncoreActif ? dernier : dispo[0].id;
         setLignes([{ projet_id: defautId, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
       }
     });
@@ -324,7 +328,10 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
                   <div className="flex gap-2 items-end">
                     <div className="flex-1">
                       <label className="block text-xs font-medium text-slate-600 mb-1">Projet</label>
-                      <ProjetPicker value={l.projet_id} onChange={(pid) => modifier(i, { projet_id: pid })} projets={projets} />
+                      {/* `afficherTous` : champ vide, la liste propose tous les chantiers
+                          disponibles au lieu des seuls chantiers en cours — dans l'ordre
+                          en cours → à venir → complétés. */}
+                      <ProjetPicker value={l.projet_id} onChange={(pid) => modifier(i, { projet_id: pid })} projets={projets} afficherTous />
                     </div>
                     <div className="w-36">
                       <label className="block text-xs font-medium text-slate-600 mb-1">Date {l.date && l.date !== date && <span className="text-amber-600">⚠</span>}</label>

@@ -19,6 +19,10 @@ export type ActiviteType =
   | "client.supprime"
   | "projet.cree"
   | "projet.statut_change"
+  // Avis interne envoyé à la fermeture d'un chantier. L'échec est journalisé aussi :
+  // l'envoi est détaché de la requête, donc sans trace il serait muet.
+  | "projet.avis_courriel"
+  | "projet.avis_courriel_echec"
   | "projet.document_ajoute"
   | "projet.document_supprime"
   | "projet.supprime"

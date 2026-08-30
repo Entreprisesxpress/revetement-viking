@@ -2,6 +2,11 @@
 // 1. Resend (recommandé, pas de 2FA requise) : RESEND_API_KEY + RESEND_FROM (ex: contrats@revetementviking.com — domaine vérifié dans Resend, OU "onboarding@resend.dev" pour tester sans domaine)
 // 2. Gmail SMTP (legacy, requiert App Password 2FA) : GMAIL_USER + GMAIL_APP_PASSWORD
 // Toutes les communications sortantes sont brandées "Revêtement Viking Inc."
+//
+// Réglages facultatifs :
+// - RESEND_API_URL      : viser un relais interne (ou un serveur d'essai) au lieu de Resend.
+// - EMAIL_NOTIFICATIONS : boîte qui reçoit les AVIS INTERNES (chantier complété, etc.).
+//                         Par défaut revetementviking@gmail.com — voir lib/notif-projet.ts.
 import nodemailer from "nodemailer";
 
 export interface EmailResult { ok: boolean; raison?: string; messageId?: string; error?: string; }
@@ -37,7 +42,9 @@ export async function sendEmail(opts: EmailOpts): Promise<EmailResult> {
         }));
       }
       // Borne de temps : sinon un Resend qui n'aboutit pas gèle l'envoi (et le cron).
-      const r = await fetch("https://api.resend.com/emails", {
+      // RESEND_API_URL permet de viser un relais interne — ou un serveur d'essai, pour
+      // vérifier un envoi de bout en bout sans écrire à un vrai destinataire.
+      const r = await fetch(process.env.RESEND_API_URL || "https://api.resend.com/emails", {
         signal: AbortSignal.timeout(20_000),
         method: "POST",
         headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },

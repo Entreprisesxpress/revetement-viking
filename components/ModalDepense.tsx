@@ -10,7 +10,7 @@ const ScannerRecu = lazy(() => import("@/components/ScannerRecu"));
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
 import ZoneDepot from "@/components/ZoneDepot";
-import { accepteSaisieTardive } from "@/lib/statuts-projet";
+import { accepteSaisieTardive, trierProjetsPourSaisie } from "@/lib/statuts-projet";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
 const CATEGORIES_FALLBACK = ["matériaux", "outils", "location", "sous-traitant", "transport", "permis", "essence", "autre"];
@@ -83,9 +83,9 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     if (!ouvert) return;
     fetch("/api/projets?lite=1").then((r) => r.json()).then((tous: any[]) => {
       // Règle commune aux dépenses et aux heures — voir lib/statuts-projet.ts.
-      const dispo = (Array.isArray(tous) ? tous : [])
-        .filter((p) => accepteSaisieTardive(p))
-        .sort((a, b) => (a.statut === "actif" ? -1 : 1) - (b.statut === "actif" ? -1 : 1));
+      const dispo = trierProjetsPourSaisie(
+        (Array.isArray(tous) ? tous : []).filter((p) => accepteSaisieTardive(p)),
+      );
       setProjets(dispo);
       if (dispo.length > 0 && !form.projet_id) setForm((f) => ({ ...f, projet_id: projetIdInitial || 0 }));
     });
