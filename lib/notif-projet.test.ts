@@ -7,15 +7,9 @@ const BASE = {
   numero: "P-2026-014",
   client_nom: "Marie Tremblay",
   adresse_chantier: "120 rue des Pins",
-  date_debut: "2026-07-02",
   date_fin_reelle: "2026-08-17",
   prix_contrat: 48000,
   extras_factures: 890,
-  total_heures: 212.5,
-  cout_main_oeuvre: 19125,
-  total_depenses: 12480.5,
-  marge: 11890.25,
-  marge_pct: 27.4,
   total_facture: 48890,
   total_paye: 20000,
 };
@@ -36,6 +30,29 @@ describe("destinataireNotifications", () => {
   });
 });
 
+describe("l'avis reste INTERNE", () => {
+  it("ne laisse échapper AUCUNE adresse courriel dans le message", () => {
+    // Le pire cas : des champs du projet contiennent des adresses. Aucune ne doit
+    // ressortir — ni celle du client, ni une autre trouvée en chemin.
+    const piege: any = {
+      ...BASE,
+      total_facture: 0,
+      client_nom: "Marie Tremblay",
+      client_courriel: "marie@client.ca",   // champ hérité : doit être ignoré
+      adresse_chantier: "120 rue des Pins",
+    };
+    const { sujet, texte } = messageProjetComplete(piege, "https://exemple.ca");
+    expect(texte).not.toContain("marie@client.ca");
+    expect(texte + sujet).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+  });
+
+  it("dit noir sur blanc que le client n'a rien reçu", () => {
+    const { texte } = messageProjetComplete(BASE);
+    expect(texte).toContain("Rappel interne");
+    expect(texte).toContain("Le client n'a rien reçu");
+  });
+});
+
 describe("resteAFacturer", () => {
   it("compte le contrat plus les extras, moins ce qui est déjà facturé", () => {
     expect(resteAFacturer({ id: 1, prix_contrat: 48000, extras_factures: 890, total_facture: 0 })).toBe(48890);
@@ -49,51 +66,56 @@ describe("resteAFacturer", () => {
 });
 
 describe("messageProjetComplete", () => {
-  it("porte l'action à faire jusque dans le sujet", () => {
+  it("porte le montant à facturer jusque dans le sujet", () => {
     const { sujet } = messageProjetComplete({ ...BASE, total_facture: 0 });
-    expect(sujet).toContain("✅ Chantier terminé — Rénovation Beloeil (Marie Tremblay)");
+    expect(sujet).toContain("🧾 Chantier terminé — Rénovation Beloeil (Marie Tremblay)");
     expect(sujet).toContain("à facturer");
   });
 
-  it("réclame la facture EN TÊTE du message, avec le courriel du client", () => {
-    const { texte } = messageProjetComplete({ ...BASE, total_facture: 0, client_courriel: "marie@exemple.ca" });
-    expect(texte).toContain("À FAIRE : envoyer la facture au client");
-    expect(texte).toContain("marie@exemple.ca");
-    // l'action doit venir AVANT le détail, pas être noyée dedans
-    expect(texte.indexOf("À FAIRE")).toBeLessThan(texte.indexOf("Détail du chantier"));
+  it("nomme qui a fermé le chantier — c'est Gabriel qui ferme, Francis qui facture", () => {
+    const { texte } = messageProjetComplete({ ...BASE, total_facture: 0 }, undefined, "Gabriel");
+    expect(texte).toContain("marqué terminé par Gabriel");
   });
 
-  it("signale l'absence de courriel au dossier au lieu de rester muet", () => {
-    const { texte } = messageProjetComplete({ ...BASE, total_facture: 0, client_courriel: null });
-    expect(texte).toContain("pas de courriel au dossier");
+  it("reste lisible quand on ignore qui a fermé", () => {
+    const { texte } = messageProjetComplete({ ...BASE, total_facture: 0 }, undefined, null);
+    expect(texte).toContain("vient d'être marqué terminé.");
+    expect(texte).not.toContain("par null");
+    expect(texte).not.toContain("par ."); // pas de « par » orphelin
+  });
+
+  it("réclame la facture en tête, avant le détail", () => {
+    const { texte } = messageProjetComplete({ ...BASE, total_facture: 0 });
+    expect(texte).toContain("À FACTURER");
+    expect(texte.indexOf("À FACTURER")).toBeLessThan(texte.indexOf("Client   :"));
   });
 
   it("bascule sur l'encaissement quand tout est déjà facturé", () => {
     const { sujet, texte } = messageProjetComplete(BASE); // 48 890 facturés, 20 000 payés
     expect(sujet).not.toContain("à facturer");
-    expect(texte).toContain("Déjà facturé au complet");
+    expect(texte).toContain("Déjà facturé");
     expect(texte).toContain("Reste à ENCAISSER");
   });
 
   it("ne réclame plus rien quand c'est facturé ET encaissé", () => {
     const { texte } = messageProjetComplete({ ...BASE, total_paye: 48890 });
-    expect(texte).toContain("Rien à faire côté facturation");
-    expect(texte).not.toContain("À FAIRE");
-  });
-
-  it("porte les chiffres du chantier", () => {
-    const { texte } = messageProjetComplete(BASE);
-    expect(texte).toContain("120 rue des Pins");
-    expect(texte).toContain("P-2026-014");
-    expect(texte).toContain("2026-08-17");
-    expect(texte).toContain("212,5 h");
-    expect(texte).toContain("27,4 %".replace(",", ".")); // toFixed rend un point
+    expect(texte).toContain("Rien à faire");
+    expect(texte).not.toContain("À FACTURER");
   });
 
   it("ne déclenche pas sur un reliquat d'arrondi", () => {
     const r = messageProjetComplete({ ...BASE, total_facture: 48889.999, total_paye: 48889.999 });
-    expect(r.texte).toContain("Rien à faire côté facturation");
+    expect(r.texte).toContain("Rien à faire");
     expect(r.sujet).not.toContain("à facturer");
+  });
+
+  it("porte l'essentiel du chantier, sans le bilan de rentabilité", () => {
+    const { texte } = messageProjetComplete(BASE);
+    expect(texte).toContain("120 rue des Pins");
+    expect(texte).toContain("P-2026-014");
+    expect(texte).toContain("2026-08-17");
+    // la marge et les coûts n'ont rien à faire dans un rappel de facturation
+    expect(texte).not.toMatch(/Marge|Dépenses|Heures/);
   });
 
   it("tient debout sur un projet presque vide", () => {

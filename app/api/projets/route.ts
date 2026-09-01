@@ -131,7 +131,7 @@ export async function PATCH(req: NextRequest) {
       // pour qu'un envoi muet reste traçable.
       const origine = publicOrigin(req);
       getProjet(+body.id)
-        .then((apres) => avertirProjetComplete((apres || avant) as any, origine))
+        .then((apres) => avertirProjetComplete((apres || avant) as any, origine, user))
         .then((r) => journaliser(r.ok ? "projet.avis_courriel" : "projet.avis_courriel_echec", {
           ref_type: "projet", ref_id: +body.id, utilisateur: user || undefined,
           description: r.ok ? `Avis envoyé à ${destinataireNotifications()}` : `Avis NON envoyé : ${r.raison}`,
