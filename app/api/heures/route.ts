@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
   if (sp.get("employe")) filtres.employe = sp.get("employe");
   if (sp.get("depuis")) filtres.depuis = sp.get("depuis");
   if (sp.get("jusqu_a")) filtres.jusqu_a = sp.get("jusqu_a");
+  if (sp.get("limit")) filtres.limit = +sp.get("limit")!;
   return NextResponse.json(await listerToutesHeures(filtres));
 }
 

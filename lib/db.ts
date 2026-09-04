@@ -1754,7 +1754,9 @@ export async function modifierHeureProjet(id: number, h: Partial<HeureProjet>, v
   await run(`UPDATE heures_projet SET ${sets}, version = version + 1 WHERE id = ?`, [...valeurs, id]);
   return { ok: true };
 }
-export async function listerToutesHeures(filtres?: { employe?: string; projet_id?: number; depuis?: string; jusqu_a?: string }): Promise<any[]> {
+export async function listerToutesHeures(filtres?: { employe?: string; projet_id?: number; depuis?: string; jusqu_a?: string; limit?: number }): Promise<any[]> {
+  // `limit` borné : un appelant qui ne veut que la dernière entrée n'a pas à recevoir 120 Ko.
+  const lim = Math.min(5000, Math.max(1, Math.floor(filtres?.limit || 5000)));
   const conds: string[] = []; const args: any[] = [];
   if (filtres?.employe) { conds.push("h.employe = ?"); args.push(filtres.employe); }
   if (filtres?.projet_id) { conds.push("h.projet_id = ?"); args.push(filtres.projet_id); }
@@ -1762,7 +1764,7 @@ export async function listerToutesHeures(filtres?: { employe?: string; projet_id
   if (filtres?.jusqu_a) { conds.push("h.date <= ?"); args.push(filtres.jusqu_a); }
   const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
   return await all<any>(
-    `SELECT h.*, p.nom as projet_nom FROM heures_projet h LEFT JOIN projets p ON p.id = h.projet_id ${where} ORDER BY h.date DESC, h.id DESC LIMIT 500`,
+    `SELECT h.*, p.nom as projet_nom FROM heures_projet h LEFT JOIN projets p ON p.id = h.projet_id ${where} ORDER BY h.date DESC, h.id DESC LIMIT ${lim}`,
     args
   );
 }

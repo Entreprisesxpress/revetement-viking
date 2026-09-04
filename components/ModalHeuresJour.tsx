@@ -69,7 +69,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     Promise.all([
       // ?lite=1 : la liste complète calcule cinq totaux par chantier et pèse 3-4× plus, pour un simple sélecteur.
       fetch("/api/projets?lite=1").then((r) => r.json()).catch(() => []),
-      fetch("/api/heures").then((r) => r.json()).catch(() => []),
+      // Une seule entrée suffit (la plus récente) : la liste complète pesait 120 Ko pour un id.
+      fetch("/api/heures?limit=1").then((r) => r.json()).catch(() => []),
     ]).then(([tous, heures]: [any[], any[]]) => {
       // Même tolérance que les dépenses : un chantier complété reste saisissable deux
       // semaines (retouches de garantie, finition pointée après la fermeture).
