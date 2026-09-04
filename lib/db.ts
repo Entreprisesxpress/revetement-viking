@@ -2666,21 +2666,35 @@ export const TABLES_SAUVEGARDE: { champ: string; table: string; tri?: string; sa
   // PDF de 3 Mo suffisent à faire exploser le fichier de sauvegarde. Après une restauration
   // on sait donc quels documents existaient et lesquels sont à retrouver.
   { champ: "projet_fichiers", table: "projet_fichiers", tri: "date_ajout DESC", sansColonnes: ["data"] },
+  // Tables qui MANQUAIENT à la sauvegarde (audit) — même arbitrage inventaire-sans-octets :
+  // - photos de chantier : sans ces lignes, une restauration perd la date, la description,
+  //   le projet ET le lien Drive de chaque photo, alors que le fichier existe toujours
+  //   chez Google. L'inventaire suffit à tout recoller ;
+  // - fichiers de client, photos de bibliothèque, documents IA : idem, on garde le nom,
+  //   le type, la date et qui l'a déposé ; l'octet reste « à retrouver » ;
+  // - journal d'activité et retours IA : texte seulement, et c'est la trace de qui a
+  //   fait quoi — la perdre à la restauration effacerait l'historique.
+  // Volontairement écartés : oauth_tokens (secrets), push_subscriptions (propres à un
+  // appareil), prix_cache_v2 et ia_couts (caches et télémétrie, se reconstruisent).
+  { champ: "photos_chantier", table: "photos_chantier", tri: "date DESC, id DESC", sansColonnes: ["photo_data", "thumb_data"] },
+  { champ: "client_fichiers", table: "client_fichiers", tri: "date_ajout DESC", sansColonnes: ["data"] },
+  { champ: "bibliotheque_photos", table: "bibliotheque_photos", tri: "id ASC", sansColonnes: ["data"] },
+  { champ: "documents_ia", table: "documents_ia", tri: "id ASC", sansColonnes: ["data_b64"] },
+  { champ: "journal_activite", table: "journal_activite", tri: "id ASC" },
+  { champ: "ia_feedback", table: "ia_feedback", tri: "id ASC" },
 ];
 
 /** Volontairement HORS sauvegarde — chaque exclusion doit avoir sa raison ici. */
 export const TABLES_EXCLUES_SAUVEGARDE: Record<string, string> = {
   oauth_tokens: "SECRETS (jetons Google Drive) — le fichier de sauvegarde est justement déposé sur Drive, ils n'ont rien à y faire",
-  photos_chantier: "blobs d'images — alourdiraient la sauvegarde de plusieurs centaines de Mo",
-  bibliotheque_photos: "blobs d'images",
-  client_fichiers: "blobs de fichiers clients",
-  documents_ia: "blobs de documents de référence",
   prix_cache_v2: "cache régénérable",
   push_subscriptions: "propre à chaque appareil, se recrée à la reconnexion",
-  journal_activite: "journal d'audit volumineux, propre à l'instance",
-  ia_feedback: "données secondaires d'apprentissage",
   ia_couts: "journal de dépense IA, propre à l'instance et reconstituable par la facturation Anthropic",
   erreurs_client: "journal d'erreurs du navigateur, purgé automatiquement",
+  // Les photos de chantier, fichiers de client, photos de bibliothèque et documents IA ne
+  // sont PLUS exclus : leur INVENTAIRE est sauvegardé (voir TABLES_SAUVEGARDE), seules
+  // les colonnes d'octets sont écartées. Le journal d'activité et les retours IA sont
+  // sauvegardés en entier.
 };
 
 /** Export brut d'une table : colonnes réelles complètes, sans troncature ni jointure —
@@ -2723,12 +2737,21 @@ export async function restaurerBackup(dump: any): Promise<Record<string, Resulta
   await initDb();
   const client = getLibsqlClient();
   const resultat: Record<string, ResultatRestaurationTable> = {};
-  for (const { champ, table } of TABLES_SAUVEGARDE) {
+  for (const { champ, table, sansColonnes } of TABLES_SAUVEGARDE) {
     const lignes: any[] = Array.isArray(dump?.[champ]) ? dump[champ] : [];
     resultat[champ] = { inseres: 0, ignores: 0, total: lignes.length };
     if (!lignes.length) continue;
     const infoCols = await exec(`PRAGMA table_info(${table})`);
     const colsReelles = new Set((infoCols.rows as any[]).map((r) => String(r.name)));
+    // Colonnes ÉCARTÉES de la sauvegarde (blobs) mais NOT NULL sans valeur par défaut :
+    // sans bouche-trou, l'INSERT viole la contrainte et c'est TOUTE la table qui échoue
+    // — la restauration renvoyait « 0 inséré » sur projet_fichiers alors que le
+    // commentaire de la sauvegarde promettait de retrouver l'inventaire. On insère une
+    // chaîne vide : la ligne revient (nom, date, projet, lien Drive…), l'octet, lui,
+    // est perdu et reste « à retrouver », comme annoncé.
+    const boucheTrous = (infoCols.rows as any[])
+      .filter((r) => (sansColonnes || []).includes(String(r.name)) && Number(r.notnull) === 1 && r.dflt_value == null)
+      .map((r) => String(r.name));
     const stmts: { sql: string; args: any[] }[] = [];
     for (const ligne of lignes) {
       // Pas d'exigence d'`id` : certaines tables ont une autre clé primaire (parametres_app
@@ -2736,9 +2759,11 @@ export async function restaurerBackup(dump: any): Promise<Record<string, Resulta
       if (!ligne || typeof ligne !== "object" || Array.isArray(ligne)) continue;
       const cols = Object.keys(ligne).filter((k) => colsReelles.has(k));
       if (!cols.length) continue;
+      const args = cols.map((k) => ligne[k] ?? null);
+      for (const c of boucheTrous) if (!cols.includes(c)) { cols.push(c); args.push(""); }
       stmts.push({
         sql: `INSERT OR IGNORE INTO ${table} (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
-        args: cols.map((k) => ligne[k] ?? null),
+        args,
       });
     }
     if (!stmts.length) continue;
