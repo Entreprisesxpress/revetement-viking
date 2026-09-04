@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { envoyer } from "@/lib/envoi";
 
 const cad = (n: number) => new Intl.NumberFormat("fr-CA", { style: "currency", currency: "CAD" }).format(n || 0);
 const TPS = 0.05, TVQ = 0.09975;
@@ -30,13 +31,10 @@ export default function SoumissionPublique() {
     if (action === "accepter" && !nom.trim()) { setErreur("Entre ton nom pour signer."); return; }
     setTraitement(true); setErreur("");
     try {
-      const r = await fetch("/api/soumission-publique", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numero, token, action, nom: nom.trim() }),
-      });
-      const d = await r.json();
-      if (d.ok) setFait(action === "accepter" ? "accepte" : "refuse");
-      else setErreur(d.error || "Erreur");
+      // Page PUBLIQUE (client) : statut HTTP vérifié, jamais d'exception muette sur un 403/500.
+      const res = await envoyer("/api/soumission-publique", { corps: { numero, token, action, nom: nom.trim() } });
+      if (res.ok) setFait(action === "accepter" ? "accepte" : "refuse");
+      else setErreur(res.erreur || "Erreur");
     } catch { setErreur("Erreur réseau."); }
     finally { setTraitement(false); }
   };

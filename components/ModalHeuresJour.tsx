@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
 import { compresserImage, genererVignette } from "@/lib/img";
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
+import { envoyer, nombreSaisi } from "@/lib/envoi";
 import { accepteSaisieTardive, estProjetActif, trierProjetsPourSaisie } from "@/lib/statuts-projet";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; onExtra?: () => void; }
@@ -115,21 +116,16 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
   };
 
   const ajouterEmploye = async () => {
-    if (!nouvelEmp.nom.trim() || !+nouvelEmp.taux_horaire) { toast("Nom et taux requis", "warning"); return; }
-    const r = await fetch("/api/employes", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nom: nouvelEmp.nom.trim(), taux_horaire: +nouvelEmp.taux_horaire, das_pct: 0.15 }),
-    });
-    const d = await r.json();
-    if (d.ok) {
-      toast(`✓ ${nouvelEmp.nom} ajouté`, "success");
-      setNouvelEmp({ nom: "", taux_horaire: "30" });
-      setAjoutEmpOuvert(false);
-      await chargerEmployes();
-      setEmpSelectionnes((prev) => new Set([...prev, d.id]));
-    } else {
-      toast("Erreur : " + (d.error || "inconnue"), "error");
-    }
+    // Virgule décimale : `+"30,50"` donnait NaN → « Nom et taux requis » sur un taux pourtant saisi.
+    const taux = nombreSaisi(nouvelEmp.taux_horaire);
+    if (!nouvelEmp.nom.trim() || !Number.isFinite(taux) || taux <= 0) { toast("Nom et taux requis (ex. : 30,50)", "warning"); return; }
+    const res = await envoyer<{ id?: number }>("/api/employes", { corps: { nom: nouvelEmp.nom.trim(), taux_horaire: taux, das_pct: 0.15 } });
+    if (!res.ok) { toast(`Employé NON ajouté : ${res.erreur}`, "error"); return; }
+    toast(`✓ ${nouvelEmp.nom} ajouté`, "success");
+    setNouvelEmp({ nom: "", taux_horaire: "30" });
+    setAjoutEmpOuvert(false);
+    await chargerEmployes();
+    if (res.data?.id) setEmpSelectionnes((prev) => new Set([...prev, res.data!.id!]));
   };
 
   const ajouterLigne = () => setLignes([...lignes, { projet_id: projets[0]?.id || 0, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
@@ -148,7 +144,15 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
   const coutEmployes = empsActifs.reduce((s, e) => s + e.taux_horaire, 0);
   const totalCout = totalHeures * coutEmployes;
 
+  // Verrou par référence (lib/verrou.ts) : deux clics du même instant doublaient les heures
+  // de CHAQUE employé sur CHAQUE ligne — et la paie avec.
+  const enCours = useRef(false);
   const enregistrer = async () => {
+    if (enCours.current) return;
+    enCours.current = true;
+    try { await enregistrerReel(); } finally { enCours.current = false; }
+  };
+  const enregistrerReel = async () => {
     // Une ligne est valide si elle a des heures > 0 OU si début/fin permettent de les calculer
     const valides = lignes
       .map((l) => ({ ...l, heures_effectives: heuresEffectives(l) }))

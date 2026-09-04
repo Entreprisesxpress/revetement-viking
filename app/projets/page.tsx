@@ -9,7 +9,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
 import { aujourdhuiMontreal } from "@/lib/date";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, nombreSaisi } from "@/lib/envoi";
 
 const STATUTS: Record<string, { label: string; couleur: string }> = {
   en_cours: { label: "En cours", couleur: "bg-emerald-100 text-emerald-900" },
@@ -55,7 +55,9 @@ export default function ProjetsPage() {
 
   const creer = async () => {
     if (!nouveau.nom.trim()) { toast("Nom du projet requis", "warning"); return; }
-    const prix = nouveau.prix_contrat ? +nouveau.prix_contrat : null;
+    // Virgule décimale : `+"48 000,50"` donnait NaN, refusé par le serveur sans dire pourquoi.
+    const prix = nouveau.prix_contrat ? nombreSaisi(nouveau.prix_contrat) : null;
+    if (prix !== null && (!Number.isFinite(prix) || prix < 0)) { toast("Prix du contrat invalide (ex. : 48 000,50)", "warning"); return; }
     const r = await fetch("/api/projets", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

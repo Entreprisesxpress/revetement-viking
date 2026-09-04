@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { Suspense } from "react";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 function SyncContent() {
   const [drive, setDrive] = useState<any>(null);
@@ -38,11 +38,11 @@ function SyncContent() {
   const syncAsana = async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/asana/sync", { method: "POST" });
-      const d = await r.json();
+      const res = await envoyer<any>("/api/asana/sync");
+      if (!res.ok) { toast("Erreur : " + res.erreur, "error"); return; }
+      const d = res.data || {};
       setSyncResult(d);
-      if (d.ok) toast(`✓ ${d.crees} créés · ${d.majs} MAJ`, "success");
-      else toast("Erreur : " + (d.error || "inconnue"), "error");
+      toast(`✓ ${d.crees} créés · ${d.majs} MAJ`, "success");
     } finally { setLoading(false); }
   };
 
@@ -189,9 +189,9 @@ function BackupBouton() {
   const lancer = async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/backup", { method: "POST" });
-      const d = await r.json();
-      if (d.ok) {
+      const res = await envoyer<any>("/api/backup");
+      const d = res.ok ? res.data || {} : { error: res.erreur };
+      if (res.ok) {
         setDernier({ nom: d.nom, counts: d.tailles });
         toast(`✓ Backup créé : ${d.nom}`, "success");
         chargerHistorique();

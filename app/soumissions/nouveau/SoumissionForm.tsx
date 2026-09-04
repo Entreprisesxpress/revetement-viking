@@ -463,7 +463,15 @@ export default function SoumissionForm() {
     }
   };
 
+  // Verrou par référence (lib/verrou.ts) : Ctrl+S martelé ou double clic créaient deux
+  // soumissions numérotées différemment pour le même client.
+  const sauvegardeEnCours = useRef(false);
   const sauvegarder = async () => {
+    if (sauvegardeEnCours.current) return;
+    sauvegardeEnCours.current = true;
+    try { await sauvegarderReel(); } finally { sauvegardeEnCours.current = false; }
+  };
+  const sauvegarderReel = async () => {
     if (!client.nom) { toast('Entre au moins le nom du client.', 'warning'); return; }
     setChargementSave(true);
     try {

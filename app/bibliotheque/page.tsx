@@ -5,7 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import ZoneDepot from "@/components/ZoneDepot";
 import { compresserImage } from "@/lib/img";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 export default function Bibliotheque() {
   const [jobs, setJobs] = useState<any[]>([]);
@@ -51,12 +51,9 @@ export default function Bibliotheque() {
       for (const f of photos.slice(0, 10)) {
         try { images.push(await compresserImage(f)); } catch { /* photo illisible : ignorée */ }
       }
-      const r = await fetch("/api/bibliotheque", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, photos: images }),
-      });
-      const d = await r.json();
-      if (d.ok) {
+      const res = await envoyer<any>("/api/bibliotheque", { corps: { ...form, photos: images } });
+      const d = res.ok ? res.data || {} : { error: res.erreur };
+      if (res.ok) {
         alert(`Job ajoutée à la bibliothèque (#${d.id})${d.photos ? ` — ${d.photos} photo(s)` : ""}${d.photos_ignorees ? ` · ${d.photos_ignorees} ignorée(s) (trop lourde)` : ""}`);
         setForm({ adresse: "", type_materiau: "vinyle", parement_pi2: "", fascia_pi_lin: "", soffite_pi2: "", nb_etages: "1", total_soumission: "", heures_reelles: "", complexite: "moyenne", notes_chantier: "", hover_data_json: "", soumission_data_json: "" });
         setPhotos([]);

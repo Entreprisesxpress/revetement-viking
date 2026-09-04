@@ -203,12 +203,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
         r.onerror = rej;
         r.readAsDataURL(blob);
       });
-      const r = await fetch("/api/contrats-pipeline", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client_id: client.id, numero: data.numero, data_json: data, pdf_brouillon: pdf64 }),
-      });
-      const d = await r.json();
-      if (!d.ok) { toast("Erreur sauvegarde", "error"); return; }
+      const res = await envoyer("/api/contrats-pipeline", { corps: { client_id: client.id, numero: data.numero, data_json: data, pdf_brouillon: pdf64 } });
+      if (!res.ok) { toast(`Contrat NON sauvegardé : ${res.erreur}`, "error"); return; }
+      const d: any = res.data || {};
       rechargerContrats();
       // Téléchargement local du brouillon
       const url = URL.createObjectURL(blob);
@@ -238,12 +235,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const envoyerContratParMail = async (c: any) => {
     if (!form.courriel) { toast("Aucun courriel client pour cette fiche — ajoute-le dans les coordonnées", "warning"); return; }
     if (!confirm(`Envoyer le contrat ${c.numero} à ${form.courriel} pour signature ?`)) return;
-    const r = await fetch(`/api/contrats-pipeline/${c.id}/envoyer`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: form.courriel }),
-    });
-    const d = await r.json();
-    if (d.ok) {
+    const res = await envoyer<any>(`/api/contrats-pipeline/${c.id}/envoyer`, { corps: { to: form.courriel } });
+    const d = res.ok ? res.data || {} : { error: res.erreur };
+    if (res.ok) {
       toast(`📧 Contrat envoyé à ${form.courriel}`, "success");
       rechargerContrats();
     } else if (d.raison === "email_non_configure") {
@@ -267,12 +261,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     if (!confirm(`Envoyer à ${dest} le contrat signé ${co.numero} + le certificat d'authentification ?`)) return;
     setBusy(true);
     try {
-      const r = await fetch(`/api/contrats-pipeline/${co.token}/envoyer-signe`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: dest }),
-      });
-      const d = await r.json();
-      if (d.ok) {
+      const res = await envoyer<any>(`/api/contrats-pipeline/${co.token}/envoyer-signe`, { corps: { to: dest } });
+      const d = res.ok ? res.data || {} : { error: res.erreur };
+      if (res.ok) {
         toast(`📧 Dossier signé envoyé à ${dest}${d.verdict === "CONFORME" ? " (intégrité vérifiée)" : ""}`, "success");
         rechargerContrats();
       } else if (d.raison === "email_non_configure") {
@@ -304,12 +295,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
       const pdfSigne = await new Promise<string>((res, rej) => {
         const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(blob);
       });
-      const r = await fetch(`/api/contrats-pipeline/${co.token}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signature_dataurl: sigPng, signature_nom: form.nom + " (signature papier)", pdf_signe: pdfSigne }),
-      });
-      const d = await r.json();
-      if (d.ok) {
+      const res = await envoyer<any>(`/api/contrats-pipeline/${co.token}`, { corps: { signature_dataurl: sigPng, signature_nom: form.nom + " (signature papier)", pdf_signe: pdfSigne } });
+      const d = res.ok ? res.data || {} : { error: res.erreur };
+      if (res.ok) {
         toast("✅ Signature papier importée et contrat marqué signé", "success");
         rechargerContrats();
       } else toast(d.error || "Erreur", "error");

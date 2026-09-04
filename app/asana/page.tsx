@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
+import { envoyer } from "@/lib/envoi";
 
 export default function AsanaPage() {
   const [statut, setStatut] = useState<any>(null);
@@ -21,11 +22,12 @@ export default function AsanaPage() {
     setLoading(true);
     setSync(null);
     try {
-      const r = await fetch("/api/asana/sync", { method: "POST" });
-      const d = await r.json();
+      // Statut HTTP vérifié : un 401 ou une page d'erreur non-JSON tombaient en exception muette.
+      const res = await envoyer<any>("/api/asana/sync");
+      if (!res.ok) { toast("Erreur : " + res.erreur, "error"); return; }
+      const d = res.data || {};
       setSync(d);
-      if (d.ok) toast(`✓ ${d.crees} créés · ${d.majs} mis à jour · ${d.ignores} inchangés`, "success");
-      else toast("Erreur : " + (d.error || "inconnue"), "error");
+      toast(`✓ ${d.crees} créés · ${d.majs} mis à jour · ${d.ignores} inchangés`, "success");
     } finally {
       setLoading(false);
     }

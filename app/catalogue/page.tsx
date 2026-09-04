@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, nombreSaisi } from "@/lib/envoi";
 
 const TYPES = [
   { v: "demolition", l: "Démolition" },
@@ -55,8 +55,9 @@ export default function CataloguePage() {
   // Calcul auto du prix de vente quand coutant/majoration changent
   useEffect(() => {
     if (!edit) return;
-    const c = parseFloat(edit.prix_coutant);
-    const m = parseFloat(edit.majoration_pct);
+    // parseFloat("12,50") donne 12 — un prix tronqué en silence. nombreSaisi lit la virgule.
+    const c = nombreSaisi(edit.prix_coutant);
+    const m = nombreSaisi(edit.majoration_pct);
     if (!isNaN(c) && c > 0 && !isNaN(m)) {
       const v = (c * (1 + m / 100)).toFixed(2);
       if (v !== edit.prix_vente) setEdit({ ...edit, prix_vente: v });
@@ -67,10 +68,10 @@ export default function CataloguePage() {
     if (!edit?.nom?.trim() || !edit?.unite) { toast("Nom et unité requis", "warning"); return; }
     const body = {
       ...edit,
-      format_paquet: edit.format_paquet ? +edit.format_paquet : null,
-      prix_coutant: edit.prix_coutant ? +edit.prix_coutant : null,
-      majoration_pct: edit.majoration_pct ? +edit.majoration_pct : 20,
-      prix_vente: edit.prix_vente ? +edit.prix_vente : null,
+      format_paquet: edit.format_paquet ? nombreSaisi(edit.format_paquet) : null,
+      prix_coutant: edit.prix_coutant ? nombreSaisi(edit.prix_coutant) : null,
+      majoration_pct: edit.majoration_pct ? nombreSaisi(edit.majoration_pct) : 20,
+      prix_vente: edit.prix_vente ? nombreSaisi(edit.prix_vente) : null,
     };
     const r = await fetch("/api/catalogue", {
       method: edit.id ? "PATCH" : "POST",

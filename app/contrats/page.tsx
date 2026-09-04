@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Navigation from "@/components/Navigation";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { aujourdhuiMontreal } from "@/lib/date";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, envoyer as envoyerEcriture, nombreSaisi } from "@/lib/envoi";
 
 const STATUTS: Record<string, { l: string; c: string }> = {
   brouillon: { l: "Brouillon", c: "bg-slate-200 text-slate-700" },
@@ -40,20 +40,27 @@ export default function ContratsPage() {
 
   useEffect(() => { charger(); }, [filtre]);
 
+  const creationEnCours = useRef(false);
   const creer = async () => {
+    // Verrou par ref (lib/verrou.ts) : deux clics du même instant créaient deux contrats.
+    if (creationEnCours.current) return;
     if (!form.titre || !form.client_id) { toast("Titre et client requis", "warning"); return; }
-    const avant = +form.montant_avant_taxes || 0;
+    // Virgule décimale (clavier québécois) : `+"12 500,50"` donnait NaN → `|| 0` → un
+    // contrat créé à 0 $, sans un mot. nombreSaisi() lit « 12 500,50 $ » correctement.
+    const avant = nombreSaisi(form.montant_avant_taxes);
+    if (!Number.isFinite(avant) || avant <= 0) { toast("Montant avant taxes invalide (ex. : 12 500,50)", "warning"); return; }
     const total = avant * 1.14975;
     const depot = total * (form.depot_pct / 100);
     const payload = { ...form, montant_avant_taxes: avant, montant_total: total, depot_montant: depot, client_id: +form.client_id };
-    const r = await fetch("/api/contrats", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const d = await r.json();
-    if (d.ok) {
-      toast(`Contrat ${d.numero} créé`, "success");
+    creationEnCours.current = true;
+    try {
+      const res = await envoyerEcriture<{ numero?: string }>("/api/contrats", { corps: payload });
+      if (!res.ok) { toast(`Contrat NON créé : ${res.erreur}`, "error"); return; }
+      toast(`Contrat ${res.data?.numero} créé`, "success");
       setCreerOuvert(false);
       setForm({ ...form, titre: "", client_id: "", montant_avant_taxes: "", description_travaux: "" });
       charger();
-    }
+    } finally { creationEnCours.current = false; }
   };
 
   const telechargerPDF = async (c: any) => {

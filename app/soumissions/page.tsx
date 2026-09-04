@@ -6,7 +6,7 @@ import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import Pagination, { usePagination } from "@/components/Pagination";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 const STATUTS: Record<string, { label: string; couleur: string }> = {
   brouillon: { label: "Brouillon", couleur: "bg-slate-200 text-slate-800" },
@@ -42,12 +42,9 @@ export default function SoumissionsPage() {
 
   const convertirEnProjet = async (numero: string) => {
     if (!confirm("Convertir cette soumission en projet ?\n\nLe client sera créé automatiquement et le budget pré-rempli.")) return;
-    const r = await fetch("/api/projets", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fromSoumission: numero }),
-    });
-    const d = await r.json();
-    if (d.ok) {
+    const res = await envoyer<any>("/api/projets", { corps: { fromSoumission: numero } });
+    const d = res.ok ? res.data || {} : { error: res.erreur };
+    if (res.ok) {
       toast(`Projet créé`, "success");
       router.push(`/projets/${d.id}`);
     } else {
@@ -85,13 +82,12 @@ export default function SoumissionsPage() {
 
   const dupliquer = async (numero: string) => {
     if (!confirm(`Dupliquer ${numero} comme nouvelle soumission ?`)) return;
-    const r = await fetch("/api/soumissions/dupliquer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ numero }) });
-    const d = await r.json();
+    const res = await envoyer<{ numero?: string }>("/api/soumissions/dupliquer", { corps: { numero } });
     // `/` est le tableau de bord et n'a jamais lu `?modifier=` : le formulaire est à
     // /soumissions/nouveau. On atterrissait donc sur le dashboard après avoir dupliqué,
     // ce qui donnait l'impression d'un échec → re-clics → doublons.
-    if (d.ok) { router.push(`/soumissions/nouveau?modifier=${d.numero}`); }
-    else alert("Erreur duplication");
+    if (res.ok && res.data?.numero) { router.push(`/soumissions/nouveau?modifier=${res.data.numero}`); }
+    else toast(`Duplication refusée : ${res.erreur || "réponse inattendue"}`, "error");
   };
 
   const enregistrerHeuresReelles = async (numero: string) => {

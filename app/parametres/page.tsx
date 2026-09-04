@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { compresserImage, genererVignette } from "@/lib/img";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 export default function ParametresPage() {
   const router = useRouter();
@@ -239,8 +239,9 @@ function PushSection() {
   const tester = async () => {
     setBusy(true);
     try {
-      const r = await fetch("/api/push/test", { method: "POST" });
-      const d = await r.json();
+      const res = await envoyer<any>("/api/push/test");
+      if (!res.ok) { toast(`Test refusé : ${res.erreur}`, "error"); return; }
+      const d = res.data || {};
       if (d.ok && d.envoyes > 0) toast(`✅ Notification envoyée (${d.envoyes} appareil)`, "success");
       else if (d.raison === "push_non_configure") toast("Push non configuré côté serveur", "warning");
       else toast("Aucun appareil abonné", "warning");

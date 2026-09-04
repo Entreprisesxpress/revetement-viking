@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { compresserImage } from "@/lib/img";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, nombreSaisi } from "@/lib/envoi";
 
 const EMPLACEMENTS = ["Cabanon", "Sous le tempo", "Chez Vincent", "Chez Goulet", "Autre"];
 const CATEGORIES = ["Revêtement", "Moulures", "Quincaillerie", "Isolation", "Membrane", "Outils", "Consommables", "Autre"];
@@ -30,9 +30,10 @@ export default function InventairePage() {
     if (!form.nom.trim()) { toast("Nom requis", "warning"); return; }
     const body: any = {
       nom: form.nom, categorie: form.categorie || null,
-      quantite: +form.quantite || 0, unite: form.unite,
+      // Virgule décimale : « 2,5 » (boîtes) ou « 12,50 » ($) donnaient NaN → 0 / null en silence.
+      quantite: nombreSaisi(form.quantite) || 0, unite: form.unite,
       emplacement: form.emplacement, notes: form.notes || null,
-      cout_unit: form.cout_unit ? +form.cout_unit : null,
+      cout_unit: form.cout_unit ? (Number.isFinite(nombreSaisi(form.cout_unit)) ? nombreSaisi(form.cout_unit) : null) : null,
     };
     if (form.photo) { body.photo_data = form.photo.data; body.photo_type = form.photo.type; }
     if (editId) {

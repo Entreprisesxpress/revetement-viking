@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { nombreSaisi } from "@/lib/calculs";
@@ -29,7 +29,15 @@ export default function FacturesProjet({ projetId, onChange }: { projetId: numbe
 
   const rafraichir = () => { charger(); onChange?.(); };
 
+  // Verrou par référence (lib/verrou.ts) : deux clics du même instant créaient deux factures
+  // — et doublaient « Facturé / À recevoir ».
+  const enCours = useRef(false);
   const ajouter = async () => {
+    if (enCours.current) return;
+    enCours.current = true;
+    try { await ajouterReel(); } finally { enCours.current = false; }
+  };
+  const ajouterReel = async () => {
     // Virgule décimale acceptée, comme partout ailleurs dans l'app.
     const montant = nombreSaisi(form.montant);
     if (!isFinite(montant) || montant === 0) { toast("Montant invalide", "warning"); return; }

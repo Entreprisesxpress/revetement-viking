@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
@@ -107,7 +107,15 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
   const projet = projets.find((p) => p.id === form.projet_id);
 
+  // Verrou par RÉFÉRENCE (lib/verrou.ts) : `disabled={loading}` n'arrête pas deux clics du
+  // même instant — mesuré en direct : un double clic créait DEUX dépenses identiques.
+  const enCours = useRef(false);
   const enregistrer = async () => {
+    if (enCours.current) return;
+    enCours.current = true;
+    try { await enregistrerReel(); } finally { enCours.current = false; }
+  };
+  const enregistrerReel = async () => {
     // Accepte la VIRGULE décimale (clavier québécois) : « 88,50 » devenait NaN → null
     // → dépense refusée en silence. C'était la cause du « ça marche pas du 1er coup ».
     const montantNum = Number(String(form.montant).replace(",", ".").trim());

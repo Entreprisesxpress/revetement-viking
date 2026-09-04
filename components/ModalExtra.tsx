@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
 import MicVocal from "@/components/MicVocal";
@@ -48,7 +48,14 @@ export default function ModalExtra({ ouvert, onClose, onSuccess, projetIdInitial
     } catch (e: any) { toast("Erreur image : " + (e?.message || ""), "error"); }
   };
 
+  // Verrou par référence (lib/verrou.ts) : deux clics du même instant créaient deux extras.
+  const enCours = useRef(false);
   const enregistrer = async () => {
+    if (enCours.current) return;
+    enCours.current = true;
+    try { await enregistrerReel(); } finally { enCours.current = false; }
+  };
+  const enregistrerReel = async () => {
     if (!description.trim()) { toast("Ajoute une description de l'extra", "warning"); return; }
     setBusy(true);
     try {

@@ -8,7 +8,7 @@ import { useToast } from "@/components/Toasts";
 import { exporterCSV } from "@/lib/csv";
 import Pagination, { usePagination } from "@/components/Pagination";
 import { nombreSaisi, depensesAvantTaxes } from "@/lib/calculs";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 type TriCol = "date" | "fournisseur" | "categorie" | "projet" | "montant";
 type TriSens = "asc" | "desc";
@@ -480,10 +480,9 @@ function CategoriesGestion({ categories, onChange }: { categories: { id: number;
   const ajouter = async () => {
     const nom = nouveau.trim();
     if (!nom) return;
-    const r = await fetch("/api/categories-depense", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nom }) });
-    const d = await r.json();
-    if (d.ok) { toast(`Catégorie « ${nom} » ajoutée`, "success"); setNouveau(""); onChange(); }
-    else toast(d.error || "Erreur", "warning");
+    const res = await envoyer("/api/categories-depense", { corps: { nom } });
+    if (res.ok) { toast(`Catégorie « ${nom} » ajoutée`, "success"); setNouveau(""); onChange(); }
+    else toast(res.erreur || "Erreur", "warning");
   };
   const sauverEdition = async (id: number) => {
     const nom = editNom.trim();

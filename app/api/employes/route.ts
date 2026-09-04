@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listerEmployes, ajouterEmploye, modifierEmploye, supprimerEmploye, getEmploye } from "@/lib/db";
+import { nombreSaisi } from "@/lib/calculs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -17,7 +18,13 @@ export async function POST(req: NextRequest) {
   if (!b.nom?.trim() || !b.taux_horaire) {
     return NextResponse.json({ error: "nom et taux_horaire requis" }, { status: 400 });
   }
-  const id = await ajouterEmploye({ nom: b.nom.trim(), taux_horaire: +b.taux_horaire, das_pct: b.das_pct ?? 0.15 });
+  // Virgule décimale : `+"30,50"` donnait NaN, et NaN était STOCKÉ comme taux horaire —
+  // toutes les paies de l'employé sortaient ensuite à NaN $.
+  const taux = nombreSaisi(b.taux_horaire);
+  if (!Number.isFinite(taux) || taux <= 0 || taux > 500) {
+    return NextResponse.json({ error: "taux_horaire invalide (ex. : 30,50)" }, { status: 400 });
+  }
+  const id = await ajouterEmploye({ nom: b.nom.trim(), taux_horaire: taux, das_pct: b.das_pct ?? 0.15 });
   // ajouterEmploye n'insère que les colonnes de base : sans ce complément, une case
   // « Reçoit un talon » décochée à la création était ignorée (défaut SQL = 1).
   const extras: any = {};
@@ -33,6 +40,13 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const b = await req.json();
   if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  if (b.taux_horaire !== undefined) {
+    const taux = nombreSaisi(b.taux_horaire);
+    if (!Number.isFinite(taux) || taux <= 0 || taux > 500) {
+      return NextResponse.json({ error: "taux_horaire invalide (ex. : 30,50)" }, { status: 400 });
+    }
+    b.taux_horaire = taux;
+  }
   await modifierEmploye(+b.id, b);
   return NextResponse.json({ ok: true });
 }

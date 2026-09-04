@@ -112,10 +112,9 @@ export default function ProjetDetail() {
   const genererResumeIa = async () => {
     setResumeBusy(true);
     try {
-      const r = await fetch(`/api/projets/${id}/resume-ia`, { method: "POST" });
-      const d = await r.json();
-      if (d.ok) setResumeIa(d.resume);
-      else toast("IA : " + (d.error || "erreur"), "error");
+      const res = await envoyer<{ resume?: string }>(`/api/projets/${id}/resume-ia`);
+      if (res.ok) setResumeIa(res.data?.resume || "");
+      else toast("IA : " + res.erreur, "error");
     } finally { setResumeBusy(false); }
   };
   const [hRecherche, setHRecherche] = useState("");

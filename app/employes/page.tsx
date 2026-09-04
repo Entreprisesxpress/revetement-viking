@@ -7,7 +7,7 @@ import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import ZoneDepot from "@/components/ZoneDepot";
 import { aujourdhuiMontreal } from "@/lib/date";
-import { ecrire } from "@/lib/envoi";
+import { ecrire, nombreSaisi } from "@/lib/envoi";
 
 const POSTES = ["Installateur", "Apprenti", "Chef d'équipe", "Estimateur", "Administration", "Autre"];
 
@@ -30,7 +30,10 @@ export default function EmployesPage() {
 
   const sauver = async () => {
     if (!form.nom?.trim() || !form.taux_horaire) { toast("Nom et taux requis", "warning"); return; }
-    const body = { ...form, taux_horaire: +form.taux_horaire, das_pct: +form.das_pct, recoit_talon: form.recoit_talon ? 1 : 0 };
+    // Virgule décimale : `+"30,50"` donnait NaN et le serveur le stockait tel quel.
+    const taux = nombreSaisi(form.taux_horaire);
+    if (!Number.isFinite(taux) || taux <= 0) { toast("Taux horaire invalide (ex. : 30,50)", "warning"); return; }
+    const body = { ...form, taux_horaire: taux, das_pct: nombreSaisi(form.das_pct) || 0.15, recoit_talon: form.recoit_talon ? 1 : 0 };
     if (edit) {
       if (!(await ecrire("/api/employes", "PATCH", { id: edit.id, ...body }, "Enregistrement"))) return;
       toast(`✓ ${form.nom} mis à jour`, "success");
