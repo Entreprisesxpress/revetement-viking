@@ -98,6 +98,21 @@ describe("PDF du contrat (rendu réel)", () => {
   });
 });
 
+describe("PDF du talon de paie (rendu réel)", () => {
+  it("affiche le BRUT comme salaire à payer (versement au brut, DAS informative) et le montant est celui de la paie", async () => {
+    const { TalonPaiePDF } = await import("./pdf-talon-paie");
+    const talon = { employe: "Gabriel Quinchon", debut: "2026-08-17", fin: "2026-08-30", heures_normales: 80, heures_sup: 0,
+      taux_horaire: 45, das_pct: 0.15, montant_brut: 3600, das_montant: 540, montant_net: 3060, date_paiement: "2026-09-04" };
+    const buf = await renderToBuffer(React.createElement(TalonPaiePDF, { talon }) as any);
+    const t = texteDuPdf(buf);
+    const c = chiffres(t);
+    expect(t).toContain("Salaire à payer");
+    expect(c).toContain("360000");        // 3 600,00 $ : le brut, deux fois (gains + à payer)
+    expect(c).not.toContain("306000");    // le NET ne doit PAS apparaître : on verse le brut
+    expect(t).not.toMatch(/DAS|déduction|retenue/i);
+  });
+});
+
 describe("PDF de soumission (rendu réel)", () => {
   const client = { nom: "Jean-François Bélanger", adresse: "99, rue Principale, Beloeil", telephone: "450-555-0199", courriel: "jf@exemple.ca", projet: "Revêtement complet — 2 étages" };
 
