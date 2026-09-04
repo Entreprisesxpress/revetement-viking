@@ -5,7 +5,8 @@ import { utilisateurActif } from "@/lib/authUser";
 import { nombreSaisi } from "@/lib/calculs";
 import { validerEcritureArgent } from "@/lib/validation-argent";
 
-function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 // Accepte la virgule décimale québécoise (« 88,50 ») en plus du point.
 // Implémentation unique dans lib/calculs.ts : « 88,50 », « 1 234,56 $ », etc.
 const parseMontant = nombreSaisi;

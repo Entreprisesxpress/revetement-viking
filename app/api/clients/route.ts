@@ -4,7 +4,8 @@ import { asanaEstConfigure, creerTacheAsana, modifierTacheAsana, supprimerTacheA
 import { journaliser } from "@/lib/audit";
 import { STATUTS_CLIENT, CLES_ETAPES_PIPELINE, estStatutClient, estEtapePipeline, courrielValide } from "@/lib/vocabulaire";
 
-function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 function fail(e: any, status = 500) { console.error("[/api/clients]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
 
 /** Push Asana en arrière-plan (jamais bloquant pour le client).

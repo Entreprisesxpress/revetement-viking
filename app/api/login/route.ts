@@ -1,3 +1,4 @@
+import { ipClient } from "@/lib/ip";
 import { NextRequest, NextResponse } from "next/server";
 import { journaliser } from "@/lib/audit";
 import { rateLimitDepasse, timingSafeEqual } from "@/lib/rateLimit";
@@ -8,7 +9,9 @@ export async function POST(req: NextRequest) {
   const password: string = body.password || "";
   // Compat : si pas de "user" fourni, on tente Gabriel (APP_PASSWORD) — rétrocompat
   const user: string = body.user || "Gabriel";
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+  // Jamais le PREMIER x-forwarded-for : le client le choisit, donc il choisissait la clé de
+  // la limite de tentatives et la contournait à chaque essai. Voir lib/ip.ts.
+  const ip = ipClient(req);
   const ua = req.headers.get("user-agent") || undefined;
 
   // Rate-limit EN TÊTE : couvre tous les essais, y compris « utilisateur inconnu »

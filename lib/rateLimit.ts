@@ -4,7 +4,9 @@ import { db, initDb } from "@/lib/db";
 /** Compte les échecs `type` depuis le IP `ip` dans les `minutes` dernières minutes.
  *  Retourne true si la limite est atteinte. */
 export async function rateLimitDepasse(type: string, ip: string | undefined, max: number, minutes: number): Promise<boolean> {
-  if (!ip) return false;
+  // Sans IP, la limite DISPARAISSAIT (« return false ») : tous les essais passaient. On
+  // regroupe plutôt les inconnus sous une même clé — plus strict, jamais absent.
+  if (!ip) ip = "inconnue";
   await initDb();
   const c = db();
   const seuil = new Date(Date.now() - minutes * 60_000).toISOString();

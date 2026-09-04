@@ -3,9 +3,8 @@ import { sauvegarder, lister, charger, supprimer, changerStatut, enregistrerHeur
 import { journaliser } from "@/lib/audit";
 import { courrielValide } from "@/lib/vocabulaire";
 
-function ipDe(req: NextRequest): string | undefined {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || undefined;
-}
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 function fail(e: any, status = 500) { console.error("[/api/soumissions]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
 
 export async function GET(req: NextRequest) {

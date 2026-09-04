@@ -7,7 +7,8 @@ import { journaliser } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
-function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 
 /** Ne laisse sortir QUE ce que la page publique affiche : un libellé et un montant.
  *

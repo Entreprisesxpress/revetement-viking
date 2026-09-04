@@ -14,7 +14,8 @@ import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
-function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 
 const chiffres = (s: string) => String(s || "").replace(/\D/g, "");
 

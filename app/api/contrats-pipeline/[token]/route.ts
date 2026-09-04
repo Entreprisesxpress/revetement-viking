@@ -5,7 +5,8 @@ import { genererContratBlob } from "@/lib/pdf-contrat";
 
 export const dynamic = "force-dynamic";
 
-function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 
 // Signature PNG dessinée sur un canvas 800×250 : quelques dizaines de Ko en pratique.
 // 2 Mo est une marge très généreuse — filet contre un payload aberrant, pas un usage normal.

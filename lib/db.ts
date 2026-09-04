@@ -2792,3 +2792,12 @@ export async function restaurerBackup(dump: any): Promise<Record<string, Resulta
   }
   return resultat;
 }
+
+/** Employé ACTIF par son nom exact (insensible à la casse et aux espaces de bord). Sert à
+ *  refuser une saisie d'heures sur un nom qui n'existe pas, et à prendre le taux horaire
+ *  dans la fiche plutôt que dans la requête. */
+export async function employeParNom(nom: string | null | undefined): Promise<Employe | null> {
+  const n = String(nom || "").trim();
+  if (!n) return null;
+  return await one<Employe>("SELECT * FROM employes WHERE actif = 1 AND LOWER(TRIM(nom)) = LOWER(?)", [n]);
+}

@@ -1,3 +1,4 @@
+import { ipClient } from "@/lib/ip";
 // Sentry-light : stocke les erreurs client envoyées par error.tsx dans une table dédiée
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined;
+    const ip = ipClient(req);
     // Anti-DOS : max 20 erreurs / 10 min / IP
     if (await rateLimitDepasse("client.erreur_log", ip, 20, 10)) {
       return NextResponse.json({ ok: false, error: "rate-limited" }, { status: 429 });

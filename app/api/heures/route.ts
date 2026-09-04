@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet, modifierHeureProjet, listerToutesHeures, getHeureProjet, projetReferenceValide } from "@/lib/db";
+import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet, modifierHeureProjet, listerToutesHeures, getHeureProjet, projetReferenceValide, employeParNom } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 
-function ipDe(req: NextRequest) { return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined; }
+import { ipClient } from "@/lib/ip";
+const ipDe = (req: NextRequest) => ipClient(req);
 
 /** Validation souple : on coerce les types et on rejette uniquement les valeurs aberrantes.
  *  La validation stricte de types était trop agressive — bloquait des saisies légitimes. */
@@ -49,12 +50,21 @@ export async function POST(req: NextRequest) {
   if (!(await projetReferenceValide(body.projet_id))) {
     return NextResponse.json({ error: "projet introuvable" }, { status: 400 });
   }
+  // L'employé doit exister : un nom mal tapé créait une paie fantôme groupée sous ce nom.
+  // Et le taux vient de SA FICHE, jamais de la requête ni d'un défaut : sans taux,
+  // ajouterHeureProjet() posait 90 $/h en silence — dans le coût de main-d'œuvre et la paie.
+  const emp = await employeParNom(body.employe);
+  if (!emp) return NextResponse.json({ error: `employé inconnu ou inactif : ${body.employe || "(vide)"}` }, { status: 400 });
+  const tauxFiche = Number(emp.taux_horaire);
+  if (!Number.isFinite(tauxFiche) || tauxFiche <= 0) {
+    return NextResponse.json({ error: `taux horaire absent sur la fiche de ${emp.nom} — corrige la fiche avant de saisir des heures` }, { status: 400 });
+  }
   const user = await utilisateurActif(req);
-  const id = await ajouterHeureProjet({ ...body, ajoute_par: user || undefined });
+  const id = await ajouterHeureProjet({ ...body, employe: emp.nom, taux_horaire: tauxFiche, ajoute_par: user || undefined });
   journaliser("heures.ajoutees", {
     ref_type: "heures", ref_id: id, utilisateur: user || undefined,
     description: `${body.employe || "?"} · ${body.heures}h · projet ${body.projet_id} · ${body.date}`,
-    apres: { projet_id: body.projet_id, date: body.date, heures: body.heures, employe: body.employe, taux_horaire: body.taux_horaire },
+    apres: { projet_id: body.projet_id, date: body.date, heures: body.heures, employe: emp.nom, taux_horaire: tauxFiche },
     ip: ipDe(req),
   });
   return NextResponse.json({ ok: true, id });
