@@ -102,7 +102,7 @@ export default function TachesPage() {
       <div className={`bg-white rounded-lg border p-3 flex items-start gap-3 ${enRetard ? "border-red-300" : "border-slate-200"}`}>
         <button
           onClick={() => t.statut === "complete" ? rouvrir(t) : terminer(t)}
-          className={`mt-0.5 w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center text-sm font-bold transition ${t.statut === "complete" ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 hover:border-emerald-500 hover:bg-emerald-50"}`}
+          className={`mt-0.5 w-10 h-10 rounded-full border-2 flex-shrink-0 flex items-center justify-center text-sm font-bold transition ${t.statut === "complete" ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 hover:border-emerald-500 hover:bg-emerald-50"}`}
           title={t.statut === "complete" ? "Rouvrir" : "Marquer faite"}
         >{t.statut === "complete" ? "✓" : ""}</button>
 
@@ -119,7 +119,7 @@ export default function TachesPage() {
         </div>
 
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          <select value={t.assigne_a || ""} onChange={(e) => reassigner(t, e.target.value)} className={`text-[11px] px-1.5 py-1 rounded border bg-white ${t.assigne_a === "Francis" ? "text-blue-700" : t.assigne_a === "Gabriel" ? "text-purple-700" : "text-slate-400"}`} title="Assigner">
+          <select value={t.assigne_a || ""} onChange={(e) => reassigner(t, e.target.value)} className={`text-[11px] px-1.5 min-h-10 rounded border bg-white ${t.assigne_a === "Francis" ? "text-blue-700" : t.assigne_a === "Gabriel" ? "text-purple-700" : "text-slate-400"}`} title="Assigner">
             <option value="">— Personne</option>
             {PERSONNES.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>

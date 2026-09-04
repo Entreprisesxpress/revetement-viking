@@ -270,4 +270,11 @@ img {
   body {
     padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
   }
+  /* iOS zoome sur tout champ dont la police fait moins de 16 px. La règle plus haut le
+     prévoit déjà, mais une classe Tailwind `text-sm` posée sur le champ repasse dessus
+     (même spécificité, chargée après). Mesuré : les champs de recherche des projets,
+     des clients et des tâches étaient à 14 px. Sur mobile, on force. */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }

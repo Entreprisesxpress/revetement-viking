@@ -157,7 +157,8 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
           {peutRetour && (
             <button
               onClick={() => router.back()}
-              className="p-2 rounded hover:bg-slate-700 transition flex-shrink-0"
+              // ≥ 44 px : mesuré à 36 px de large sur mobile, sous le minimum tactile.
+              className="min-w-11 min-h-11 flex items-center justify-center rounded hover:bg-slate-700 transition flex-shrink-0"
               title="Retour"
               aria-label="Retour"
             >

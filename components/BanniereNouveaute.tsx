@@ -46,7 +46,7 @@ export default function BanniereNouveaute() {
   return (
     <div className="bg-blue-600 text-white px-4 py-2 flex items-center justify-between gap-3 text-sm shadow">
       <span className="font-medium">{MESSAGE}</span>
-      <button onClick={fermer} aria-label="Fermer l'annonce" className="flex-shrink-0 w-7 h-7 rounded-full hover:bg-blue-500 flex items-center justify-center font-bold">✕</button>
+      <button onClick={fermer} aria-label="Fermer l'annonce" className="flex-shrink-0 w-11 h-11 rounded-full hover:bg-blue-500 flex items-center justify-center font-bold">✕</button>
     </div>
   );
 }

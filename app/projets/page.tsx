@@ -185,7 +185,7 @@ export default function ProjetsPage() {
               <option value="budget">Budget</option>
               <option value="cout">Coût</option>
             </select>
-            <button onClick={() => setTriAsc(!triAsc)} title={triAsc ? "Croissant" : "Décroissant"} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded text-sm">
+            <button onClick={() => setTriAsc(!triAsc)} title={triAsc ? "Croissant" : "Décroissant"} className="min-w-10 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded text-sm">
               {triAsc ? "↑" : "↓"}
             </button>
           </div>
@@ -221,7 +221,7 @@ export default function ProjetsPage() {
                     if (r.ok) { toast(`Projet supprimé`, "success"); charger(); }
                     else toast("Erreur suppression", "error");
                   }}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition bg-red-100 hover:bg-red-200 text-red-700 rounded-full w-7 h-7 flex items-center justify-center text-sm z-10"
+                  className="min-w-10 min-h-10 flex items-center justify-center absolute top-2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition bg-red-100 hover:bg-red-200 text-red-700 rounded-full w-10 h-10 flex items-center justify-center text-sm z-10"
                   title="Supprimer ce projet"
                   aria-label="Supprimer"
                 >🗑</button>

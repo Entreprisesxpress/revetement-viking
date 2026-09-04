@@ -103,9 +103,9 @@ export default function SoumissionsPage() {
 
       <main className="max-w-7xl mx-auto p-6">
         <div className="flex gap-2 mb-4 flex-wrap">
-          <a href="/soumissions" className={`px-3 py-1 rounded text-sm ${!statutFiltre ? "bg-slate-900 text-white" : "bg-white border"}`}>Toutes</a>
+          <a href="/soumissions" className={`px-3 py-2.5 rounded text-sm ${!statutFiltre ? "bg-slate-900 text-white" : "bg-white border"}`}>Toutes</a>
           {Object.entries(STATUTS).map(([k, v]) => (
-            <a key={k} href={`/soumissions?statut=${k}`} className={`px-3 py-1 rounded text-sm ${statutFiltre === k ? "bg-slate-900 text-white" : v.couleur}`}>{v.label}</a>
+            <a key={k} href={`/soumissions?statut=${k}`} className={`px-3 py-2.5 rounded text-sm ${statutFiltre === k ? "bg-slate-900 text-white" : v.couleur}`}>{v.label}</a>
           ))}
         </div>
 
@@ -145,7 +145,7 @@ export default function SoumissionsPage() {
                       </td>
                       <td className="p-3 text-right font-semibold">{formatCAD(s.total || 0)}</td>
                       <td className="p-3">
-                        <select value={s.statut} onChange={(e) => changerStatut(s.numero, e.target.value)} className={`text-xs px-2 py-1 rounded border ${STATUTS[s.statut]?.couleur}`}>
+                        <select value={s.statut} onChange={(e) => changerStatut(s.numero, e.target.value)} className={`text-xs px-2 min-h-10 rounded border ${STATUTS[s.statut]?.couleur}`}>
                           {Object.entries(STATUTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                         </select>
                       </td>
@@ -163,7 +163,7 @@ export default function SoumissionsPage() {
                         <a href={`/soumissions/nouveau?modifier=${s.numero}`} className="text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded text-xs mr-1">Modifier</a>
                         <button onClick={() => dupliquer(s.numero)} className="text-purple-600 hover:bg-purple-50 px-2 py-1 rounded text-xs mr-1" title="Utiliser comme template pour une nouvelle soumission">📋 Dupliquer</button>
                         <a href={`/soumissions/${s.numero}/materiaux`} className="text-amber-700 hover:bg-amber-50 px-2 py-1 rounded text-xs mr-1" title="Voir la liste de matériaux">📦 Matériaux</a>
-                        <button onClick={() => supprimer(s.numero)} className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs">✕</button>
+                        <button onClick={() => supprimer(s.numero)} className="text-red-600 hover:bg-red-50 min-w-10 min-h-10 px-3 py-2 rounded text-sm" aria-label="Supprimer la soumission">✕</button>
                       </td>
                     </tr>
                   ))}
@@ -188,12 +188,12 @@ export default function SoumissionsPage() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2 pt-2 border-t">
-                    <select value={s.statut} onChange={(e) => changerStatut(s.numero, e.target.value)} className={`text-xs px-2 py-1 rounded border ${STATUTS[s.statut]?.couleur} flex-1`}>
+                    <select value={s.statut} onChange={(e) => changerStatut(s.numero, e.target.value)} className={`text-xs px-2 min-h-10 rounded border ${STATUTS[s.statut]?.couleur} flex-1`}>
                       {Object.entries(STATUTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                     </select>
-                    <a href={`/soumissions/nouveau?modifier=${s.numero}`} className="px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded text-xs font-semibold whitespace-nowrap">✏️ Modifier</a>
+                    <a href={`/soumissions/nouveau?modifier=${s.numero}`} className="inline-flex items-center min-h-10 px-3 py-2 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded text-sm font-semibold whitespace-nowrap">✏️ Modifier</a>
                     <button onClick={() => dupliquer(s.numero)} className="px-3 py-1 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded text-xs font-semibold whitespace-nowrap" title="Dupliquer comme template">📋</button>
-                    <button onClick={() => supprimer(s.numero)} className="px-2 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-xs">✕</button>
+                    <button onClick={() => supprimer(s.numero)} className="min-w-10 min-h-10 px-3 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded text-sm" aria-label="Supprimer la soumission">✕</button>
                   </div>
                   {s.statut === "facturee" && !s.heures_reelles && (
                     <button onClick={() => enregistrerHeuresReelles(s.numero)} className="w-full px-3 py-1 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded text-xs font-semibold">📊 Saisir les heures réelles</button>

@@ -309,7 +309,7 @@ ${VIKING_EMAIL}
               <div className="text-xs uppercase font-bold text-slate-500 mb-1">📍 Chantier</div>
               <div className="text-lg font-bold text-slate-900">{projet.adresse_chantier || <span className="text-slate-400 italic font-normal">Aucune adresse</span>}</div>
               {projet.adresse_chantier && (
-                <a href={`https://maps.google.com/?q=${encodeURIComponent(projet.adresse_chantier)}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">📍 Ouvrir dans Google Maps →</a>
+                <a href={`https://maps.google.com/?q=${encodeURIComponent(projet.adresse_chantier)}`} target="_blank" rel="noreferrer" className="inline-flex items-center min-h-10 text-sm text-blue-600 hover:underline">📍 Ouvrir dans Google Maps →</a>
               )}
               <div className="grid grid-cols-3 gap-2 mt-2">
                 <div>
@@ -325,7 +325,7 @@ ${VIKING_EMAIL}
                       const r = await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
                       if (r.ok) { toast("Date prévue mise à jour", "success"); charger(); }
                     }}
-                    className="w-full px-2 py-1 border rounded text-xs"
+                    className="w-full px-2 min-h-10 border rounded text-xs"
                   />
                 </div>
                 <div>
@@ -344,7 +344,7 @@ ${VIKING_EMAIL}
                       const r = await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
                       if (r.ok) { toast("Durée prévue mise à jour", "success"); charger(); }
                     }}
-                    className="w-full px-2 py-1 border rounded text-xs text-right"
+                    className="w-full px-2 min-h-10 border rounded text-xs text-right"
                   />
                 </div>
                 <div>
@@ -360,7 +360,7 @@ ${VIKING_EMAIL}
                       const r = await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
                       if (r.ok) { toast("Date de fin mise à jour", "success"); charger(); }
                     }}
-                    className="w-full px-2 py-1 border rounded text-xs"
+                    className="w-full px-2 min-h-10 border rounded text-xs"
                   />
                 </div>
               </div>
@@ -373,7 +373,7 @@ ${VIKING_EMAIL}
                 <button onClick={ouvrirEditInfo} className="text-xs text-emerald-700 hover:underline font-semibold">✏️ Nom / client</button>
               </div>
               {projet.client_id ? (
-                <a href={`/clients/${projet.client_id}`} className="text-lg font-bold text-slate-900 hover:underline">{projet.client_nom || "—"}</a>
+                <a href={`/clients/${projet.client_id}`} className="inline-flex items-center min-h-10 text-lg font-bold text-slate-900 hover:underline">{projet.client_nom || "—"}</a>
               ) : (
                 <div className="text-lg font-bold text-slate-900">{projet.client_nom || "Sans client"}</div>
               )}
@@ -386,7 +386,7 @@ ${VIKING_EMAIL}
         <div className="bg-white rounded-lg shadow p-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3 flex-wrap">
             <label className="text-sm text-slate-600">Statut :</label>
-            <select value={projet.statut} onChange={(e) => changerStatut(e.target.value)} className="px-3 py-1 border rounded text-sm">
+            <select value={projet.statut} onChange={(e) => changerStatut(e.target.value)} className="px-3 min-h-10 border rounded text-sm">
               {Object.entries(STATUTS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             {/* Boutons d'action rapide selon le statut */}
@@ -425,7 +425,7 @@ ${VIKING_EMAIL}
               title="Supprimer le projet définitivement"
             >🗑 Supprimer</button>
             <button onClick={() => telechargerFeuilleTemps(projet)} className="text-xs px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded font-semibold">⏱️ Feuille de temps PDF</button>
-            <a href={`/api/rapports?projet_id=${id}&format=csv`} className="text-xs px-3 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-semibold">📊 Export CSV</a>
+            <a href={`/api/rapports?projet_id=${id}&format=csv`} className="inline-flex items-center min-h-10 text-sm px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-semibold">📊 Export CSV</a>
             {projet.reno_assistance ? (
               <span className="text-xs px-3 py-1 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-2" title="Dossier subvention / aide à la rénovation">
                 🛠️ Reno assistance
@@ -713,7 +713,7 @@ ${VIKING_EMAIL}
                       const d = dateLocal(e.target.value); if (isNaN(d.getTime())) return;
                       const j = d.getDay(); const diff = j === 0 ? -6 : 1 - j;
                       d.setDate(d.getDate() + diff); d.setHours(0, 0, 0, 0); setSemaineDebutH(d);
-                    }} className="px-2 py-1 border rounded text-sm" title="Aller à une semaine" />
+                    }} className="px-2 min-h-10 border rounded text-sm" title="Aller à une semaine" />
                     <div className="ml-auto flex gap-1 bg-slate-100 rounded p-1">
                       <button onClick={() => setVueH("semaine")} className={`px-3 py-1 rounded text-xs font-semibold ${vueH === "semaine" ? "bg-white shadow" : "text-slate-600"}`}>📅 Grille</button>
                       <button onClick={() => setVueH("liste")} className={`px-3 py-1 rounded text-xs font-semibold ${vueH === "liste" ? "bg-white shadow" : "text-slate-600"}`}>📋 Liste</button>
@@ -1196,7 +1196,7 @@ function PhotosTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { projet: 
                         )}
                         <button
                           onClick={async () => { if (confirm(`Supprimer cette ${estVideo ? "vidéo" : "photo"} ?`)) { if (!(await ecrire(`/api/photos?id=${p.id}`, "DELETE", undefined, "Suppression"))) return; onUpdate(); } }}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition"
                         >✕</button>
                       </div>
                       );
@@ -1314,15 +1314,15 @@ function ClientInfo({ client_id }: { client_id?: number | null }) {
   const STATUTS_CLIENT = ["prospect", "actif", "inactif", "perdu"];
   return (
     <div className="text-sm space-y-0.5 mt-1">
-      {c.telephone && <div>📞 <a href={`tel:${c.telephone}`} className="text-blue-600 hover:underline">{c.telephone}</a></div>}
-      {c.courriel && <div>✉️ <a href={`mailto:${c.courriel}`} className="text-blue-600 hover:underline break-all">{c.courriel}</a></div>}
+      {c.telephone && <div>📞 <a href={`tel:${c.telephone}`} className="inline-flex items-center min-h-10 text-blue-600 hover:underline">{c.telephone}</a></div>}
+      {c.courriel && <div>✉️ <a href={`mailto:${c.courriel}`} className="inline-flex items-center min-h-10 text-blue-600 hover:underline break-all">{c.courriel}</a></div>}
       {c.adresse && <div className="text-xs text-slate-600">🏠 {c.adresse}</div>}
       <div className="flex items-center gap-2 mt-1">
         <span className="text-[10px] text-slate-500 uppercase">Statut</span>
         <select
           value={c.statut || "prospect"}
           onChange={(e) => changerStatut(e.target.value)}
-          className={`text-xs px-2 py-1 rounded border font-semibold ${c.statut === "actif" ? "bg-emerald-50 text-emerald-900 border-emerald-300" : c.statut === "prospect" ? "bg-amber-50 text-amber-900 border-amber-300" : "bg-slate-100 border-slate-300"}`}
+          className={`text-xs px-2 min-h-10 rounded border font-semibold ${c.statut === "actif" ? "bg-emerald-50 text-emerald-900 border-emerald-300" : c.statut === "prospect" ? "bg-amber-50 text-amber-900 border-amber-300" : "bg-slate-100 border-slate-300"}`}
         >
           {STATUTS_CLIENT.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>

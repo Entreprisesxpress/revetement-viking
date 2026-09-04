@@ -206,7 +206,7 @@ export default function ClientDetail() {
             <div className="space-y-1 mb-3">
               {taches.length === 0 ? <p className="text-xs text-slate-500 italic">Aucune tâche</p> : taches.map((t) => (
                 <div key={t.id} className={`flex items-start gap-2 p-2 rounded ${t.statut === "complete" ? "bg-emerald-50 opacity-70" : "bg-slate-50"}`}>
-                  <button onClick={() => toggleTache(t)} className={`w-7 h-7 mt-0.5 rounded border-2 flex-shrink-0 font-bold text-sm flex items-center justify-center ${t.statut === "complete" ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-400 hover:border-emerald-500 hover:bg-emerald-50"}`} title={t.statut === "complete" ? "Réouvrir la tâche" : "Marquer comme faite"}>{t.statut === "complete" ? "✓" : ""}</button>
+                  <button onClick={() => toggleTache(t)} className={`w-10 h-10 mt-0.5 rounded border-2 flex-shrink-0 font-bold text-sm flex items-center justify-center ${t.statut === "complete" ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-400 hover:border-emerald-500 hover:bg-emerald-50"}`} title={t.statut === "complete" ? "Réouvrir la tâche" : "Marquer comme faite"}>{t.statut === "complete" ? "✓" : ""}</button>
                   <div className="flex-1 min-w-0">
                     <div className={`text-sm ${t.statut === "complete" ? "line-through text-slate-500" : "font-semibold"}`}>{t.titre}</div>
                     {t.date_due && <div className={`text-xs ${t.date_due < today && t.statut !== "complete" ? "text-red-700 font-bold" : "text-slate-500"}`}>📅 {t.date_due}{t.statut === "complete" && t.date_completion ? ` · fait ${t.date_completion}` : ""}</div>}

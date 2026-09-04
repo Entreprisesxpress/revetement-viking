@@ -124,7 +124,7 @@ function TailleSelect({ pageSize, onPageSize }: { pageSize: number; onPageSize: 
       <select
         value={pageSize}
         onChange={(e) => onPageSize(+e.target.value)}
-        className="px-2 py-1 border rounded bg-white text-slate-700"
+        className="px-2 min-h-10 border rounded bg-white text-slate-700"
         aria-label="Nombre d'éléments par page"
       >
         {TAILLES_PAGE.map((t) => <option key={t} value={t}>{t}</option>)}

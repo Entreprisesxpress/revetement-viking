@@ -195,7 +195,7 @@ export default function ClientsPage() {
                   <div key={t.id} className={`flex items-center gap-2 p-2 rounded ${enRetard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
                     <button
                       onClick={async () => { if (!(await ecrire("/api/taches", "PATCH", { id: t.id, statut: "complete" }, "Enregistrement"))) return; toast("Tâche fermée ✓", "success"); charger(); }}
-                      className="w-7 h-7 rounded border-2 border-slate-400 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white font-bold text-sm flex items-center justify-center transition flex-shrink-0"
+                      className="w-10 h-10 rounded border-2 border-slate-400 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white font-bold text-sm flex items-center justify-center transition flex-shrink-0"
                       title="Marquer comme faite"
                     >✓</button>
                     <div className="flex-1 min-w-0">
@@ -332,8 +332,8 @@ export default function ClientsPage() {
                     <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${statutInfo.couleur}`}>{statutInfo.label}</span>
                   </div>
                   <div className="text-xs space-y-0.5">
-                    {c.telephone && <div onClick={(e) => e.stopPropagation()}>📞 <a href={`tel:${c.telephone}`} className="text-blue-600 hover:underline">{c.telephone}</a></div>}
-                    {c.courriel && <div onClick={(e) => e.stopPropagation()}>✉️ <a href={`mailto:${c.courriel}`} className="text-blue-600 hover:underline truncate">{c.courriel}</a></div>}
+                    {c.telephone && <div onClick={(e) => e.stopPropagation()}>📞 <a href={`tel:${c.telephone}`} className="inline-flex items-center min-h-10 text-blue-600 hover:underline">{c.telephone}</a></div>}
+                    {c.courriel && <div onClick={(e) => e.stopPropagation()}>✉️ <a href={`mailto:${c.courriel}`} className="inline-flex items-center min-h-10 text-blue-600 hover:underline truncate">{c.courriel}</a></div>}
                   </div>
                   {c.tags && <div className="flex gap-1 flex-wrap">{c.tags.split(",").map((t: string, i: number) => <span key={i} className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">{t.trim()}</span>)}</div>}
                   <div className="pt-2 border-t text-xs flex justify-between">
