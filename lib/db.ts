@@ -1273,9 +1273,20 @@ export async function marquerDossierSigneEnvoye(token: string, destinataire: str
     [new Date().toISOString(), destinataire, token]);
 }
 export async function marquerContratEnvoye(id: number, courriel?: string, messageId?: string, erreur?: string) {
+  // Un envoi RATÉ ne doit pas passer le contrat à « envoyé » : le client n'a rien reçu,
+  // mais l'écran affichait « Envoyé », le filtre le rangeait avec les vrais envois, et la
+  // relance automatique le comptait « sans réponse depuis N jours ». On ne garde que la
+  // trace de l'échec (destinataire tenté + erreur) ; statut et date d'envoi ne bougent pas.
+  if (erreur) {
+    await run(
+      "UPDATE pipeline_contrats SET courriel_destinataire=?, courriel_erreur=? WHERE id=? AND statut!='signe'",
+      [courriel || null, erreur, id]
+    );
+    return;
+  }
   await run(
-    "UPDATE pipeline_contrats SET statut='envoye', date_envoye=?, courriel_destinataire=?, courriel_message_id=?, courriel_erreur=? WHERE id=? AND statut!='signe'",
-    [new Date().toISOString(), courriel || null, messageId || null, erreur || null, id]
+    "UPDATE pipeline_contrats SET statut='envoye', date_envoye=?, courriel_destinataire=?, courriel_message_id=?, courriel_erreur=NULL WHERE id=? AND statut!='signe'",
+    [new Date().toISOString(), courriel || null, messageId || null, id]
   );
 }
 /** Enregistre la première vue par le client (pour preuve de transmission). */
