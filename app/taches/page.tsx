@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 const PERSONNES = ["Francis", "Gabriel"];
 const PRIORITES = [
@@ -53,32 +54,30 @@ export default function TachesPage() {
   };
 
   const terminer = async (t: any) => {
-    const r = await fetch("/api/taches", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: t.id, statut: "complete" }),
-    }).then((x) => x.json());
+    // Réponse vérifiée : « ✓ Tâche complétée » s'affichait même sur un 401 — la tâche
+    // réapparaissait ouverte au rechargement.
+    const res = await envoyer<{ prochaine?: boolean }>("/api/taches", { methode: "PATCH", corps: { id: t.id, statut: "complete" } });
+    if (!res.ok) { toast(`Tâche NON complétée : ${res.erreur}`, "error"); return; }
+    const r = res.data || {};
     toast(r.prochaine ? "✓ Faite — prochaine occurrence créée 🔁" : "✓ Tâche complétée", "success");
     charger();
   };
   const rouvrir = async (t: any) => {
-    await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, statut: "a_faire", date_completion: null }) });
+    if (!(await ecrire("/api/taches", "PATCH", { id: t.id, statut: "a_faire", date_completion: null }, "Enregistrement"))) return;
     charger();
   };
   const supprimer = async (t: any) => {
     if (!confirm(`Supprimer « ${t.titre} » ?`)) return;
-    await fetch(`/api/taches?id=${t.id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/taches?id=${t.id}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
   const reassigner = async (t: any, who: string) => {
-    await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, assigne_a: who || null }) });
+    if (!(await ecrire("/api/taches", "PATCH", { id: t.id, assigne_a: who || null }, "Enregistrement"))) return;
     charger();
   };
   const sauverEdition = async () => {
     if (!editing?.titre?.trim()) { toast("Titre requis", "warning"); return; }
-    await fetch("/api/taches", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editing.id, titre: editing.titre.trim(), description: editing.description || null, date_due: editing.date_due || null, priorite: editing.priorite, recurrence: editing.recurrence || null, assigne_a: editing.assigne_a || null }),
-    });
+    if (!(await ecrire("/api/taches", "PATCH", { id: editing.id, titre: editing.titre.trim(), description: editing.description || null, date_due: editing.date_due || null, priorite: editing.priorite, recurrence: editing.recurrence || null, assigne_a: editing.assigne_a || null }, "Enregistrement"))) return;
     setEditing(null);
     toast("✓ Tâche modifiée", "success");
     charger();

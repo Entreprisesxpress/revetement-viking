@@ -12,6 +12,7 @@ import FAB from "@/components/FAB";
 import Meteo from "@/components/Meteo";
 import { fetchInstantane } from "@/lib/cacheClient";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire } from "@/lib/envoi";
 
 /** Lundi de la semaine courante (date locale, format YYYY-MM-DD). Le dashboard
  *  regarde les heures PAR SEMAINE (lundi → aujourd'hui), pas une fenêtre glissante. */
@@ -177,7 +178,7 @@ export default function Home() {
                     </a>
                     <button
                       onClick={async () => {
-                        await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, facturee: 1 }) });
+                        if (!(await ecrire("/api/projets", "PATCH", { id: p.id, facturee: 1 }, "Enregistrement"))) return;
                         toast("✓ Projet marqué facturé", "success");
                         setAFacturer((arr) => arr.filter((x) => x.id !== p.id));
                       }}
@@ -214,7 +215,7 @@ export default function Home() {
                   </div>
                   <button
                     onClick={async () => {
-                      await fetch("/api/extras", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: e.id, statut: "charge" }) });
+                      if (!(await ecrire("/api/extras", "PATCH", { id: e.id, statut: "charge" }, "Enregistrement"))) return;
                       toast("✓ Extra marqué facturé", "success");
                       setExtras((arr) => arr.filter((x) => x.id !== e.id));
                     }}
@@ -370,7 +371,7 @@ export default function Home() {
                 return (
                   <li key={t.id} className={`flex items-center gap-2 p-2 rounded ${retard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
                     <input type="checkbox" onChange={async () => {
-                      await fetch("/api/client-taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, complete: true }) });
+                      if (!(await ecrire("/api/client-taches", "PATCH", { id: t.id, complete: true }, "Enregistrement"))) return;
                       setMesTaches((arr) => arr.filter((x) => x.id !== t.id));
                     }} className="w-4 h-4" />
                     <div className="flex-1 min-w-0">
@@ -404,7 +405,7 @@ export default function Home() {
                 return (
                   <li key={t.id} className={`flex items-center gap-2 p-2 rounded ${retard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
                     <input type="checkbox" onChange={async () => {
-                      await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, statut: "complete" }) });
+                      if (!(await ecrire("/api/taches", "PATCH", { id: t.id, statut: "complete" }, "Enregistrement"))) return;
                       setTachesAFaire((arr) => arr.filter((x) => x.id !== t.id));
                     }} className="w-4 h-4" title="Marquer faite" />
                     <div className="flex-1 min-w-0">

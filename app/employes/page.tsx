@@ -7,6 +7,7 @@ import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import ZoneDepot from "@/components/ZoneDepot";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire } from "@/lib/envoi";
 
 const POSTES = ["Installateur", "Apprenti", "Chef d'équipe", "Estimateur", "Administration", "Autre"];
 
@@ -31,10 +32,10 @@ export default function EmployesPage() {
     if (!form.nom?.trim() || !form.taux_horaire) { toast("Nom et taux requis", "warning"); return; }
     const body = { ...form, taux_horaire: +form.taux_horaire, das_pct: +form.das_pct, recoit_talon: form.recoit_talon ? 1 : 0 };
     if (edit) {
-      await fetch("/api/employes", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: edit.id, ...body }) });
+      if (!(await ecrire("/api/employes", "PATCH", { id: edit.id, ...body }, "Enregistrement"))) return;
       toast(`✓ ${form.nom} mis à jour`, "success");
     } else {
-      await fetch("/api/employes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!(await ecrire("/api/employes", "POST", body, "Enregistrement"))) return;
       toast(`✓ ${form.nom} ajouté`, "success");
     }
     setEdit(null);
@@ -51,13 +52,13 @@ export default function EmployesPage() {
 
   const desactiver = async (e: any) => {
     if (!confirm(`Désactiver ${e.nom} ? Il n'apparaîtra plus dans la saisie d'heures.`)) return;
-    await fetch(`/api/employes?id=${e.id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/employes?id=${e.id}`, "DELETE", undefined, "Suppression"))) return;
     toast(`${e.nom} désactivé`, "info");
     charger();
   };
 
   const reactiver = async (e: any) => {
-    await fetch("/api/employes", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: e.id, actif: 1 }) });
+    if (!(await ecrire("/api/employes", "PATCH", { id: e.id, actif: 1 }, "Enregistrement"))) return;
     toast(`${e.nom} réactivé`, "success");
     charger();
   };

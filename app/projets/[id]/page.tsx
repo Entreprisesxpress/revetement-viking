@@ -14,7 +14,7 @@ import ExtrasVue from "@/components/ExtrasVue";
 import DocumentsProjet from "@/components/DocumentsProjet";
 import MicVocal from "@/components/MicVocal";
 import { estProjetActif } from "@/lib/statuts-projet";
-import { envoyer, nombreSaisi } from "@/lib/envoi";
+import { envoyer, nombreSaisi, ecrire } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
 import { aujourdhuiMontreal } from "@/lib/date";
 
@@ -235,7 +235,7 @@ export default function ProjetDetail() {
 
   const supprimer = async (type: string, ligneId: number) => {
     if (!confirm("Supprimer cette entrée ?")) return;
-    await fetch(`/api/${type}?id=${ligneId}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/${type}?id=${ligneId}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 
@@ -268,7 +268,7 @@ ${VIKING_EMAIL}
   };
 
   const changerStatut = async (nouveauStatut: string) => {
-    await fetch("/api/projets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, statut: nouveauStatut }) });
+    if (!(await ecrire("/api/projets", "PATCH", { id, statut: nouveauStatut }, "Enregistrement"))) return;
     toast(`Statut → ${STATUTS_LABEL[nouveauStatut]}`, "success");
     // Projet complété → envoi du courriel de demande d'avis Google
     if (nouveauStatut === "complete") {
@@ -1196,7 +1196,7 @@ function PhotosTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { projet: 
                           </button>
                         )}
                         <button
-                          onClick={async () => { if (confirm(`Supprimer cette ${estVideo ? "vidéo" : "photo"} ?`)) { await fetch(`/api/photos?id=${p.id}`, { method: "DELETE" }); onUpdate(); } }}
+                          onClick={async () => { if (confirm(`Supprimer cette ${estVideo ? "vidéo" : "photo"} ?`)) { if (!(await ecrire(`/api/photos?id=${p.id}`, "DELETE", undefined, "Suppression"))) return; onUpdate(); } }}
                           className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
                         >✕</button>
                       </div>
@@ -1307,7 +1307,7 @@ function ClientInfo({ client_id }: { client_id?: number | null }) {
   useEffect(() => { charger(); }, [client_id]);
   const changerStatut = async (statut: string) => {
     if (!client_id) return;
-    await fetch("/api/clients", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: client_id, statut }) });
+    if (!(await ecrire("/api/clients", "PATCH", { id: client_id, statut }, "Enregistrement"))) return;
     charger();
   };
   if (!client_id) return <div className="text-xs text-slate-500 italic">Aucun client lié</div>;
@@ -1374,10 +1374,7 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
         !confirm("Un contrat signé est déjà joint à ce projet. Le remplacer par ce fichier ?")) return;
     const reader = new FileReader();
     reader.onload = async () => {
-      await fetch("/api/projets", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: projet.id, contrat_signe_data: reader.result, contrat_signe_type: file.type }),
-      });
+      if (!(await ecrire("/api/projets", "PATCH", { id: projet.id, contrat_signe_data: reader.result, contrat_signe_type: file.type }, "Enregistrement"))) return;
       onUpdate();
     };
     reader.readAsDataURL(file);

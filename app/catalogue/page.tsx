@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
+import { ecrire } from "@/lib/envoi";
 
 const TYPES = [
   { v: "demolition", l: "Démolition" },
@@ -82,7 +83,7 @@ export default function CataloguePage() {
 
   const supprimer = async (id: number) => {
     if (!confirm("Désactiver ce matériau ? (les soumissions passées ne sont pas affectées)")) return;
-    await fetch(`/api/catalogue?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/catalogue?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 

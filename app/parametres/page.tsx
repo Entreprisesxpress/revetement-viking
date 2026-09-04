@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { compresserImage, genererVignette } from "@/lib/img";
+import { ecrire } from "@/lib/envoi";
 
 export default function ParametresPage() {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default function ParametresPage() {
 
   const deconnexion = async () => {
     if (!confirm("Te déconnecter de l'application ?")) return;
-    await fetch("/api/login", { method: "DELETE" });
+    if (!(await ecrire("/api/login", "DELETE", undefined, "Suppression"))) return;
     router.replace("/login");
   };
 
@@ -227,7 +228,7 @@ function PushSection() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await fetch("/api/push/subscribe", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+        if (!(await ecrire("/api/push/subscribe", "DELETE", { endpoint: sub.endpoint }, "Suppression"))) return;
         await sub.unsubscribe();
       }
       setActif(false);

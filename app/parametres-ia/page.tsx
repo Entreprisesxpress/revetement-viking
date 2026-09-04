@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import ZoneDepot from "@/components/ZoneDepot";
+import { ecrire } from "@/lib/envoi";
 
 export default function ParametresIaPage() {
   const [params, setParams] = useState<any[]>([]);
@@ -26,7 +27,7 @@ export default function ParametresIaPage() {
 
   const restaurerDefaut = async (cle: string) => {
     if (!confirm("Restaurer la valeur par défaut Viking pour ce paramètre ?")) return;
-    await fetch(`/api/parametres-ia?reset=${cle}`, { method: "DELETE" }).catch(() => {});
+    if (!(await ecrire(`/api/parametres-ia?reset=${cle}`, "DELETE", undefined, "Suppression"))) return;
     chargerParams();
   };
 
@@ -49,12 +50,12 @@ export default function ParametresIaPage() {
 
   const supprimerDoc = async (id: number, nom: string) => {
     if (!confirm(`Supprimer "${nom}" ? L'IA ne s'en servira plus.`)) return;
-    await fetch(`/api/documents-ia?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/documents-ia?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     chargerDocs();
   };
 
   const toggleActif = async (d: any) => {
-    await fetch("/api/documents-ia", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: d.id, actif: d.actif ? 0 : 1 }) });
+    if (!(await ecrire("/api/documents-ia", "PATCH", { id: d.id, actif: d.actif ? 0 : 1 }, "Enregistrement"))) return;
     chargerDocs();
   };
 

@@ -5,6 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import ZoneDepot from "@/components/ZoneDepot";
 import { compresserImage } from "@/lib/img";
+import { ecrire } from "@/lib/envoi";
 
 export default function Bibliotheque() {
   const [jobs, setJobs] = useState<any[]>([]);
@@ -67,7 +68,7 @@ export default function Bibliotheque() {
 
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer cette job de référence?")) return;
-    await fetch(`/api/bibliotheque?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/bibliotheque?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 

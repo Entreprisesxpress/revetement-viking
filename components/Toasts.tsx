@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { enregistrerToast } from "@/lib/toast-bus";
 
 type ToastType = "success" | "error" | "info" | "warning";
 interface Toast {
@@ -32,6 +33,10 @@ export function ToastsProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => [...prev, { id, msg, type, action: options?.action }]);
     setTimeout(() => retire(id), duree);
   }, []);
+
+  // Rend `toast` joignable hors React (lib/toast-bus.ts) : les helpers d'écriture
+  // partagés signalent leurs échecs par là, sans passer par le hook.
+  useEffect(() => enregistrerToast(toast), [toast]);
 
   return (
     <Ctx.Provider value={{ toast }}>

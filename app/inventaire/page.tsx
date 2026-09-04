@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { compresserImage } from "@/lib/img";
+import { ecrire } from "@/lib/envoi";
 
 const EMPLACEMENTS = ["Cabanon", "Sous le tempo", "Chez Vincent", "Chez Goulet", "Autre"];
 const CATEGORIES = ["Revêtement", "Moulures", "Quincaillerie", "Isolation", "Membrane", "Outils", "Consommables", "Autre"];
@@ -77,7 +78,7 @@ export default function InventairePage() {
 
   const supprimer = async (item: any) => {
     if (!confirm(`Supprimer "${item.nom}" de l'inventaire ?`)) return;
-    await fetch(`/api/inventaire?id=${item.id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/inventaire?id=${item.id}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 

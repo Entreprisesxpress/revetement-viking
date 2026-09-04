@@ -8,6 +8,7 @@ import { useToast } from "@/components/Toasts";
 import { exporterCSV } from "@/lib/csv";
 import Pagination, { usePagination } from "@/components/Pagination";
 import { nombreSaisi, depensesAvantTaxes } from "@/lib/calculs";
+import { ecrire } from "@/lib/envoi";
 
 type TriCol = "date" | "fournisseur" | "categorie" | "projet" | "montant";
 type TriSens = "asc" | "desc";
@@ -147,7 +148,7 @@ export default function DepensesVue() {
 
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer cette dépense ?")) return;
-    await fetch(`/api/depenses?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/depenses?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     toast("Dépense supprimée", "info");
     charger();
   };
@@ -487,13 +488,13 @@ function CategoriesGestion({ categories, onChange }: { categories: { id: number;
   const sauverEdition = async (id: number) => {
     const nom = editNom.trim();
     if (!nom) return;
-    await fetch("/api/categories-depense", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, nom }) });
+    if (!(await ecrire("/api/categories-depense", "PATCH", { id, nom }, "Enregistrement"))) return;
     toast("Catégorie renommée (les dépenses existantes sont mises à jour)", "success");
     setEditId(null); onChange();
   };
   const supprimer = async (c: { id: number; nom: string }) => {
     if (!confirm(`Désactiver la catégorie « ${c.nom} » ?\n(L'historique des dépenses reste intact, mais elle n'apparaît plus dans les listes.)`)) return;
-    await fetch(`/api/categories-depense?id=${c.id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/categories-depense?id=${c.id}`, "DELETE", undefined, "Suppression"))) return;
     toast("Catégorie désactivée", "info"); onChange();
   };
 

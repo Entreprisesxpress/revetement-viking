@@ -31,6 +31,27 @@ export async function envoyer<T = any>(
   }
 }
 
+/**
+ * Écriture avec signalement automatique de l'échec.
+ *
+ * Pour le motif « feu et oublie » : `await fetch(url, { method, body }); charger();`
+ * qui, en cas de 401 (session expirée), de 400 (refus de validation) ou de réseau
+ * coupé, rafraîchissait l'écran comme si de rien n'était — l'utilisateur voyait sa
+ * modification disparaître au rechargement sans jamais savoir pourquoi. Trouvé à
+ * 64 endroits d'un coup ; trois avaient déjà été attrapés un par un en direct.
+ *
+ * Retourne `true` si l'écriture a réussi. Sinon, signale l'erreur (toast, ou alert
+ * sans fournisseur) et retourne `false` : l'appelant fait `if (!(await ecrire(…))) return;`
+ * et ne rafraîchit ni ne ferme rien sur un échec.
+ */
+export async function ecrire(url: string, methode: string, corps?: any, contexte?: string): Promise<boolean> {
+  const r = await envoyer(url, { methode, corps });
+  if (r.ok) return true;
+  const { signaler } = await import("./toast-bus");
+  signaler(`${contexte || "Enregistrement"} refusé : ${r.erreur}`, "error");
+  return false;
+}
+
 // Implémentation unique et testée dans lib/calculs.ts (gère « 5 000,50 $ » : virgule
 // décimale, espaces de milliers, symbole). Ré-exportée ici pour les écrans.
 export { nombreSaisi } from "@/lib/calculs";

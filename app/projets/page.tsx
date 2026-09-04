@@ -9,6 +9,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire } from "@/lib/envoi";
 
 const STATUTS: Record<string, { label: string; couleur: string }> = {
   en_cours: { label: "En cours", couleur: "bg-emerald-100 text-emerald-900" },
@@ -74,10 +75,7 @@ export default function ProjetsPage() {
     {
       // Si une facture a été jointe, la sauvegarder via PATCH
       if (facture && d.id) {
-        await fetch("/api/projets", {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: d.id, facture_finale_data: facture.data, facture_finale_type: facture.type }),
-        });
+        if (!(await ecrire("/api/projets", "PATCH", { id: d.id, facture_finale_data: facture.data, facture_finale_type: facture.type }, "Enregistrement"))) return;
       }
       // Créer une fiche client au passage est un effet de bord : on le dit.
       toast(d.client_cree ? `Projet créé · fiche client « ${nouveau.client_nom.trim()} » ajoutée au CRM` : "Projet créé", "success");

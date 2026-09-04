@@ -5,6 +5,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
 import ZoneDepot from "@/components/ZoneDepot";
+import { ecrire } from "@/lib/envoi";
 
 const TYPES = ["Auto / flotte", "Responsabilité civile", "Chantier / RBQ", "Équipement / outils", "Cautionnement", "Autre"];
 
@@ -52,7 +53,7 @@ export default function AssurancesPage() {
   };
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer cette assurance ?")) return;
-    await fetch(`/api/assurances?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/assurances?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     toast("Supprimée", "info"); charger();
   };
   const ouvrirEdit = (a: any) => { setEdit(a); setForm({ ...vide, ...a, vehicule_id: a.vehicule_id || "", prime_annuelle: a.prime_annuelle || "", document_data: "", document_type: a.document_type || "" }); setCreerOuvert(true); };

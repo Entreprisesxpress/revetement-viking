@@ -6,6 +6,7 @@ import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import Pagination, { usePagination } from "@/components/Pagination";
+import { ecrire } from "@/lib/envoi";
 
 const STATUTS: Record<string, { label: string; couleur: string }> = {
   brouillon: { label: "Brouillon", couleur: "bg-slate-200 text-slate-800" },
@@ -72,17 +73,13 @@ export default function SoumissionsPage() {
   useEffect(() => { pg.reset(); }, [statutFiltre]);
 
   const changerStatut = async (numero: string, statut: string) => {
-    await fetch("/api/soumissions", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ numero, statut }),
-    });
+    if (!(await ecrire("/api/soumissions", "PATCH", { numero, statut }, "Enregistrement"))) return;
     charger();
   };
 
   const supprimer = async (numero: string) => {
     if (!confirm(`Supprimer ${numero} ?`)) return;
-    await fetch(`/api/soumissions?numero=${numero}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/soumissions?numero=${numero}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 
@@ -100,11 +97,7 @@ export default function SoumissionsPage() {
   const enregistrerHeuresReelles = async (numero: string) => {
     const h = prompt("Heures réelles totales travaillées :");
     if (!h) return;
-    await fetch("/api/soumissions", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ numero, heuresReelles: +h }),
-    });
+    if (!(await ecrire("/api/soumissions", "PATCH", { numero, heuresReelles: +h }, "Enregistrement"))) return;
     charger();
   };
 

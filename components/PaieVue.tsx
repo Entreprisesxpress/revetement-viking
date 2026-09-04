@@ -5,6 +5,7 @@ import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 // Parse « AAAA-MM-JJ » comme minuit LOCAL (pas UTC). new Date("2026-05-18") = minuit
 // UTC → affiché « 17 mai » à Montréal (UTC−4). Ici on garde le bon jour.
@@ -39,10 +40,10 @@ export default function PaieVue() {
       const date = aujourdhuiMontreal();
       const lisible = new Date().toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" });
       if (!confirm(`Marquer la paye de ${p.employe} comme payée aujourd'hui (${lisible}) ?`)) return;
-      await fetch("/api/paies", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, paye: true, date_paiement: date }) });
+      if (!(await ecrire("/api/paies", "PATCH", { id: p.id, paye: true, date_paiement: date }, "Enregistrement"))) return;
       toast(`✓ Paye marquée payée — ${p.employe}`, "success");
     } else {
-      await fetch("/api/paies", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, paye: false }) });
+      if (!(await ecrire("/api/paies", "PATCH", { id: p.id, paye: false }, "Enregistrement"))) return;
       toast("Paye remise en attente", "info");
     }
     charger();
@@ -82,23 +83,24 @@ export default function PaieVue() {
   };
 
   const appliquerBanque = async (p: any, heures: number) => {
-    await fetch("/api/paies", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, banque_appliquee: heures }) });
+    if (!(await ecrire("/api/paies", "PATCH", { id: p.id, banque_appliquee: heures }, "Enregistrement"))) return;
     toast(heures > 0 ? `🏦 ${heures.toFixed(1)} h tirées de la banque` : "Banque retirée de cette période", heures > 0 ? "success" : "info");
     charger();
   };
 
   const supprimer = async (p: any) => {
     if (!confirm(`Supprimer la période de paye de ${p.employe} (${p.debut} → ${p.fin}) ?`)) return;
-    await fetch(`/api/paies?id=${p.id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/paies?id=${p.id}`, "DELETE", undefined, "Suppression"))) return;
     toast("Période supprimée", "info");
     charger();
   };
 
   const nettoyerOrphelines = async () => {
     if (!confirm("Supprimer les périodes de paye sans heures saisies ?")) return;
-    const r = await fetch("/api/paies?orphelines=1", { method: "DELETE" });
-    const d = await r.json();
-    toast(`${d.supprimees || 0} période(s) orpheline(s) supprimée(s)`, "success");
+    // Réponse vérifiée : un 401 affichait « 0 période(s) supprimée(s) » en VERT.
+    const res = await envoyer<{ supprimees?: number }>("/api/paies?orphelines=1", { methode: "DELETE" });
+    if (!res.ok) { toast(`Nettoyage refusé : ${res.erreur}`, "error"); return; }
+    toast(`${res.data?.supprimees || 0} période(s) orpheline(s) supprimée(s)`, "success");
     charger();
   };
 

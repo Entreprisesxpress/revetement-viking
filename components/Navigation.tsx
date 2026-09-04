@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { activerMoniteurOffline, nbActionsEnAttente } from "@/lib/fileOffline";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire } from "@/lib/envoi";
 
 interface NavLink {
   href: string;
@@ -90,7 +91,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
 
   const deconnexion = async () => {
     if (!confirm("Te déconnecter ?")) return;
-    await fetch("/api/login", { method: "DELETE" });
+    if (!(await ecrire("/api/login", "DELETE", undefined, "Suppression"))) return;
     router.replace("/login");
   };
 

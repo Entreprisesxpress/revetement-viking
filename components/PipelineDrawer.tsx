@@ -10,6 +10,7 @@ import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import MicVocal from "@/components/MicVocal";
 import ZoneDepot from "@/components/ZoneDepot";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire, envoyer } from "@/lib/envoi";
 
 interface Props {
   client: any;
@@ -60,17 +61,14 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     if (autoSaveT.current) clearTimeout(autoSaveT.current);
     autoSaveT.current = setTimeout(async () => {
       try {
-        await fetch("/api/clients", {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        if (!(await ecrire("/api/clients", "PATCH", {
             id: client.id, ...form,
             projet_lien_id: form.projet_lien_id ? +form.projet_lien_id : null,
             date_relance: form.date_relance || null,
             assignee: form.assignee || null,
             pipeline_stage: form.pipeline_stage || null,
             instructions_speciales: form.instructions_speciales || null,
-          }),
-        });
+          }, "Sauvegarde automatique de la fiche"))) { setAutoSaveStatut("idle"); return; }
         setAutoSaveStatut("saved");
         onUpdate();
         setTimeout(() => setAutoSaveStatut("idle"), 2000);
@@ -109,33 +107,36 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const ajouterTache = async () => {
     const titre = nouvelleTache.trim();
     if (!titre) return;
-    await fetch("/api/client-taches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: client.id, titre, assignee: nouvelleAssignee || null, date_echeance: nouvelleEcheance || null }) });
+    if (!(await ecrire("/api/client-taches", "POST", { client_id: client.id, titre, assignee: nouvelleAssignee || null, date_echeance: nouvelleEcheance || null }, "Enregistrement"))) return;
     setNouvelleTache("");
     setNouvelleAssignee("");
     setNouvelleEcheance("");
     rechargerTaches();
   };
   const cocherTache = async (t: any) => {
-    await fetch("/api/client-taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, complete: !t.complete }) });
+    if (!(await ecrire("/api/client-taches", "PATCH", { id: t.id, complete: !t.complete }, "Enregistrement"))) return;
     rechargerTaches();
   };
   const supprimerTache = async (id: number) => {
-    await fetch(`/api/client-taches?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/client-taches?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     rechargerTaches();
   };
 
   const posterComm = async () => {
     const texte = nouveauComm.trim();
     if (!texte) return;
-    const r = await fetch("/api/client-commentaires", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: client.id, texte }) });
-    const d = await r.json();
+    // Réponse vérifiée : le champ se vidait même sur un refus — le commentaire tapé
+    // disparaissait sans trace, et sans un mot.
+    const res = await envoyer<{ mentions?: string[] }>("/api/client-commentaires", { corps: { client_id: client.id, texte } });
+    if (!res.ok) { toast(`Commentaire NON enregistré : ${res.erreur}`, "error"); return; }
+    const d = res.data || {};
     setNouveauComm("");
     rechargerComm();
     if (d.mentions && d.mentions.length) toast(`📧 Courriel envoyé à @${d.mentions.join(", @")}`, "success");
   };
   const supprimerComm = async (id: number) => {
     if (!confirm("Supprimer ce commentaire ?")) return;
-    await fetch(`/api/client-commentaires?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/client-commentaires?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     rechargerComm();
   };
 
@@ -144,7 +145,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     // Toggle off
     if (form.pipeline_stage === "accepte") {
       setForm({ ...form, pipeline_stage: "info_1" });
-      await fetch("/api/clients", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: client.id, pipeline_stage: "info_1" }) });
+      if (!(await ecrire("/api/clients", "PATCH", { id: client.id, pipeline_stage: "info_1" }, "Enregistrement"))) return;
       toast("↩ Remis en début de pipeline (le projet et le contrat restent intacts)", "info");
       onUpdate();
       return;
@@ -251,7 +252,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
       const sujet = `Contrat à signer — Revêtement Viking Inc. (${c.numero})`;
       const corps = `Bonjour ${form.nom},\n\nVoici le lien sécurisé pour signer votre contrat de rénovation :\n\n${lien}\n\nCordialement,\nRevêtement Viking Inc.`;
       window.location.href = `mailto:${form.courriel}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
-      await fetch("/api/contrats-pipeline", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, action: "envoye" }) });
+      if (!(await ecrire("/api/contrats-pipeline", "PATCH", { id: c.id, action: "envoye" }, "Enregistrement"))) return;
       toast("📧 Client mail ouvert (envoi serveur non configuré)", "info");
       rechargerContrats();
     } else {
@@ -319,7 +320,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
 
   const supprimerContrat = async (id: number) => {
     if (!confirm("Supprimer ce contrat ? (Le lien de signature deviendra invalide.)")) return;
-    await fetch(`/api/contrats-pipeline?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/contrats-pipeline?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     toast("Contrat supprimé", "info");
     rechargerContrats();
   };
@@ -341,17 +342,14 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
   const sauver = async () => {
     setBusy(true);
     try {
-      await fetch("/api/clients", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      if (!(await ecrire("/api/clients", "PATCH", {
           id: client.id, ...form,
           projet_lien_id: form.projet_lien_id ? +form.projet_lien_id : null,
           date_relance: form.date_relance || null,
           assignee: form.assignee || null,
           pipeline_stage: form.pipeline_stage || null,
           instructions_speciales: form.instructions_speciales || null,
-        }),
-      });
+        }, "Enregistrement"))) return;
       toast("✓ Modifications enregistrées", "success");
       onUpdate();
     } finally { setBusy(false); }
@@ -377,10 +375,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
             r.readAsDataURL(f);
           });
         }
-        await fetch("/api/client-fichiers", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client_id: client.id, nom: f.name, type, data, taille: f.size }),
-        });
+        if (!(await ecrire("/api/client-fichiers", "POST", { client_id: client.id, nom: f.name, type, data, taille: f.size }, "Enregistrement"))) return;
       }
       const next = await fetch(`/api/client-fichiers?client_id=${client.id}`).then((r) => r.json());
       setFichiers(Array.isArray(next) ? next : []);
@@ -392,7 +387,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
 
   const supprimerFichier = async (id: number) => {
     if (!confirm("Supprimer ce fichier ?")) return;
-    await fetch(`/api/client-fichiers?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/client-fichiers?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     setFichiers((arr) => arr.filter((f) => f.id !== id));
     toast("Fichier supprimé", "info");
   };

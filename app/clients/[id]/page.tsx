@@ -8,6 +8,7 @@ import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire } from "@/lib/envoi";
 
 const TYPES_INTERACTION = [
   { v: "appel", l: "📞 Appel" },
@@ -56,21 +57,23 @@ export default function ClientDetail() {
   useEffect(() => { charger(); }, [id]);
 
   const enregistrerEdit = async () => {
-    await fetch("/api/clients", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...editForm }) });
+    // Le succès s'affichait et le formulaire se fermait quoi qu'il arrive : sur un 401
+    // ou un refus, la fiche revenait à l'ancienne valeur au rechargement, sans un mot.
+    if (!(await ecrire("/api/clients", "PATCH", { id, ...editForm }, "Mise à jour du client"))) return;
     toast("Mis à jour", "success");
     setEdition(false);
     charger();
   };
 
   const changerStatutRapide = async () => {
-    await fetch("/api/clients", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, statut: "actif" }) });
+    if (!(await ecrire("/api/clients", "PATCH", { id, statut: "actif" }, "Enregistrement"))) return;
     toast("✓ Client marqué actif", "success");
     charger();
   };
 
   const ajouterInteraction = async () => {
     if (!iForm.sujet && !iForm.note) { toast("Sujet ou note requis", "warning"); return; }
-    await fetch("/api/interactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...iForm, client_id: id }) });
+    if (!(await ecrire("/api/interactions", "POST", { ...iForm, client_id: id }, "Enregistrement"))) return;
     toast("Interaction ajoutée", "success");
     setIForm({ type: "appel", date: today, sujet: "", note: "", fait_par: iForm.fait_par });
     charger();
@@ -78,7 +81,7 @@ export default function ClientDetail() {
 
   const ajouterTache = async () => {
     if (!tForm.titre.trim()) { toast("Titre requis", "warning"); return; }
-    await fetch("/api/taches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...tForm, client_id: id }) });
+    if (!(await ecrire("/api/taches", "POST", { ...tForm, client_id: id }, "Enregistrement"))) return;
     toast("Tâche ajoutée", "success");
     setTForm({ titre: "", description: "", date_due: "", priorite: 3, assigne_a: "" });
     charger();
@@ -86,13 +89,13 @@ export default function ClientDetail() {
 
   const toggleTache = async (t: any) => {
     const nouveau = t.statut === "complete" ? "a_faire" : "complete";
-    await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, statut: nouveau }) });
+    if (!(await ecrire("/api/taches", "PATCH", { id: t.id, statut: nouveau }, "Enregistrement"))) return;
     charger();
   };
 
   const supprimerInter = async (iid: number) => {
     if (!confirm("Supprimer ?")) return;
-    await fetch(`/api/interactions?id=${iid}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/interactions?id=${iid}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 
@@ -208,7 +211,7 @@ export default function ClientDetail() {
                     <div className={`text-sm ${t.statut === "complete" ? "line-through text-slate-500" : "font-semibold"}`}>{t.titre}</div>
                     {t.date_due && <div className={`text-xs ${t.date_due < today && t.statut !== "complete" ? "text-red-700 font-bold" : "text-slate-500"}`}>📅 {t.date_due}{t.statut === "complete" && t.date_completion ? ` · fait ${t.date_completion}` : ""}</div>}
                   </div>
-                  <button onClick={async () => { if (confirm("Supprimer cette tâche ?")) { await fetch(`/api/taches?id=${t.id}`, { method: "DELETE" }); charger(); } }} className="text-xs text-red-500 hover:bg-red-50 px-1 rounded opacity-50 hover:opacity-100" title="Supprimer">✕</button>
+                  <button onClick={async () => { if (confirm("Supprimer cette tâche ?")) { if (!(await ecrire(`/api/taches?id=${t.id}`, "DELETE", undefined, "Suppression"))) return; charger(); } }} className="text-xs text-red-500 hover:bg-red-50 px-1 rounded opacity-50 hover:opacity-100" title="Supprimer">✕</button>
                 </div>
               ))}
             </div>

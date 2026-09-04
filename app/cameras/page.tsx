@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
+import { ecrire } from "@/lib/envoi";
 
 export default function CamerasPage() {
   const [cams, setCams] = useState<any[]>([]);
@@ -25,7 +26,7 @@ export default function CamerasPage() {
 
   const supprimer = async (c: any) => {
     if (!confirm(`Supprimer la caméra "${c.nom}" ?`)) return;
-    await fetch(`/api/cameras?id=${c.id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/cameras?id=${c.id}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 

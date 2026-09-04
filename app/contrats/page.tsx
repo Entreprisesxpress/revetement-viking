@@ -6,6 +6,7 @@ import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { ecrire } from "@/lib/envoi";
 
 const STATUTS: Record<string, { l: string; c: string }> = {
   brouillon: { l: "Brouillon", c: "bg-slate-200 text-slate-700" },
@@ -69,7 +70,7 @@ export default function ContratsPage() {
     const detail = await fetch(`/api/contrats?id=${c.id}`).then((r) => r.json());
     if (!detail.client_courriel) { toast("Pas de courriel client", "warning"); return; }
     await telechargerPDF(c);
-    await fetch("/api/contrats", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, statut: "envoye" }) });
+    if (!(await ecrire("/api/contrats", "PATCH", { id: c.id, statut: "envoye" }, "Enregistrement"))) return;
     const sujet = `Contrat ${c.numero} - Revêtement Viking Inc.`;
     const corps = `Bonjour ${detail.client_nom},
 
@@ -90,14 +91,14 @@ RBQ 5811-4299-01`;
   };
 
   const marquerSigne = async (c: any) => {
-    await fetch("/api/contrats", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, statut: "signe", signe_par_client: 1, date_signature: aujourdhuiMontreal() }) });
+    if (!(await ecrire("/api/contrats", "PATCH", { id: c.id, statut: "signe", signe_par_client: 1, date_signature: aujourdhuiMontreal() }, "Enregistrement"))) return;
     toast("Contrat marqué signé ✓", "success");
     charger();
   };
 
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer ce contrat ?")) return;
-    await fetch(`/api/contrats?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/contrats?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     charger();
   };
 

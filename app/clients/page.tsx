@@ -8,7 +8,7 @@ import FAB from "@/components/FAB";
 import PipelineCRM from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import { exporterCSV } from "@/lib/csv";
-import { envoyer } from "@/lib/envoi";
+import { envoyer, ecrire } from "@/lib/envoi";
 import { aujourdhuiMontreal } from "@/lib/date";
 
 const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
@@ -77,7 +77,7 @@ export default function ClientsPage() {
         label: "Annuler",
         onClick: async () => {
           try {
-            await fetch("/api/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sauvegarde) });
+            if (!(await ecrire("/api/clients", "POST", sauvegarde, "Enregistrement"))) return;
             toast("Client restauré", "success");
             charger();
           } catch { toast("Restauration échouée", "error"); }
@@ -194,7 +194,7 @@ export default function ClientsPage() {
                 return (
                   <div key={t.id} className={`flex items-center gap-2 p-2 rounded ${enRetard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
                     <button
-                      onClick={async () => { await fetch("/api/taches", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id, statut: "complete" }) }); toast("Tâche fermée ✓", "success"); charger(); }}
+                      onClick={async () => { if (!(await ecrire("/api/taches", "PATCH", { id: t.id, statut: "complete" }, "Enregistrement"))) return; toast("Tâche fermée ✓", "success"); charger(); }}
                       className="w-7 h-7 rounded border-2 border-slate-400 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white font-bold text-sm flex items-center justify-center transition flex-shrink-0"
                       title="Marquer comme faite"
                     >✓</button>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
+import { ecrire } from "@/lib/envoi";
 
 export default function VehiculesPage() {
   const [vehicules, setVehicules] = useState<any[]>([]);
@@ -26,7 +27,7 @@ export default function VehiculesPage() {
   };
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer ce véhicule ?")) return;
-    await fetch(`/api/vehicules?id=${id}`, { method: "DELETE" });
+    if (!(await ecrire(`/api/vehicules?id=${id}`, "DELETE", undefined, "Suppression"))) return;
     toast("Véhicule supprimé", "info"); charger();
   };
   const ouvrirEdit = (v: any) => { setEdit(v); setForm({ ...vide, ...v, annee: v.annee || "" }); setCreerOuvert(true); };

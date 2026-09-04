@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import { Suspense } from "react";
+import { ecrire } from "@/lib/envoi";
 
 function SyncContent() {
   const [drive, setDrive] = useState<any>(null);
@@ -47,7 +48,7 @@ function SyncContent() {
 
   const deconnecterDrive = async () => {
     if (!confirm("Déconnecter Google Drive ? Tu devras réauthoriser après.")) return;
-    await fetch("/api/drive/auth/disconnect", { method: "POST" });
+    if (!(await ecrire("/api/drive/auth/disconnect", "POST", undefined, "Enregistrement"))) return;
     toast("Drive déconnecté", "info");
     charger();
   };
