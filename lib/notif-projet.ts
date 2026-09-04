@@ -107,3 +107,53 @@ export async function avertirProjetComplete(p: ProjetComplete, lienBase?: string
     return { ok: false, raison: e?.message || "erreur inattendue" };
   }
 }
+
+// ============================================================================
+// Réponse d'un client à une soumission (lien public) — avis INTERNE.
+// ============================================================================
+// Trouvé à l'audit : un client acceptait ou refusait en ligne, la base changeait de
+// statut… et personne n'était averti. Francis ne l'apprenait qu'en ouvrant la liste.
+// La relance automatique, elle, ne signale que les soumissions SANS réponse.
+
+export interface SoumissionRepondue {
+  numero: string; client_nom?: string | null; client_telephone?: string | null;
+  projet?: string | null; total?: number | null;
+}
+
+export function messageSoumissionReponse(
+  s: SoumissionRepondue, action: "accepter" | "refuser", signataire?: string | null, lienBase?: string,
+): { sujet: string; texte: string } {
+  const client = (s.client_nom || "").trim() || "Client";
+  const acceptee = action === "accepter";
+  const lignes = [
+    "Rappel interne — Revêtement Viking. Le client n'a rien reçu d'autre que sa page.",
+    "",
+    acceptee
+      ? `✅ ${client} vient d'ACCEPTER la soumission ${s.numero}${signataire ? ` (signée en ligne par ${signataire})` : ""}.`
+      : `❌ ${client} vient de REFUSER la soumission ${s.numero}.`,
+    "",
+    acceptee ? "👉 À FAIRE : préparer le contrat et planifier le chantier." : "👉 À FAIRE : le rappeler pour comprendre, ou classer la soumission.",
+    "",
+    `Projet   : ${(s.projet || "").trim() || "—"}`,
+    `Montant  : ${argent(s.total || 0)}`,
+    `Téléphone: ${(s.client_telephone || "").trim() || "—"}`,
+  ];
+  if (lienBase) lignes.push("", `Soumission : ${lienBase.replace(/\/+$/, "")}/soumissions/nouveau?modifier=${encodeURIComponent(s.numero)}`);
+  const sujet = acceptee
+    ? `✅ Soumission ACCEPTÉE — ${s.numero} (${client}) — ${argent(s.total || 0)}`
+    : `❌ Soumission refusée — ${s.numero} (${client})`;
+  return { sujet, texte: lignes.join("\n") };
+}
+
+export async function avertirSoumissionReponse(
+  s: SoumissionRepondue, action: "accepter" | "refuser", signataire?: string | null, lienBase?: string,
+): Promise<{ ok: boolean; raison?: string }> {
+  if (!emailEstConfigure()) return { ok: false, raison: "courriel non configuré (RESEND_API_KEY ou GMAIL_USER absent)" };
+  try {
+    const { sujet, texte } = messageSoumissionReponse(s, action, signataire, lienBase);
+    const r = await sendEmail({ to: destinataireNotifications(), subject: sujet, text: texte });
+    return r.ok ? { ok: true } : { ok: false, raison: r.error || r.raison || "envoi refusé" };
+  } catch (e: any) {
+    return { ok: false, raison: e?.message || "erreur inattendue" };
+  }
+}

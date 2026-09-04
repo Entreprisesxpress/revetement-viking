@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { messageProjetComplete, destinataireNotifications, COURRIEL_NOTIFICATIONS_DEFAUT, resteAFacturer } from "./notif-projet";
+import { messageProjetComplete, messageSoumissionReponse, destinataireNotifications, COURRIEL_NOTIFICATIONS_DEFAUT, resteAFacturer } from "./notif-projet";
 
 const BASE = {
   id: 42,
@@ -135,5 +135,33 @@ describe("messageProjetComplete", () => {
 
   it("n'invente pas de lien quand aucune origine n'est fournie", () => {
     expect(messageProjetComplete(BASE).texte).not.toContain("Fiche du chantier");
+  });
+});
+
+describe("messageSoumissionReponse — avis interne quand un client répond en ligne", () => {
+  const S = { numero: "XP-20260904-003", client_nom: "Marie Tremblay", client_telephone: "450-123-4567", projet: "Revêtement complet", total: 18450.5 };
+
+  it("acceptation : le sujet dit ACCEPTÉE avec le montant, le corps dit quoi faire", () => {
+    const { sujet, texte } = messageSoumissionReponse(S, "accepter", "Marie Tremblay", "https://exemple.ca/");
+    expect(sujet).toContain("ACCEPTÉE");
+    expect(sujet).toContain("XP-20260904-003");
+    // fr-CA sépare les milliers par une espace fine insécable : on compare sur les chiffres
+    expect(sujet.replace(/[^\d,]/g, "")).toContain("18450,50");
+    expect(texte).toContain("signée en ligne par Marie Tremblay");
+    expect(texte).toContain("À FAIRE : préparer le contrat");
+    expect(texte).toContain("https://exemple.ca/soumissions/nouveau?modifier=XP-20260904-003");
+  });
+
+  it("refus : le sujet dit refusée, le corps propose de rappeler", () => {
+    const { sujet, texte } = messageSoumissionReponse(S, "refuser");
+    expect(sujet).toContain("refusée");
+    expect(texte).toContain("REFUSER");
+    expect(texte).toContain("rappeler");
+  });
+
+  it("reste interne : aucune adresse courriel dans le message", () => {
+    const { sujet, texte } = messageSoumissionReponse({ ...S, client_nom: "X" } as any, "accepter");
+    expect(texte + sujet).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+    expect(texte).toContain("Rappel interne");
   });
 });

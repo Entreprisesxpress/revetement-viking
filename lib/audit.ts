@@ -23,6 +23,9 @@ export type ActiviteType =
   // l'envoi est détaché de la requête, donc sans trace il serait muet.
   | "projet.avis_courriel"
   | "projet.avis_courriel_echec"
+  // Avis interne quand un client répond (accepte / refuse) à une soumission en ligne.
+  | "soumission.avis_courriel"
+  | "soumission.avis_courriel_echec"
   | "projet.document_ajoute"
   | "projet.document_supprime"
   | "projet.supprime"

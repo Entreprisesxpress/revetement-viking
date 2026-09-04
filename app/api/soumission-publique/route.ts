@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { charger, marquerSoumissionVue, signerSoumission, refuserSoumission } from "@/lib/db";
 import { verifierTokenSoumission } from "@/lib/lien-public";
 import { journaliser } from "@/lib/audit";
+import { avertirSoumissionReponse, destinataireNotifications } from "@/lib/notif-projet";
+import { envoyerPushUtilisateur } from "@/lib/push";
+import { publicOrigin } from "@/lib/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -84,14 +87,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "déjà acceptée", deja: true }, { status: 409 });
     }
     const ip = ipDe(req);
+    // Avis INTERNE (push + courriel à la boîte Viking) : avant, un client acceptait ou
+    // refusait en ligne et personne n'était averti. Détaché et sans exception : la réponse
+    // du client ne doit jamais échouer parce qu'un avis a raté. Issue journalisée.
+    const avertir = (act: "accepter" | "refuser", signataire?: string) => {
+      const titre = act === "accepter" ? `✅ Soumission ${numero} ACCEPTÉE` : `❌ Soumission ${numero} refusée`;
+      envoyerPushUtilisateur("Francis", { title: titre, body: `${s.client_nom || "Client"} · ${Number(s.total || 0).toLocaleString("fr-CA")} $`, url: `/soumissions/nouveau?modifier=${numero}`, tag: `soum-${numero}` }).catch(() => {});
+      const origine = publicOrigin(req);
+      avertirSoumissionReponse(s, act, signataire, origine)
+        .then((r) => journaliser(r.ok ? "soumission.avis_courriel" : "soumission.avis_courriel_echec", {
+          ref_type: "soumission", ref_id: numero,
+          description: r.ok ? `Avis envoyé à ${destinataireNotifications()}` : `Avis NON envoyé : ${r.raison}`,
+        }))
+        .catch(() => {});
+    };
     if (action === "accepter") {
       if (!nom?.trim()) return NextResponse.json({ error: "nom requis pour signer" }, { status: 400 });
       await signerSoumission(numero, nom.trim(), ip);
       journaliser("soumission.acceptee", { ref_type: "soumission", ref_id: numero, description: `✍️ Signée en ligne par ${nom.trim()}`, apres: { signature_nom: nom.trim() }, ip });
+      avertir("accepter", nom.trim());
       return NextResponse.json({ ok: true, statut: "acceptee" });
     } else if (action === "refuser") {
       await refuserSoumission(numero, ip);
       journaliser("soumission.refusee", { ref_type: "soumission", ref_id: numero, description: "Refusée en ligne par le client", ip });
+      avertir("refuser");
       return NextResponse.json({ ok: true, statut: "refusee" });
     }
     return NextResponse.json({ error: "action invalide" }, { status: 400 });
