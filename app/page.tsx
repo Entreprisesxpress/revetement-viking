@@ -11,6 +11,7 @@ import ModalExtra from "@/components/ModalExtra";
 import FAB from "@/components/FAB";
 import Meteo from "@/components/Meteo";
 import { fetchInstantane } from "@/lib/cacheClient";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 /** Lundi de la semaine courante (date locale, format YYYY-MM-DD). Le dashboard
  *  regarde les heures PAR SEMAINE (lundi → aujourd'hui), pas une fenêtre glissante. */
@@ -364,7 +365,7 @@ export default function Home() {
             </div>
             <ul className="space-y-1.5">
               {mesTaches.slice(0, 8).map((t) => {
-                const auj = new Date().toISOString().slice(0, 10);
+                const auj = aujourdhuiMontreal();
                 const retard = t.date_echeance && t.date_echeance < auj;
                 return (
                   <li key={t.id} className={`flex items-center gap-2 p-2 rounded ${retard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
@@ -398,7 +399,7 @@ export default function Home() {
             </div>
             <ul className="space-y-1.5">
               {tachesAFaire.slice(0, 8).map((t) => {
-                const auj = new Date().toISOString().slice(0, 10);
+                const auj = aujourdhuiMontreal();
                 const retard = t.date_due && t.date_due < auj;
                 return (
                   <li key={t.id} className={`flex items-center gap-2 p-2 rounded ${retard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>

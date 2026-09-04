@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 // Parse « AAAA-MM-JJ » comme minuit LOCAL (pas UTC). new Date("2026-05-18") = minuit
 // UTC → affiché « 17 mai » à Montréal (UTC−4). Ici on garde le bon jour.
@@ -35,7 +36,7 @@ export default function PaieVue() {
   const togglePaye = async (p: any) => {
     const nouveau = !p.paye;
     if (nouveau) {
-      const date = new Date().toISOString().slice(0, 10);
+      const date = aujourdhuiMontreal();
       const lisible = new Date().toLocaleDateString("fr-CA", { day: "numeric", month: "long", year: "numeric" });
       if (!confirm(`Marquer la paye de ${p.employe} comme payée aujourd'hui (${lisible}) ?`)) return;
       await fetch("/api/paies", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, paye: true, date_paiement: date }) });

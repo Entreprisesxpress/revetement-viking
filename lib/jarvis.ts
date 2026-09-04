@@ -5,6 +5,7 @@ import {
   listerTaches, listerExtras, listerToutesDepenses,
   getProjet, rechercheGlobale, listerVehicules, listerAssurances, listerFacturesProjet,
 } from "@/lib/db";
+import { aujourdhuiMontreal } from "./date";
 import { estProjetActif } from "@/lib/statuts-projet";
 
 // === DÉFINITIONS D'OUTILS (format Anthropic tool-use) ===
@@ -208,7 +209,7 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
       }
       case "taches": {
         const t = await listerTaches({ statut: input.statut || undefined, assigne_a: input.assigne_a || undefined });
-        const auj = new Date().toISOString().slice(0, 10);
+        const auj = aujourdhuiMontreal();
         return { nombre: t.length, taches: t.slice(0, 80).map((x: any) => ({
           titre: x.titre, statut: x.statut, assigne_a: x.assigne_a || null, echeance: x.date_due || null,
           en_retard: !!(x.date_due && x.date_due < auj && x.statut !== "complete"),
@@ -336,7 +337,7 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
           const p = projets.find((x) => (x.nom || "").toLowerCase().includes(q));
           if (p) { projet_id = p.id!; projet_nom = p.nom; }
         }
-        const date = input.date || new Date().toISOString().slice(0, 10);
+        const date = input.date || aujourdhuiMontreal();
         return { propose: true, action: { type: "creer_depense", params: {
           montant: num(input.montant), fournisseur: input.fournisseur || null, categorie: input.categorie || "matériaux",
           date, projet_id, description: input.description || null,

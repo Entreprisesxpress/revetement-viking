@@ -10,6 +10,7 @@ import { envoyerPushUtilisateur } from "@/lib/push";
 import { journaliser } from "@/lib/audit";
 import { rateLimitDepasse, timingSafeEqual } from "@/lib/rateLimit";
 import { parserTexteFormulaire } from "@/lib/lead-web";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
 
   // Le contenu du formulaire devient une interaction visible dans la fiche CRM.
   await ajouterInteraction({
-    client_id, type: "formulaire_web", date: new Date().toISOString().slice(0, 10),
+    client_id, type: "formulaire_web", date: aujourdhuiMontreal(),
     sujet: sujet || "Formulaire du site web",
     note: [message, adresse && !cree ? `Adresse mentionnée : ${adresse}` : null].filter(Boolean).join("\n") || "(sans message)",
     fait_par: "Site web",

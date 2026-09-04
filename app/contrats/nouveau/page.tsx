@@ -15,8 +15,9 @@ import ZoneDepot from "@/components/ZoneDepot";
 import { useToast } from "@/components/Toasts";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
 import { formatCAD } from "@/lib/calculateur";
+import { aujourdhuiMontreal } from "@/lib/date";
 
-const AUJOURDHUI = () => new Date().toISOString().slice(0, 10);
+const AUJOURDHUI = () => aujourdhuiMontreal();
 // 4 Mo de fichier ≈ 5,5 Mo une fois encodé : au-delà, la plateforme refuse la requête.
 const TAILLE_MAX_DEVIS = 4 * 1024 * 1024;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relancesDues, getParametre, setParametre } from "@/lib/db";
 import { sendEmail, emailEstConfigure } from "@/lib/email";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   const dus = await relancesDues();
   if (dus.length === 0) return NextResponse.json({ ok: true, envoyes: 0, relances: 0 });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   const parUser = new Map<string, typeof dus>();
   for (const c of dus) {
     const u = c.assignee || "Gabriel"; // par défaut : Gabriel

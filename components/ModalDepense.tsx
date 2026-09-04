@@ -5,6 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
 import { compresserImage } from "@/lib/img";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const ScannerRecu = lazy(() => import("@/components/ScannerRecu"));
 import MicVocal from "@/components/MicVocal";
@@ -16,7 +17,7 @@ interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; 
 const CATEGORIES_FALLBACK = ["matériaux", "outils", "location", "sous-traitant", "transport", "permis", "essence", "autre"];
 
 export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdInitial }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   const [projets, setProjets] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>(CATEGORIES_FALLBACK);
   const [fournisseursConnus, setFournisseursConnus] = useState<string[]>([]);

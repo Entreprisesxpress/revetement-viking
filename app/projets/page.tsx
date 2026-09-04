@@ -8,6 +8,7 @@ import { estProjetActif } from "@/lib/statuts-projet";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const STATUTS: Record<string, { label: string; couleur: string }> = {
   en_cours: { label: "En cours", couleur: "bg-emerald-100 text-emerald-900" },
@@ -28,7 +29,7 @@ export default function ProjetsPage() {
   const [triAsc, setTriAsc] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creerOuvert, setCreerOuvert] = useState(false);
-  const [nouveau, setNouveau] = useState({ nom: "", client_nom: "", client_telephone: "", client_courriel: "", client_adresse: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: new Date().toISOString().slice(0, 10), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
+  const [nouveau, setNouveau] = useState({ nom: "", client_nom: "", client_telephone: "", client_courriel: "", client_adresse: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: aujourdhuiMontreal(), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
   const [facture, setFacture] = useState<{ data: string; type: string; nom: string } | null>(null);
   const [clientsExistants, setClientsExistants] = useState<any[]>([]);
   const [suggClient, setSuggClient] = useState(false);
@@ -63,7 +64,7 @@ export default function ProjetsPage() {
         prix_contrat: prix,
         statut: nouveau.statut,
         reno_assistance: nouveau.reno_assistance ? 1 : 0,
-        date_debut: nouveau.date_debut || new Date().toISOString().slice(0, 10),
+        date_debut: nouveau.date_debut || aujourdhuiMontreal(),
       }),
     });
     const d = await r.json().catch(() => ({} as any));
@@ -81,7 +82,7 @@ export default function ProjetsPage() {
       // Créer une fiche client au passage est un effet de bord : on le dit.
       toast(d.client_cree ? `Projet créé · fiche client « ${nouveau.client_nom.trim()} » ajoutée au CRM` : "Projet créé", "success");
       setCreerOuvert(false);
-      setNouveau({ nom: "", client_nom: "", client_telephone: "", client_courriel: "", client_adresse: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: new Date().toISOString().slice(0, 10), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
+      setNouveau({ nom: "", client_nom: "", client_telephone: "", client_courriel: "", client_adresse: "", adresse_chantier: "", prix_contrat: "", description: "", date_debut: aujourdhuiMontreal(), date_fin_prevue: "", statut: "a_venir", reno_assistance: false });
       setFacture(null);
       charger();
     }

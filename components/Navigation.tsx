@@ -4,6 +4,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { activerMoniteurOffline, nbActionsEnAttente } from "@/lib/fileOffline";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 interface NavLink {
   href: string;
@@ -290,7 +291,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                   <div className="p-2 border-t">
                     <div className="text-[10px] font-bold uppercase text-amber-700 px-2 py-1">⏰ Mes relances dues ({notifs.mes_relances})</div>
                     {notifs.relances_items.map((c: any) => {
-                      const retard = c.date_relance < new Date().toISOString().slice(0, 10);
+                      const retard = c.date_relance < aujourdhuiMontreal();
                       return (
                         <a key={c.id} href={`/clients`} className={`block px-3 py-2 hover:bg-amber-50 rounded text-sm border-l-2 mb-1 ${retard ? "border-red-500" : "border-amber-400"}`}>
                           <div className="flex justify-between"><strong className="truncate">{c.nom}</strong><span className={`text-[10px] ${retard ? "text-red-700 font-bold" : "text-amber-700"}`}>{c.date_relance.slice(5)}</span></div>
@@ -329,7 +330,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                   <div className="p-2 border-t">
                     <div className="text-[10px] font-bold uppercase text-emerald-700 px-2 py-1">✅ Tâches à échéance ({notifs.taches_echeance})</div>
                     {notifs.taches_echeance_items!.map((t: any) => {
-                      const retard = t.date_echeance && t.date_echeance < new Date().toISOString().slice(0, 10);
+                      const retard = t.date_echeance && t.date_echeance < aujourdhuiMontreal();
                       return (
                         <a key={`${t.client_id || "g"}-${t.id}`} href={t.client_id ? `/clients/${t.client_id}` : "/taches"} className={`block px-3 py-2 hover:bg-emerald-50 rounded text-sm border-l-2 mb-1 ${retard ? "border-red-500" : "border-emerald-400"}`}>
                           <div className="flex justify-between"><strong className="truncate">{t.titre}</strong><span className={`text-[10px] ${retard ? "text-red-700 font-bold" : "text-emerald-700"}`}>{String(t.date_echeance).slice(5)}</span></div>

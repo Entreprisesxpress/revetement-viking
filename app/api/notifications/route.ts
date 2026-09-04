@@ -5,12 +5,13 @@ import {
   soumissionsARelancer, compterPhotosErreursDrive, listerTaches,
   mentionsRecentes, relancesPourUser, db,
 } from "@/lib/db";
+import { aujourdhuiMontreal } from "@/lib/date";
 import { utilisateurActif } from "@/lib/authUser";
 import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
 
 async function alertesBusiness(user: string | null) {
   const c: any = db();
-  const auj = new Date().toISOString().slice(0, 10);
+  const auj = aujourdhuiMontreal();
   const il_y_a_30j = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
   const dans3j = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);

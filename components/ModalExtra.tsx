@@ -6,6 +6,7 @@ import BottomSheet from "@/components/BottomSheet";
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
 import { compresserImage, genererVignette } from "@/lib/img";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
 
@@ -17,7 +18,7 @@ const NATURES: { cle: Nature; label: string; icone: string }[] = [
 ];
 
 export default function ModalExtra({ ouvert, onClose, onSuccess, projetIdInitial }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   const [projets, setProjets] = useState<any[]>([]);
   const [projet_id, setProjetId] = useState<number>(0);
   const [date, setDate] = useState(today);

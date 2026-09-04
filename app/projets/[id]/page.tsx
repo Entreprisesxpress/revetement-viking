@@ -16,6 +16,7 @@ import MicVocal from "@/components/MicVocal";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -74,7 +75,7 @@ export default function ProjetDetail() {
   const [nbNotes, setNbNotes] = useState<number | null>(null);
 
   // Forms
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   const [hForm, setHForm] = useState({ date: today, heures: "", description: "", employe: "", taux_horaire: "" });
   const [employes, setEmployes] = useState<any[]>([]);
   const [hFiltreEmp, setHFiltreEmp] = useState("");
@@ -201,7 +202,7 @@ export default function ProjetDetail() {
       charger();
       // Suggestion photo : si >2h saisies aujourd'hui et 0 photo du jour → propose
       setTimeout(() => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = aujourdhuiMontreal();
         const totalToday = heures.filter((h: any) => h.date === today).reduce((s: number, h: any) => s + (h.heures || 0), 0) + (+hForm.heures || 0);
         const photosToday = photos.filter((p: any) => p.date === today).length;
         if (totalToday >= 2 && photosToday === 0) {
@@ -1215,7 +1216,7 @@ function PhotosTab({ projet, photos, heures, onUpdate, onOpenPhoto }: { projet: 
 function PhotoUploader({ projet_id, onUpload }: { projet_id: number; onUpload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ total: 0, done: 0 });
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   const [date, setDate] = useState(today);
   const [description, setDescription] = useState("");
   const [autoScan, setAutoScan] = useState(false); // off par défaut sur les photos de chantier (paysages)

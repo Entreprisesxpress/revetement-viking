@@ -6,6 +6,7 @@ import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import ZoneDepot from "@/components/ZoneDepot";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const POSTES = ["Installateur", "Apprenti", "Chef d'équipe", "Estimateur", "Administration", "Autre"];
 
@@ -23,7 +24,7 @@ export default function EmployesPage() {
 
   useEffect(() => { charger(); }, []);
 
-  const reset = () => ({ nom: "", taux_horaire: "", das_pct: 0.15, recoit_talon: 1, poste: "Installateur", telephone: "", courriel: "", adresse: "", date_naissance: "", nas: "", date_embauche: new Date().toISOString().slice(0, 10), contact_urgence_nom: "", contact_urgence_lien: "", contact_urgence_tel: "", notes: "", specimen_cheque_data: "", specimen_cheque_type: "" });
+  const reset = () => ({ nom: "", taux_horaire: "", das_pct: 0.15, recoit_talon: 1, poste: "Installateur", telephone: "", courriel: "", adresse: "", date_naissance: "", nas: "", date_embauche: aujourdhuiMontreal(), contact_urgence_nom: "", contact_urgence_lien: "", contact_urgence_tel: "", notes: "", specimen_cheque_data: "", specimen_cheque_type: "" });
   const [form, setForm] = useState<any>(reset());
 
   const sauver = async () => {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { exporterCSV } from "@/lib/csv";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const ICONES: Record<string, string> = {
   "soumission.creee": "📄", "soumission.modifiee": "✏️", "soumission.statut_change": "🔄",
@@ -49,7 +50,7 @@ export default function PageJournal() {
                 date: a.date, utilisateur: a.utilisateur || "", type: a.type, ref: `${a.ref_type || ""}/${a.ref_id || ""}`,
                 description: a.description || "", ip: a.ip || "",
               }));
-              exporterCSV(`journal-${new Date().toISOString().slice(0, 10)}`, rows);
+              exporterCSV(`journal-${aujourdhuiMontreal()}`, rows);
             }}
             className="ml-auto px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded text-xs font-semibold"
           >📊 Exporter CSV</button>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, getParametre, setParametre } from "@/lib/db";
 import { sendEmail, emailEstConfigure } from "@/lib/email";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   // Dédup par jour : un retrigger du cron (retry Vercel, appel manuel) le même jour ne
   // renvoie pas le même récap une 2e fois.
-  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const aujourdhui = aujourdhuiMontreal();
   const cleGuard = `relance_soum_envoi_${aujourdhui}`;
   if (await getParametre(cleGuard)) return NextResponse.json({ ok: true, nb: 0, deja_envoye: true });
 

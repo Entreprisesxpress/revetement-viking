@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { envoyerPushUtilisateur, pushEstConfigure } from "@/lib/push";
 import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
   // aucun push. Le silence du matin était indiscernable d'une journée sans problème :
   // le rappel se taisait précisément quand il fallait qu'il parle.
   const c: any = db();
-  const auj = new Date().toISOString().slice(0, 10);
+  const auj = aujourdhuiMontreal();
   const il_y_a_30j = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
   const resultats: any[] = [];

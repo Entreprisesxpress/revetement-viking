@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet, pdf, Svg, Path, Image } from "@react-pdf/renderer";
+import { aujourdhuiMontreal } from "./date";
 
 export const ENTREPRISE = {
   nom: "Revêtement Viking Inc.",
@@ -457,7 +458,7 @@ export async function genererContratBlob(brut: any): Promise<Blob> {
     province_travaux: brut.province_travaux,
     soumission_numero: brut.soumission_numero,
     soumission_date: brut.soumission_date,
-    date_debut_travaux: brut.date_debut_travaux || brut.date_emission || new Date().toISOString().slice(0, 10),
+    date_debut_travaux: brut.date_debut_travaux || brut.date_emission || aujourdhuiMontreal(),
     prix_total: brut.prix_total ?? brut.montant_total ?? brut.montant_avant_taxes ?? 0,
     depot_pct: brut.depot_pct,
     paiement_milieu_pct: brut.paiement_milieu_pct,

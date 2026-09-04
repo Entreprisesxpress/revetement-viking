@@ -5,6 +5,7 @@ import Navigation from "@/components/Navigation";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const STATUTS: Record<string, { l: string; c: string }> = {
   brouillon: { l: "Brouillon", c: "bg-slate-200 text-slate-700" },
@@ -20,7 +21,7 @@ export default function ContratsPage() {
   const [creerOuvert, setCreerOuvert] = useState(false);
   const [filtre, setFiltre] = useState("");
   const [form, setForm] = useState<any>({
-    titre: "", client_id: "", date_emission: new Date().toISOString().slice(0, 10),
+    titre: "", client_id: "", date_emission: aujourdhuiMontreal(),
     date_debut_travaux: "", date_fin_prevue: "",
     montant_avant_taxes: "", depot_pct: 30,
     description_travaux: "", garantie: "", conditions: "",
@@ -89,7 +90,7 @@ RBQ 5811-4299-01`;
   };
 
   const marquerSigne = async (c: any) => {
-    await fetch("/api/contrats", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, statut: "signe", signe_par_client: 1, date_signature: new Date().toISOString().slice(0, 10) }) });
+    await fetch("/api/contrats", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, statut: "signe", signe_par_client: 1, date_signature: aujourdhuiMontreal() }) });
     toast("Contrat marqué signé ✓", "success");
     charger();
   };

@@ -7,6 +7,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const TYPES_INTERACTION = [
   { v: "appel", l: "📞 Appel" },
@@ -33,7 +34,7 @@ export default function ClientDetail() {
   const [taches, setTaches] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   const [iForm, setIForm] = useState({ type: "appel", date: today, sujet: "", note: "", fait_par: "" });
   const [tForm, setTForm] = useState({ titre: "", description: "", date_due: "", priorite: 3, assigne_a: "" });
 

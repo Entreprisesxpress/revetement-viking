@@ -1,3 +1,4 @@
+import { aujourdhuiMontreal } from "./date";
 // Logique métier PURE (sans DB) — testable unitairement.
 // C'est le cœur business : paie (heures sup ×1.5, DAS), marges, périodes.
 // Toute modification ici est couverte par lib/calculs.test.ts.
@@ -33,7 +34,7 @@ export function depensesAvantTaxes(total: number, detaxe: number = 0): number {
 
 /** Avance une date ISO (yyyy-mm-dd) selon la récurrence, en heure locale. */
 export function avancerDateRecurrence(iso: string | null, rec: string): string {
-  const base = iso ? iso.slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const base = iso ? iso.slice(0, 10) : aujourdhuiMontreal();
   const [y, m, d] = base.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
   if (rec === "quotidien") dt.setDate(dt.getDate() + 1);

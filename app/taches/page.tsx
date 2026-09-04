@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const PERSONNES = ["Francis", "Gabriel"];
 const PRIORITES = [
@@ -83,7 +84,7 @@ export default function TachesPage() {
     charger();
   };
 
-  const auj = new Date().toISOString().slice(0, 10);
+  const auj = aujourdhuiMontreal();
   const filtrees = useMemo(() => taches.filter((t) => !filtreAssigne || t.assigne_a === filtreAssigne), [taches, filtreAssigne]);
   const ouvertes = filtrees.filter((t) => t.statut !== "complete");
   const completees = filtrees.filter((t) => t.statut === "complete");

@@ -13,6 +13,7 @@ import { useSearchParams } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 // Lazy load — composant lourd avec SpeechRecognition + UI complète
 // `loading` n'est pas décoratif : il crée une borne Suspense LOCALE. Sans elle, la
@@ -525,7 +526,7 @@ export default function SoumissionForm() {
     setChargementPDF(true);
     try {
       const { genererPDFBlob } = await import("@/lib/pdf-soumission");
-      const numero = numeroSoumission || `XP-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-DRAFT`;
+      const numero = numeroSoumission || `XP-${aujourdhuiMontreal().replace(/-/g, "")}-DRAFT`;
       const blob = await genererPDFBlob({ client, numeroSoumission: numero, date: new Date().toLocaleDateString("fr-CA"), calcul });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

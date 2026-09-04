@@ -6,6 +6,7 @@ import fs from "fs";
 import { calculerMargeProjet, revenuAvantTaxes, depensesAvantTaxes, avancerDateRecurrence, periodeBiHebdo as periodeBiHebdoCalc, calculerHeuresPaye as calculerHeuresPayeCalc, calculerPaye } from "@/lib/calculs";
 import { SQL_PROJET_ACTIF } from "@/lib/statuts-projet";
 import { estStatutSoumission, STATUTS_SOUMISSION } from "@/lib/vocabulaire";
+import { aujourdhuiMontreal } from "./date";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DB_DIR, "soumissions.db");
@@ -1037,7 +1038,7 @@ export interface Contrat {
   payload_json?: string;
 }
 export async function genererNumeroContrat(): Promise<string> {
-  const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const ymd = aujourdhuiMontreal().replace(/-/g, "");
   const r = await one<{ n: number }>("SELECT COUNT(*) as n FROM contrats WHERE numero LIKE ?", [`VK-CTR-${ymd}-%`]);
   return `VK-CTR-${ymd}-${String((r?.n || 0) + 1).padStart(3, "0")}`;
 }
@@ -1465,7 +1466,7 @@ export async function mentionsRecentes(user: string, depuisJours = 7): Promise<a
   );
 }
 export async function relancesPourUser(user: string): Promise<any[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   return await all<any>(
     `SELECT id, nom, adresse, telephone, courriel, pipeline_stage, date_relance
      FROM clients
@@ -1489,7 +1490,7 @@ export async function statsPipelineParClient(): Promise<Record<number, { taches_
 
 // === RELANCES — clients dont la date de relance est due ===
 export async function relancesDues(): Promise<{ id: number; nom: string; courriel?: string; telephone?: string; adresse?: string; pipeline_stage?: string; assignee?: string; date_relance: string }[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = aujourdhuiMontreal();
   return await all<any>(
     `SELECT id, nom, courriel, telephone, adresse, pipeline_stage, assignee, date_relance
      FROM clients
@@ -2543,7 +2544,7 @@ export async function nettoyerPayePeriodesOrphelines(): Promise<number> {
 export async function marquerPayePeriode(id: number, paye: boolean, date_paiement?: string, note?: string) {
   await run(
     `UPDATE paies_periodes SET paye = ?, date_paiement = ?, note = ? WHERE id = ?`,
-    [paye ? 1 : 0, paye ? (date_paiement || new Date().toISOString().slice(0, 10)) : null, note || null, id]
+    [paye ? 1 : 0, paye ? (date_paiement || aujourdhuiMontreal()) : null, note || null, id]
   );
 }
 

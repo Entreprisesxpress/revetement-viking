@@ -7,6 +7,7 @@ import {
   useSensor, useSensors, useDraggable, useDroppable, closestCorners,
   type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
+import { aujourdhuiMontreal } from "@/lib/date";
 import { useToast } from "@/components/Toasts";
 import { ETAPES_PIPELINE } from "@/lib/vocabulaire";
 import { envoyer } from "@/lib/envoi";
@@ -252,7 +253,7 @@ function CarteAffichage({ client, ombre }: { client: any; ombre?: boolean }) {
 
 function CarteContenu({ client, stats, onOuvrir }: { client: any; stats?: any; onOuvrir?: () => void }) {
   const tagsList = client.tags ? String(client.tags).split(",").map((t: string) => t.trim()).filter(Boolean).slice(0, 3) : [];
-  const enRetard = client.date_relance && client.date_relance < new Date().toISOString().slice(0, 10);
+  const enRetard = client.date_relance && client.date_relance < aujourdhuiMontreal();
   const nbT = stats?.taches_total || 0;
   const nbTD = stats?.taches_done || 0;
   const nbC = stats?.commentaires || 0;

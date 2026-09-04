@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sauvegarder, charger } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 /** Dupliquer une soumission existante : crée une nouvelle entrée avec un numéro neuf,
  * payload identique (articles, taux, etc.), statut "brouillon", date du jour. */
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     // Réinitialise les champs propres à la soumission source
     delete data.numero;
     data.statut = "brouillon";
-    data.date = new Date().toISOString().slice(0, 10);
+    data.date = aujourdhuiMontreal();
     delete data.signature_nom; delete data.signature_date; delete data.vue_client_le;
     const client = { ...(data.client || {}) };
     client.nom = ((source.client_nom || client.nom || "") + " (copie)").trim();

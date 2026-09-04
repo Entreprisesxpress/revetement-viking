@@ -5,6 +5,7 @@ import { utilisateurActif } from "@/lib/authUser";
 import { envoyerPushUtilisateur } from "@/lib/push";
 import { nombreSaisi } from "@/lib/calculs";
 import { validerEcritureArgent } from "@/lib/validation-argent";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     const user = await utilisateurActif(req);
     const id = await ajouterExtra({
       projet_id: body.projet_id ? +body.projet_id : null,
-      date: body.date || new Date().toISOString().slice(0, 10),
+      date: body.date || aujourdhuiMontreal(),
       nature: body.nature || "montant",
       description: body.description.trim(),
       montant: montantVal,

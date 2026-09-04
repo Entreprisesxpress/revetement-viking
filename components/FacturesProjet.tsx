@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
 import { nombreSaisi } from "@/lib/calculs";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 /** Facturation d'un projet : la table `factures_projet` et son API existaient depuis
  *  longtemps, mais AUCUN écran ne les alimentait — d'où « Facturé / Encaissé / À recevoir »
@@ -13,7 +14,7 @@ export default function FacturesProjet({ projetId, onChange }: { projetId: numbe
   const [factures, setFactures] = useState<any[]>([]);
   const [ouvert, setOuvert] = useState(false);
   const [busy, setBusy] = useState(false);
-  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const aujourdhui = aujourdhuiMontreal();
   const [form, setForm] = useState({ numero: "", montant: "", date: aujourdhui, description: "" });
   const { toast } = useToast();
 

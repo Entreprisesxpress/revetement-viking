@@ -9,6 +9,7 @@ import { PIPELINE_STAGES } from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import MicVocal from "@/components/MicVocal";
 import ZoneDepot from "@/components/ZoneDepot";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 interface Props {
   client: any;
@@ -396,7 +397,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     toast("Fichier supprimé", "info");
   };
 
-  const dateRetard = form.date_relance && form.date_relance < new Date().toISOString().slice(0, 10);
+  const dateRetard = form.date_relance && form.date_relance < aujourdhuiMontreal();
   const tagsList = form.tags ? form.tags.split(",").map((t: string) => t.trim()).filter(Boolean) : [];
 
   return (
@@ -630,7 +631,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
                     {t.assignee && <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${t.assignee === "Francis" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}`}>👤 {t.assignee}</span>}
                     {t.date_echeance && (() => {
                       const ech = t.date_echeance;
-                      const auj = new Date().toISOString().slice(0, 10);
+                      const auj = aujourdhuiMontreal();
                       const retard = ech < auj && !t.complete;
                       return <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${retard ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{retard ? "⚠️" : "📅"} {ech}</span>;
                     })()}

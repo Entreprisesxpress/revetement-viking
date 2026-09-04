@@ -9,6 +9,7 @@ import PipelineCRM from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import { exporterCSV } from "@/lib/csv";
 import { envoyer } from "@/lib/envoi";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 const STATUTS_CRM: Record<string, { label: string; couleur: string }> = {
   prospect: { label: "Prospect", couleur: "bg-amber-100 text-amber-900" },
@@ -119,7 +120,7 @@ export default function ClientsPage() {
     return c;
   }, [clients]);
 
-  const tachesEnRetard = taches.filter((t) => t.date_due && t.date_due < new Date().toISOString().slice(0, 10));
+  const tachesEnRetard = taches.filter((t) => t.date_due && t.date_due < aujourdhuiMontreal());
 
   // Grouper projets par statut
   const projetsParStatut = projets.reduce((acc: any, p: any) => {
@@ -189,7 +190,7 @@ export default function ClientsPage() {
             <div className="space-y-1">
               {taches.slice(0, 8).map((t) => {
                 const client = clients.find((c) => c.id === t.client_id);
-                const enRetard = t.date_due && t.date_due < new Date().toISOString().slice(0, 10);
+                const enRetard = t.date_due && t.date_due < aujourdhuiMontreal();
                 return (
                   <div key={t.id} className={`flex items-center gap-2 p-2 rounded ${enRetard ? "bg-red-50 border border-red-200" : "bg-slate-50"}`}>
                     <button
@@ -224,7 +225,7 @@ export default function ClientsPage() {
                 adresse: c.adresse || "", statut: c.statut || "", source: c.source || "",
                 tags: c.tags || "", notes: (c.notes || "").replace(/\n/g, " "),
               }));
-              exporterCSV(`clients-${new Date().toISOString().slice(0, 10)}`, rows);
+              exporterCSV(`clients-${aujourdhuiMontreal()}`, rows);
               toast(`✓ ${rows.length} contact(s) exporté(s)`, "success");
             }}
             className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-xs font-semibold"

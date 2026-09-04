@@ -4,6 +4,7 @@ import { MODELES } from "@/lib/viking-ai";
 import { OUTILS_JARVIS, OUTILS_ACTION, executerOutilJarvis } from "@/lib/jarvis";
 import { utilisateurActif } from "@/lib/authUser";
 import { enregistrerCoutIA, coutMoisCourantIA, type UsageIA } from "@/lib/ia-couts";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
   if (!question || !String(question).trim()) return NextResponse.json({ error: "question requise" }, { status: 400 });
 
   const client = new Anthropic({ apiKey });
-  const auj = new Date().toISOString().slice(0, 10);
+  const auj = aujourdhuiMontreal();
   const messages: any[] = [];
   if (Array.isArray(historique)) {
     for (const m of historique.slice(-8)) {

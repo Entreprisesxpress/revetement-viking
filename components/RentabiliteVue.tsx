@@ -5,6 +5,7 @@ import { formatCAD } from "@/lib/calculateur";
 import { exporterCSV } from "@/lib/csv";
 import { useToast } from "@/components/Toasts";
 import { estProjetActif } from "@/lib/statuts-projet";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 // Tableur de rentabilité : décompose EXACTEMENT le calcul de la marge du tableau de bord.
 // revenu = (prix_contrat | budget) + extras facturés  →  ÷ 1,14975 = avant taxes
@@ -86,7 +87,7 @@ export default function RentabiliteVue() {
       revenu_avant_taxes: l.revenuAT.toFixed(2), depenses: l.dep.toFixed(2), main_oeuvre: l.mo.toFixed(2),
       cout_total: l.cout.toFixed(2), marge: l.marge.toFixed(2), marge_pct: l.margePct.toFixed(1),
     }));
-    exporterCSV(`rentabilite-${filtre}-${new Date().toISOString().slice(0, 10)}`, rows);
+    exporterCSV(`rentabilite-${filtre}-${aujourdhuiMontreal()}`, rows);
     toast(`✓ ${rows.length} projet(s) exporté(s)`, "success");
   };
 
@@ -96,7 +97,7 @@ export default function RentabiliteVue() {
       const blob = await genererRapportRentabiliteBlob({ projets, filtre, date: new Date().toLocaleDateString("fr-CA") });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `Rapport-rentabilite-${filtre}-${new Date().toISOString().slice(0, 10)}.pdf`; a.click();
+      a.href = url; a.download = `Rapport-rentabilite-${filtre}-${aujourdhuiMontreal()}.pdf`; a.click();
       URL.revokeObjectURL(url);
       toast("✓ Rapport PDF généré", "success");
     } catch (e: any) { toast("Erreur PDF : " + (e?.message || ""), "error"); }

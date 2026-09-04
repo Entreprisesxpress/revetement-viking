@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db as getDbClient, listerProjets } from "@/lib/db";
 import { estProjetActif } from "@/lib/statuts-projet";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 /** Dashboard enrichi : KPIs business agrégés pour la page d'accueil.
  *  IMPORTANT : revenu et marge utilisent la MÊME logique que la page Finances /
@@ -10,7 +11,7 @@ export async function GET(_req: NextRequest) {
   try {
     const db: any = getDbClient();
     const moisCourant = new Date().toISOString().slice(0, 7); // YYYY-MM
-    const aujourdhui = new Date().toISOString().slice(0, 10);
+    const aujourdhui = aujourdhuiMontreal();
 
     // Projets avec totaux (marge déjà calculée par la logique centrale, taux réels).
     const projets = await listerProjets();

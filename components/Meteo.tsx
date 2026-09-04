@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 // Laval QC (Quartier Vimont, peut être ajusté)
 const LAT = 45.5667;
@@ -104,7 +105,7 @@ export default function Meteo() {
             {jours.map((j) => {
               const d = new Date(j.date + "T12:00:00");
               const info = ICONES[j.codeIcone] || { icon: "❓", label: "Inconnu" };
-              const aujourd = j.date === new Date().toISOString().slice(0, 10);
+              const aujourd = j.date === aujourdhuiMontreal();
               const pluieAlerte = j.pluie_mm > 5;
               return (
                 <div key={j.date} className={`bg-white rounded-lg p-2 text-center ${aujourd ? "ring-2 ring-sky-500" : ""}`} title={info.label}>
