@@ -13,6 +13,7 @@ import Meteo from "@/components/Meteo";
 import { fetchInstantane } from "@/lib/cacheClient";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire } from "@/lib/envoi";
+import BanniereNouveaute from "@/components/BanniereNouveaute";
 
 /** Lundi de la semaine courante (date locale, format YYYY-MM-DD). Le dashboard
  *  regarde les heures PAR SEMAINE (lundi → aujourd'hui), pas une fenêtre glissante. */
@@ -139,6 +140,9 @@ export default function Home() {
 
         {/* 👋 SALUTATION DU JOUR */}
         <Salutation nom={monUser} />
+
+        {/* ✨ NOUVEAUTÉS — ce que la personne n'a pas encore vu (lib/nouveautes.ts) */}
+        <BanniereNouveaute />
 
         {/* 🌤️ MÉTÉO 7 JOURS */}
         <Meteo />

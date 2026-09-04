@@ -10,7 +10,6 @@ import PaletteCommande from "@/components/PaletteCommande";
 import MicroFlottant from "@/components/MicroFlottant";
 import Garde401 from "@/components/Garde401";
 import GardeMaintenance from "@/components/GardeMaintenance";
-import BanniereNouveaute from "@/components/BanniereNouveaute";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -95,7 +94,6 @@ export default function RootLayout({
         <Garde401 />
         <GardeMaintenance />
         <ToastsProvider>
-          <BanniereNouveaute />
           <IndicateurHorsLigne />
           <BarreChargementRoute />
           <div id="contenu-principal">{children}</div>
