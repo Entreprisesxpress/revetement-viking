@@ -1,3 +1,4 @@
+import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // Sert la facture finale d'un projet en binaire (PDF/image) — évite le popup bloqué sur mobile.
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
@@ -28,14 +29,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     mime = row.facture_finale_type || "application/octet-stream";
     buf = Buffer.from(data, "base64");
   }
-  const ext = (mime.split("/")[1] || "bin").split("+")[0];
-  return new NextResponse(buf as any, {
-    status: 200,
-    headers: {
-      "Content-Type": mime,
-      "Content-Length": String(buf.length),
-      "Cache-Control": "private, max-age=300",
-      "Content-Disposition": `inline; filename="facture-projet-${id}.${ext}"`,
-    },
-  });
+  // Type déclaré au dépôt jamais servi tel quel en inline — voir lib/fichier-http.ts.
+  return reponseFichier(buf, { type: mime, nom: `facture-projet-${id}.${extensionDe(mime)}`, cacheSecondes: 300 });
 }

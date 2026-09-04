@@ -2487,7 +2487,7 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
         }
       } else {
         await run(
-          `INSERT INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_dispo, banque_appliquee, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          `INSERT OR IGNORE INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_dispo, banque_appliquee, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, ?)`,
           [g.employe, g.debut, g.fin, payees, travaillees, dispoAvant, banque, taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
         );
       }

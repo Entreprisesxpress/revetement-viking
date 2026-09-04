@@ -1,3 +1,4 @@
+import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // Sert le contrat signé d'un projet en binaire (PDF/image).
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
@@ -26,14 +27,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     mime = row.contrat_signe_type || "application/octet-stream";
     buf = Buffer.from(data, "base64");
   }
-  const ext = (mime.split("/")[1] || "bin").split("+")[0];
-  return new NextResponse(buf as any, {
-    status: 200,
-    headers: {
-      "Content-Type": mime,
-      "Content-Length": String(buf.length),
-      "Cache-Control": "private, max-age=300",
-      "Content-Disposition": `inline; filename="contrat-signe-projet-${id}.${ext}"`,
-    },
-  });
+  // Type déclaré au dépôt jamais servi tel quel en inline — voir lib/fichier-http.ts.
+  return reponseFichier(buf, { type: mime, nom: `contrat-signe-projet-${id}.${extensionDe(mime)}`, cacheSecondes: 300 });
 }

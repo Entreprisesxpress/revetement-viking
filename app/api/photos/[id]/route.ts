@@ -1,3 +1,4 @@
+import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // Sert la photo binaire directement avec cache HTTP agressif.
 // ?thumb=1 → sert la vignette (~15ko) pour les grilles ; sinon le plein format.
 import { NextRequest, NextResponse } from "next/server";
@@ -17,16 +18,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!m) return new NextResponse("Invalid data", { status: 500 });
   const mime = m[1];
   const buf = Buffer.from(m[2], "base64");
-  return new NextResponse(buf as any, {
-    status: 200,
-    headers: {
-      "Content-Type": mime,
-      "Content-Length": String(buf.length),
-      // `private` : ces binaires sont derrière l'authentification. En `public`, un cache
-      // partagé (proxy) pouvait les servir, et le navigateur les gardait 30 jours après
-      // une suppression ou une déconnexion.
-      "Cache-Control": "private, max-age=2592000, immutable",
-      "Content-Disposition": `inline; filename="photo-${id}${veutThumb ? "-thumb" : ""}.${mime.split("/")[1] || "bin"}"`,
-    },
+  // Type MIME déclaré par le navigateur au dépôt : jamais servi tel quel en inline
+  // (mesuré : une « photo » déposée en text/html s'exécutait sur l'origine de l'app).
+  // Règle commune aux six routes de fichiers — lib/fichier-http.ts.
+  return reponseFichier(buf, {
+    type: mime,
+    nom: `photo-${id}${veutThumb ? "-thumb" : ""}.${extensionDe(mime)}`,
+    cacheSecondes: 2592000,
   });
 }

@@ -1,3 +1,4 @@
+import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 import { NextRequest, NextResponse } from "next/server";
 import { getFichierClient } from "@/lib/db";
 
@@ -10,13 +11,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const m = String(f.data).match(/^data:([^;]+);base64,(.+)$/);
   if (!m) return new NextResponse("Invalid data", { status: 500 });
   const buf = Buffer.from(m[2], "base64");
-  return new NextResponse(buf as any, {
-    status: 200,
-    headers: {
-      "Content-Type": m[1],
-      "Content-Length": String(buf.length),
-      "Cache-Control": "public, max-age=2592000, immutable",
-      "Content-Disposition": `inline; filename="${(f.nom || "fichier").replace(/[^a-z0-9._-]/gi, "_")}"`,
-    },
-  });
+  // Type déclaré au dépôt jamais servi tel quel en inline (voir lib/fichier-http.ts), et
+  // cache `private` : ce fichier est derrière l'authentification — `public` laissait un
+  // cache partagé le servir, et le navigateur le garder 30 jours après une déconnexion.
+  return reponseFichier(buf, { type: f.type || m[1], nom: f.nom || "fichier", cacheSecondes: 2592000 });
 }

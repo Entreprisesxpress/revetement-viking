@@ -1,3 +1,4 @@
+import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // Sert le reçu binaire (PDF/JPG) avec cache HTTP agressif
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -14,16 +15,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   if (!m) return new NextResponse("Invalid", { status: 500 });
   const mime = m[1] || row.recu_type || "application/octet-stream";
   const buf = Buffer.from(m[2], "base64");
-  return new NextResponse(buf as any, {
-    status: 200,
-    headers: {
-      "Content-Type": mime,
-      "Content-Length": String(buf.length),
-      // `private` : ces binaires sont derrière l'authentification. En `public`, un cache
-      // partagé (proxy) pouvait les servir, et le navigateur les gardait 30 jours après
-      // une suppression ou une déconnexion.
-      "Cache-Control": "private, max-age=2592000, immutable",
-      "Content-Disposition": `inline; filename="recu-${id}.${(mime.split("/")[1] || "bin").split("+")[0]}"`,
-    },
-  });
+  // Type déclaré au dépôt jamais servi tel quel en inline — voir lib/fichier-http.ts.
+  return reponseFichier(buf, { type: mime, nom: `recu-${id}.${extensionDe(mime)}`, cacheSecondes: 2592000 });
 }
