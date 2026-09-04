@@ -67,7 +67,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     // acceptent encore une saisie. On charge aussi les dernières heures pour
     // pré-sélectionner le chantier où on a travaillé en dernier, modifiable ensuite.
     Promise.all([
-      fetch("/api/projets").then((r) => r.json()).catch(() => []),
+      // ?lite=1 : la liste complète calcule cinq totaux par chantier et pèse 3-4× plus, pour un simple sélecteur.
+      fetch("/api/projets?lite=1").then((r) => r.json()).catch(() => []),
       fetch("/api/heures").then((r) => r.json()).catch(() => []),
     ]).then(([tous, heures]: [any[], any[]]) => {
       // Même tolérance que les dépenses : un chantier complété reste saisissable deux

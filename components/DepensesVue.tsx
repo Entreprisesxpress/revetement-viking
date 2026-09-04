@@ -42,7 +42,7 @@ export default function DepensesVue() {
   const charger = async () => {
     const [d, p, c] = await Promise.all([
       fetch("/api/depenses?data=0").then((r) => r.json()),
-      fetch("/api/projets").then((r) => r.json()),
+      fetch("/api/projets?lite=1").then((r) => r.json()),
       fetch("/api/categories-depense").then((r) => r.json()).catch(() => []),
     ]);
     setDepenses(Array.isArray(d) ? d : []);

@@ -31,6 +31,17 @@ function getLibsqlClient(): LibsqlClient {
   } else {
     _client = createClient({ url: `file:${DB_PATH}` });
   }
+  // SQL_DEBUG=1 : trace chaque requête sur stderr. En production la base est DISTANTE
+  // (Turso) : chaque requête est un aller-retour réseau, donc le COMPTE de requêtes par
+  // appel API est la mesure qui compte — pas la durée locale sur un fichier SQLite.
+  // Sans la variable, aucun coût.
+  if (process.env.SQL_DEBUG === "1") {
+    const brut = _client;
+    const origExec = brut.execute.bind(brut);
+    const origBatch = brut.batch.bind(brut);
+    brut.execute = ((s: any) => { console.error("[SQL]", (typeof s === "string" ? s : s.sql).replace(/\s+/g, " ").slice(0, 90)); return origExec(s); }) as any;
+    brut.batch = ((st: any, mode?: any) => { console.error(`[SQL] BATCH ×${Array.isArray(st) ? st.length : "?"}`); return origBatch(st, mode); }) as any;
+  }
   return _client;
 }
 
@@ -645,6 +656,14 @@ async function run(sql: string, args: any[] = []): Promise<{ lastInsertRowid: nu
   const r = await exec(sql, args);
   _lastWrite = Date.now(); // invalide les caches de lecture (voir cacheLecture)
   return { lastInsertRowid: Number(r.lastInsertRowid || 0), rowsAffected: r.rowsAffected };
+}
+/** Plusieurs écritures en UN aller-retour. En production la base est distante : N `run()`
+ *  = N allers-retours réseau ; un lot = un seul. Vide → ne fait rien. */
+async function runBatch(stmts: { sql: string; args: any[] }[]): Promise<void> {
+  if (!stmts.length) return;
+  await initDb();
+  await getLibsqlClient().batch(stmts, "write");
+  _lastWrite = Date.now();
 }
 
 // === CACHE MÉMOIRE COURT pour requêtes de liste lourdes ===
@@ -2435,6 +2454,16 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
     if (!parEmploye.has(g.employe)) parEmploye.set(g.employe, [] as any);
     (parEmploye.get(g.employe) as any).push(g);
   }
+  // Périodes déjà en base, chargées EN UNE FOIS et indexées : avant, un SELECT par
+  // quinzaine puis un UPDATE/INSERT par quinzaine — 376 requêtes mesurées pour trois
+  // employés. Les écritures sont accumulées et envoyées en un seul lot, et une période
+  // dont rien ne change n'est pas réécrite : au régime de croisière, zéro écriture.
+  const existants = new Map<string, any>();
+  for (const p of await all<any>(`SELECT * FROM paies_periodes ${employe ? "WHERE employe = ?" : ""}`, employe ? [employe] : [])) {
+    existants.set(`${p.employe}|${p.debut}|${p.fin}`, p);
+  }
+  const ecritures: { sql: string; args: any[] }[] = [];
+  const egal = (a: any, b: any) => Math.abs(Number(a || 0) - Number(b || 0)) < 0.000001;
   for (const [, liste] of parEmploye) {
     (liste as any[]).sort((a, b) => a.debut.localeCompare(b.debut));
     let banque = 0; // solde courant de la banque (heures accumulées non payées)
@@ -2450,7 +2479,7 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
       const surplus = Math.max(0, travaillees - SEUIL);   // surplus → accumulé en banque
       const dispoAvant = banque;                          // banque disponible AVANT cette période
 
-      const existant = await one<any>("SELECT * FROM paies_periodes WHERE employe = ? AND debut = ? AND fin = ?", [g.employe, g.debut, g.fin]);
+      const existant = existants.get(`${g.employe}|${g.debut}|${g.fin}`) || null;
 
       // Heures tirées de la banque pour combler cette période — CHOISI par l'utilisateur (banque_appliquee).
       // Jamais automatique : on propose seulement. Plafonné au manque (80 - travaillees) et à la dispo.
@@ -2470,10 +2499,13 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
 
       if (existant) {
         if (!existant.paye) {
-          await run(
-            `UPDATE paies_periodes SET heures_normales=?, heures_sup=0, heures_travaillees=?, banque_dispo=?, banque_appliquee=?, banque_solde=?, taux_horaire=?, montant_brut=?, das_montant=?, montant_net=? WHERE id=?`,
-            [payees, travaillees, dispoAvant, appliquee, banque, taux, brut, dasMontant, net, existant.id]
-          );
+          const inchangee = egal(existant.heures_normales, payees) && egal(existant.heures_travaillees, travaillees)
+            && egal(existant.banque_dispo, dispoAvant) && egal(existant.banque_appliquee, appliquee) && egal(existant.banque_solde, banque)
+            && egal(existant.taux_horaire, taux) && egal(existant.montant_brut, brut) && egal(existant.das_montant, dasMontant) && egal(existant.montant_net, net);
+          if (!inchangee) ecritures.push({
+            sql: `UPDATE paies_periodes SET heures_normales=?, heures_sup=0, heures_travaillees=?, banque_dispo=?, banque_appliquee=?, banque_solde=?, taux_horaire=?, montant_brut=?, das_montant=?, montant_net=? WHERE id=?`,
+            args: [payees, travaillees, dispoAvant, appliquee, banque, taux, brut, dasMontant, net, existant.id],
+          });
         } else {
           // Période payée : on ne touche JAMAIS aux montants versés. En revanche on
           // rafraîchit `heures_travaillees`, le fait brut.
@@ -2483,16 +2515,19 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
           // travaille 53 h, la période reste à « 45 h · 1 800 $ payé », les 8 h
           // disparaissent. Maintenant l'écart travaillées − payées est visible et
           // remonté comme heures dues (voir heures_non_payees plus bas).
-          await run(`UPDATE paies_periodes SET banque_dispo=?, banque_solde=?, heures_travaillees=? WHERE id=?`, [dispoAvant, banque, travaillees, existant.id]);
+          if (!(egal(existant.banque_dispo, dispoAvant) && egal(existant.banque_solde, banque) && egal(existant.heures_travaillees, travaillees))) {
+            ecritures.push({ sql: `UPDATE paies_periodes SET banque_dispo=?, banque_solde=?, heures_travaillees=? WHERE id=?`, args: [dispoAvant, banque, travaillees, existant.id] });
+          }
         }
       } else {
-        await run(
-          `INSERT OR IGNORE INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_dispo, banque_appliquee, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, ?)`,
-          [g.employe, g.debut, g.fin, payees, travaillees, dispoAvant, banque, taux, 0.15, brut, dasMontant, net, new Date().toISOString()]
-        );
+        ecritures.push({
+          sql: `INSERT OR IGNORE INTO paies_periodes (employe, debut, fin, heures_normales, heures_sup, heures_travaillees, banque_dispo, banque_appliquee, banque_solde, taux_horaire, das_pct, montant_brut, das_montant, montant_net, paye, date_creation) VALUES (?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          args: [g.employe, g.debut, g.fin, payees, travaillees, dispoAvant, banque, taux, 0.15, brut, dasMontant, net, new Date().toISOString()],
+        });
       }
     }
   }
+  await runBatch(ecritures);
 
   // 4. Retourner la liste
   const list = employe
@@ -2530,27 +2565,26 @@ export async function nettoyerPayePeriodesOrphelines(): Promise<number> {
   }
   // Liste les périodes existantes
   const periodes = await all<{ id: number; employe: string; debut: string; fin: string; paye: number }>("SELECT id, employe, debut, fin, paye FROM paies_periodes");
-  let deleted = 0;
+  // Les (employé, période) qui ont encore des heures — calculé EN MÉMOIRE à partir des
+  // dates déjà chargées. Avant : un COUNT(*) par période, à chaque ouverture de la paie.
+  // Mesuré : 376 requêtes pour trois employés sur deux ans et demi ; sur une base distante
+  // c'est plusieurs secondes. Maintenant : deux lectures et un lot de suppressions.
+  const avecHeures = new Set<string>();
+  for (const h of heuresExistantes) {
+    const p = periodeBiHebdoCalc(h.date);
+    avecHeures.add(`${h.employe}|${p.debut}|${p.fin}`);
+  }
+  const aSupprimer: number[] = [];
   for (const p of periodes) {
     if (p.paye) continue; // jamais supprimer une paye marquée payée
     // 1. Borne mal alignée avec l'ancrage de paie actuel → période obsolète, on supprime.
     const aligne = periodeBiHebdoCalc(p.debut);
-    if (aligne.debut !== p.debut || aligne.fin !== p.fin) {
-      await run("DELETE FROM paies_periodes WHERE id = ?", [p.id]);
-      deleted++;
-      continue;
-    }
+    if (aligne.debut !== p.debut || aligne.fin !== p.fin) { aSupprimer.push(p.id); continue; }
     // 2. Aucune heure réelle dans la période → orpheline, on supprime.
-    const r = await one<{ n: number }>(
-      "SELECT COUNT(*) as n FROM heures_projet WHERE employe = ? AND date >= ? AND date <= ?",
-      [p.employe, p.debut, p.fin]
-    );
-    if ((r?.n || 0) === 0) {
-      await run("DELETE FROM paies_periodes WHERE id = ?", [p.id]);
-      deleted++;
-    }
+    if (!avecHeures.has(`${p.employe}|${p.debut}|${p.fin}`)) aSupprimer.push(p.id);
   }
-  return deleted;
+  await runBatch(aSupprimer.map((id) => ({ sql: "DELETE FROM paies_periodes WHERE id = ?", args: [id] })));
+  return aSupprimer.length;
 }
 export async function marquerPayePeriode(id: number, paye: boolean, date_paiement?: string, note?: string) {
   await run(
