@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
+import { nombreSaisi } from "@/lib/calculs";
 
 const c: any = () => db();
+
+/** Normalise les champs numériques du corps AVANT toute écriture. Sans ça, « 12,50 »
+ *  (virgule québécoise) était stocké tel quel : SQLite le garde en TEXTE (l'affinité REAL
+ *  ne convertit que « 12.50 »), et tout calcul de prix de vente donnait ensuite NaN.
+ *  Retourne un message d'erreur si une valeur fournie est illisible ou négative. */
+function normaliserNombres(b: any): string | null {
+  for (const k of ["prix_coutant", "prix_vente", "majoration_pct", "format_paquet"]) {
+    if (b[k] === undefined || b[k] === null || b[k] === "") continue;
+    const n = nombreSaisi(b[k]);
+    if (!Number.isFinite(n) || n < 0) return `${k} invalide (ex. : 12,50)`;
+    b[k] = n;
+  }
+  return null;
+}
 
 function calculerPrixVente(coutant: number | null, majPct: number | null): number | null {
   if (coutant == null || coutant <= 0) return null;
@@ -29,6 +44,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await initDb();
   const b = await req.json();
+  const nombreInvalide = normaliserNombres(b);
+  if (nombreInvalide) return NextResponse.json({ error: nombreInvalide }, { status: 400 });
   if (!b.nom || !b.unite) return NextResponse.json({ error: "nom + unite requis" }, { status: 400 });
   const prix_vente = b.prix_vente != null ? +b.prix_vente : calculerPrixVente(b.prix_coutant ?? null, b.majoration_pct ?? null);
   const r = await c().execute({
@@ -53,6 +70,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   await initDb();
   const b = await req.json();
+  const nombreInvalide = normaliserNombres(b);
+  if (nombreInvalide) return NextResponse.json({ error: nombreInvalide }, { status: 400 });
   if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
   // Recalcul prix_vente si coutant ou majoration change
   if (b.prix_coutant != null || b.majoration_pct != null) {
