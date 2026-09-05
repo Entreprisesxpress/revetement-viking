@@ -9,9 +9,10 @@ import ZoneDepot from "@/components/ZoneDepot";
 import { useToast } from "@/components/Toasts";
 import { envoyer } from "@/lib/envoi";
 import { jourMontreal } from "@/lib/date";
+import { LIMITE_FICHIER_OCTETS, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
 
 // 4 Mo : au-delà, la requête encodée en base64 dépasse la limite de la plateforme.
-const TAILLE_MAX = 4 * 1024 * 1024;
+const TAILLE_MAX = LIMITE_FICHIER_OCTETS;
 
 const CATEGORIES = ["Permis", "Plan / devis technique", "Garantie", "Fiche technique", "Inspection", "Assurance", "Facture fournisseur", "Autre"];
 
@@ -49,7 +50,7 @@ export default function DocumentsProjet({ projetId, onChange }: { projetId: numb
     const echecs: string[] = [];
     let reussis = 0;
     for (const f of liste) {
-      if (f.size > TAILLE_MAX) { echecs.push(`${f.name} (${poids(f.size)}, max 4 Mo)`); continue; }
+      if (f.size > TAILLE_MAX) { echecs.push(`${f.name} (${poids(f.size)}, max ${LIMITE_FICHIER_TEXTE})`); continue; }
       setEnvoiEnCours(f.name);
       const data = await new Promise<string | null>((res) => {
         const r = new FileReader();

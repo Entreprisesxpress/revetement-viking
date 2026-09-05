@@ -10,6 +10,7 @@ import { useToast } from "@/components/Toasts";
 import FAB from "@/components/FAB";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire, nombreSaisi } from "@/lib/envoi";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 const STATUTS: Record<string, { label: string; couleur: string }> = {
   en_cours: { label: "En cours", couleur: "bg-emerald-100 text-emerald-900" },
@@ -89,7 +90,8 @@ export default function ProjetsPage() {
   };
 
   const traiterFacture = async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB", "warning"); return; }
+    const tropLourd = fichierTropLourd(file);
+    if (tropLourd) { toast(tropLourd, "warning"); return; }
     const reader = new FileReader();
     reader.onload = () => setFacture({ data: reader.result as string, type: file.type, nom: file.name });
     reader.readAsDataURL(file);

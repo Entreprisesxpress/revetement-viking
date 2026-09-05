@@ -17,6 +17,7 @@ import { estProjetActif } from "@/lib/statuts-projet";
 import { envoyer, nombreSaisi, ecrire } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 // Ajoute n jours à une date ISO (yyyy-mm-dd) en heure locale, sans dérive de fuseau.
 function ajouterJours(iso: string, n: number): string {
@@ -1366,7 +1367,8 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
   };
   const traiterContrat = async (file?: File) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert("Fichier > 5 MB"); return; }
+    const tropLourd = fichierTropLourd(file);
+    if (tropLourd) { alert(tropLourd); return; }
     // Un contrat signé est une pièce de référence : ne jamais la remplacer sans le demander
     // (le glisser-déposer couvre toute la carte, y compris quand un document est déjà joint).
     if ((projet.contrat_signe_data || projet.a_contrat_signe) &&
@@ -1383,7 +1385,8 @@ function ContratFactureSection({ projet, onUpdate }: { projet: any; onUpdate: ()
     if (!file) return;
     // 3 Mo et non 5 : le fichier part encodé en base64 (~1,37×), donc 5 Mo dépassaient la
     // limite de corps de requête de la plateforme et l'envoi était refusé côté serveur.
-    if (file.size > 3 * 1024 * 1024) { alert("Fichier trop lourd (max 3 Mo). Compresse le PDF ou réduis la photo."); return; }
+    const tropLourd = fichierTropLourd(file);
+    if (tropLourd) { alert(tropLourd); return; }
     if ((projet.facture_finale_data || projet.a_facture_finale) &&
         !confirm("Une facture est déjà jointe à ce projet. La remplacer par ce fichier ?")) return;
     const reader = new FileReader();

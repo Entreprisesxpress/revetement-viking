@@ -5,12 +5,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { listerFichiersProjet, ajouterFichierProjet, modifierFichierProjet, supprimerFichierProjet, projetReferenceValide } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
+import { LIMITE_ENCODEE_OCTETS, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
 
 export const dynamic = "force-dynamic";
 
-// 4 Mo de fichier ≈ 5,5 Mo une fois encodé en base64 : au-delà, la plateforme refuse le
-// corps de la requête et l'envoi échouerait sans message lisible.
-const TAILLE_MAX = 5.5 * 1024 * 1024;
+// Plafond sur la chaîne encodée, SOUS les 4,5 Mo de la plateforme (lib/limites-fichiers).
+// L'ancien seuil (5,5 Mo) était au-dessus : Vercel répondait 413 avant nous, et ce
+// message ne sortait jamais.
+const TAILLE_MAX = LIMITE_ENCODEE_OCTETS;
 
 export async function GET(req: NextRequest) {
   const pid = req.nextUrl.searchParams.get("projet_id");
@@ -27,7 +29,7 @@ export async function POST(req: NextRequest) {
     const m = /^data:([^;]+);base64,/.exec(String(body.data));
     if (!m) return NextResponse.json({ error: "fichier illisible (dataURL attendue)" }, { status: 400 });
     if (String(body.data).length > TAILLE_MAX) {
-      return NextResponse.json({ error: "document trop lourd (max ~4 Mo) — compresse le PDF ou réduis la photo" }, { status: 400 });
+      return NextResponse.json({ error: `document trop lourd (max ${LIMITE_FICHIER_TEXTE}) — compresse le PDF ou réduis la photo` }, { status: 400 });
     }
     // Un document rattaché à un projet qui n'existe pas serait introuvable : personne ne
     // pourrait plus jamais l'ouvrir, alors qu'il occuperait la place en base.

@@ -24,6 +24,15 @@ export const MAX_BLOCS = 3;
 
 export const NOUVEAUTES: Nouveaute[] = [
   {
+    version: "2026-09-05",
+    titre: "Nouveautés visibles, fichiers joints et mise à jour automatique",
+    points: [
+      "Cette carte : à chaque livraison, le tableau de bord montre ce qui a changé, pendant 3 connexions.",
+      "Fichiers joints (PDF, contrat signé, spécimen, devis, documents) : la limite est de 3 Mo partout, et le message le dit clairement au lieu d'une « erreur 413 ».",
+      "Après une livraison, l'app se met à jour dès qu'on change d'onglet — plus besoin de recharger la page pour voir la dernière version.",
+    ],
+  },
+  {
     version: "2026-09-04",
     titre: "Fiche projet, saisie d'heures et téléphone",
     points: [

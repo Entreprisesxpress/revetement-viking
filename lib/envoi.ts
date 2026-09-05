@@ -22,7 +22,12 @@ export async function envoyer<T = any>(
     let data: any = undefined;
     try { data = txt ? JSON.parse(txt) : undefined; } catch { /* réponse non-JSON */ }
     if (!r.ok) {
-      return { ok: false, erreur: data?.error || (r.status === 401 ? "session expirée — reconnecte-toi" : `erreur ${r.status}`) };
+      // 413 = la PLATEFORME (Vercel, 4,5 Mo par corps) a refusé avant notre code : le
+      // message est du HTML, jamais du JSON. Dire « erreur 413 » n'aide personne.
+      const parDefaut = r.status === 401 ? "session expirée — reconnecte-toi"
+        : r.status === 413 ? "fichier trop volumineux pour le serveur (max 3 Mo) — compresse le PDF ou réduis la photo"
+        : `erreur ${r.status}`;
+      return { ok: false, erreur: data?.error || parDefaut };
     }
     if (data && data.ok === false) return { ok: false, erreur: data.error || "refusé par le serveur" };
     return { ok: true, data };

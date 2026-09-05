@@ -1,8 +1,13 @@
 // Rendu RÉEL des PDF (contrat, soumission) côté serveur, sur des cas limites, et
 // vérification de ce qui est écrit dedans. Un PDF qui « ne plante pas » ne suffit pas :
 // on lit les flux de texte pour retrouver les montants attendus.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import React from "react";
+
+// Un rendu réel prend 2 à 4 s seul, et dépasse les 5 s par défaut quand toute la suite
+// tourne en parallèle sur une machine chargée (vu le 2026-09-05 : 3 « échecs » qui
+// n'étaient que des délais). Le rendu reste couvert ; seul le chronomètre change.
+vi.setConfig({ testTimeout: 30_000 });
 import { renderToBuffer } from "@react-pdf/renderer";
 import { inflateSync } from "node:zlib";
 import { ContratPDF, type ContratData } from "./pdf-contrat";

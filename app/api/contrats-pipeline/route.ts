@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { creerContratPipeline, listerContratsParClient, marquerContratEnvoye, supprimerContratPipeline, definirAnnexeContrat } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
+import { donneesTropLourdes, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
 
 function genererToken(): string {
   // Token cryptographiquement fort (le lien de signature de contrat a une valeur juridique).
@@ -27,8 +28,8 @@ export async function POST(req: NextRequest) {
   if (b.annexe_data) {
     const m = /^data:([^;]+);base64,/.exec(String(b.annexe_data));
     if (!m) return NextResponse.json({ error: "annexe illisible (dataURL attendue)" }, { status: 400 });
-    if (String(b.annexe_data).length > 5.5 * 1024 * 1024) {
-      return NextResponse.json({ error: "devis trop lourd (max ~4 Mo) — compresse le PDF" }, { status: 400 });
+    if (donneesTropLourdes(b.annexe_data)) {
+      return NextResponse.json({ error: `devis trop lourd (max ${LIMITE_FICHIER_TEXTE}) — compresse le PDF` }, { status: 400 });
     }
     annexe = { data: String(b.annexe_data), nom: String(b.annexe_nom || "devis.pdf").slice(0, 120), type: m[1] };
   }
@@ -69,8 +70,8 @@ export async function PATCH(req: NextRequest) {
     if (b.annexe_data) {
       const m = /^data:([^;]+);base64,/.exec(String(b.annexe_data));
       if (!m) return NextResponse.json({ error: "annexe illisible (dataURL attendue)" }, { status: 400 });
-      if (String(b.annexe_data).length > 5.5 * 1024 * 1024) {
-        return NextResponse.json({ error: "devis trop lourd (max ~4 Mo) — compresse le PDF" }, { status: 400 });
+      if (donneesTropLourdes(b.annexe_data)) {
+        return NextResponse.json({ error: `devis trop lourd (max ${LIMITE_FICHIER_TEXTE}) — compresse le PDF` }, { status: 400 });
       }
       a = { data: String(b.annexe_data), nom: String(b.annexe_nom || "devis.pdf").slice(0, 120), type: m[1] };
     }

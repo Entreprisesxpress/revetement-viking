@@ -16,10 +16,11 @@ import { useToast } from "@/components/Toasts";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
 import { formatCAD } from "@/lib/calculateur";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { LIMITE_FICHIER_OCTETS, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
 
 const AUJOURDHUI = () => aujourdhuiMontreal();
 // 4 Mo de fichier ≈ 5,5 Mo une fois encodé : au-delà, la plateforme refuse la requête.
-const TAILLE_MAX_DEVIS = 4 * 1024 * 1024;
+const TAILLE_MAX_DEVIS = LIMITE_FICHIER_OCTETS;
 
 interface Champs {
   client_id: number | null;
@@ -132,7 +133,7 @@ function NouveauContrat() {
     const file = fichiers[0];
     if (!file) return;
     if (file.size > TAILLE_MAX_DEVIS) {
-      toast(`Devis trop lourd (${(file.size / 1024 / 1024).toFixed(1)} Mo, max 4 Mo). Compresse le PDF.`, "error");
+      toast(`Devis trop lourd (${(file.size / 1024 / 1024).toFixed(1)} Mo, max ${LIMITE_FICHIER_TEXTE}). Compresse le PDF.`, "error");
       return;
     }
     const data = await new Promise<string>((res, rej) => {

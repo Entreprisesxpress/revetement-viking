@@ -5,6 +5,7 @@ import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
 import ZoneDepot from "@/components/ZoneDepot";
 import { ecrire } from "@/lib/envoi";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 export default function ParametresIaPage() {
   const [params, setParams] = useState<any[]>([]);
@@ -33,16 +34,17 @@ export default function ParametresIaPage() {
 
   const uploadDoc = async (file: File) => {
     setUploadStatus(`📤 Lecture de ${file.name}...`);
+    // Aucune limite avant : un PDF de 10 Mo partait, la plateforme répondait 413 et
+    // l'écran disait « Erreur upload » sans dire pourquoi.
+    const tropLourd = fichierTropLourd(file);
+    if (tropLourd) { toast(tropLourd, "warning"); return; }
     const reader = new FileReader();
     reader.onload = async () => {
       const data = reader.result as string;
       setUploadStatus(`📤 Envoi de ${file.name} (${Math.round(file.size / 1024)} KB)...`);
-      const r = await fetch("/api/documents-ia", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nom: file.name, type_mime: file.type, taille: file.size, data_b64: data }),
-      });
-      if (r.ok) { toast(`✓ ${file.name} ajouté`, "success"); chargerDocs(); }
-      else toast("Erreur upload", "error");
+      if (await ecrire("/api/documents-ia", "POST", { nom: file.name, type_mime: file.type, taille: file.size, data_b64: data }, "Ajout du document")) {
+        toast(`✓ ${file.name} ajouté`, "success"); chargerDocs();
+      }
       setUploadStatus("");
     };
     reader.readAsDataURL(file);

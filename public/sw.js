@@ -1,7 +1,18 @@
 // Service Worker — Revêtement Viking
 // Cache-first pour les assets, network-first pour les pages, fallback offline
 
-const CACHE_VERSION = "viking-v5";
+const CACHE_VERSION = "viking-v6";
+// Nombre maximal de fichiers gardés dans le cache d'exécution. Sans plafond, chaque
+// déploiement ajoutait son jeu de fichiers hachés et rien n'était jamais retiré.
+const MAX_ENTREES_RUNTIME = 300;
+
+async function mettreEnCache(nomCache, request, response, max) {
+  const c = await caches.open(nomCache);
+  await c.put(request, response);
+  if (!max) return;
+  const cles = await c.keys();          // ordre d'insertion : les plus anciennes d'abord
+  for (let i = 0; i < cles.length - max; i++) await c.delete(cles[i]);
+}
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const API_CACHE = `${CACHE_VERSION}-api`;
@@ -82,18 +93,33 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Cache-first for assets (JS, CSS, images, fonts)
+  // Fichiers de Next au nom haché (/_next/static/…) : IMMUABLES pour une URL donnée →
+  // cache d'abord, sans jamais revalider.
+  if (url.pathname.startsWith("/_next/static/")) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((res) => {
+          if (res && res.status === 200) mettreEnCache(RUNTIME_CACHE, request, res.clone(), MAX_ENTREES_RUNTIME);
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // TOUT LE RESTE — en particulier la charge utile des navigations internes de Next
+  // (« /projets?_rsc=… », mode « cors », pas « navigate ») : RÉSEAU D'ABORD, cache en
+  // repli hors-ligne seulement. Avant, ces réponses tombaient dans le « cache d'abord »
+  // des fichiers : après un déploiement, cliquer un onglet servait l'ANCIENNE page tant
+  // qu'on ne rechargeait pas complètement — et une nouveauté restait invisible.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((res) => {
-        if (res && res.status === 200) {
-          const copy = res.clone();
-          caches.open(RUNTIME_CACHE).then((c) => c.put(request, copy));
-        }
+    fetch(request)
+      .then((res) => {
+        if (res && res.status === 200 && res.type === "basic") mettreEnCache(RUNTIME_CACHE, request, res.clone(), MAX_ENTREES_RUNTIME);
         return res;
-      });
-    })
+      })
+      .catch(() => caches.match(request))
   );
 });
 

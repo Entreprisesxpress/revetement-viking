@@ -6,6 +6,7 @@ import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
 import ZoneDepot from "@/components/ZoneDepot";
 import { ecrire } from "@/lib/envoi";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 const TYPES = ["Auto / flotte", "Responsabilité civile", "Chantier / RBQ", "Équipement / outils", "Cautionnement", "Autre"];
 
@@ -35,7 +36,8 @@ export default function AssurancesPage() {
 
   const traiterDoc = (f?: File) => {
     if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB", "warning"); return; }
+    const tropLourd = fichierTropLourd(f);
+    if (tropLourd) { toast(tropLourd, "warning"); return; }
     const reader = new FileReader();
     reader.onload = () => setForm((x: any) => ({ ...x, document_data: reader.result, document_type: f.type }));
     reader.readAsDataURL(f);
@@ -45,11 +47,11 @@ export default function AssurancesPage() {
   const sauver = async () => {
     if (!form.compagnie?.trim() && !form.type?.trim()) { toast("Type ou compagnie requis", "warning"); return; }
     const body = { ...form, vehicule_id: form.vehicule_id ? +form.vehicule_id : null, prime_annuelle: form.prime_annuelle ? +form.prime_annuelle : null, ...(edit ? { id: edit.id } : {}) };
-    const r = await fetch("/api/assurances", { method: edit ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if ((await r.json()).ok !== false) {
-      toast(edit ? "Assurance modifiée" : "Assurance ajoutée", "success");
-      setCreerOuvert(false); setEdit(null); setForm(vide); charger();
-    }
+    // Avant : fetch nu + r.json() — sur un 413 (document trop lourd, réponse HTML de la
+    // plateforme), le JSON.parse levait et l'écran restait muet, formulaire ouvert.
+    if (!(await ecrire("/api/assurances", edit ? "PATCH" : "POST", body, "Enregistrement"))) return;
+    toast(edit ? "Assurance modifiée" : "Assurance ajoutée", "success");
+    setCreerOuvert(false); setEdit(null); setForm(vide); charger();
   };
   const supprimer = async (id: number) => {
     if (!confirm("Supprimer cette assurance ?")) return;

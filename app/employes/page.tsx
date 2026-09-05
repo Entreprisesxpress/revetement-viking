@@ -8,6 +8,7 @@ import { useToast } from "@/components/Toasts";
 import ZoneDepot from "@/components/ZoneDepot";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire, nombreSaisi } from "@/lib/envoi";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 const POSTES = ["Installateur", "Apprenti", "Chef d'équipe", "Estimateur", "Administration", "Autre"];
 
@@ -68,7 +69,8 @@ export default function EmployesPage() {
 
   const traiterSpecimen = (file?: File) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast("Fichier > 5 MB", "warning"); return; }
+    const tropLourd = fichierTropLourd(file);
+    if (tropLourd) { toast(tropLourd, "warning"); return; }
     if (form.specimen_cheque_data && !confirm("Un spécimen est déjà joint. Le remplacer ?")) return;
     const reader = new FileReader();
     reader.onload = () => setForm({ ...form, specimen_cheque_data: reader.result, specimen_cheque_type: file.type });

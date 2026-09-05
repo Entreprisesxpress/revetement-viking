@@ -11,6 +11,7 @@ import MicVocal from "@/components/MicVocal";
 import ZoneDepot from "@/components/ZoneDepot";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire, envoyer } from "@/lib/envoi";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 interface Props {
   client: any;
@@ -349,9 +350,15 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     try {
       for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        if (f.size > 15 * 1024 * 1024) { toast(`${f.name} > 15 MB, ignoré`, "warning"); continue; }
         let data: string;
         let type = f.type || "application/octet-stream";
+        // Une image est compressée avant l'envoi ; tout autre fichier part tel quel et
+        // doit tenir sous la limite de la plateforme (avant : « 15 Mo », soit 3 à 4 fois
+        // ce que le serveur peut recevoir — le PDF passait l'écran, puis 413).
+        if (!type.startsWith("image/")) {
+          const tropLourd = fichierTropLourd(f);
+          if (tropLourd) { toast(`${tropLourd} — ignoré`, "warning"); continue; }
+        } else if (f.size > 20 * 1024 * 1024) { toast(`${f.name} > 20 Mo, ignoré`, "warning"); continue; }
         if (type.startsWith("image/")) {
           data = await compresserImage(f);
           type = "image/jpeg";

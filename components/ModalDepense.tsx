@@ -6,6 +6,7 @@ import { useToast } from "@/components/Toasts";
 import BottomSheet from "@/components/BottomSheet";
 import { compresserImage } from "@/lib/img";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { fichierTropLourd } from "@/lib/limites-fichiers";
 
 const ScannerRecu = lazy(() => import("@/components/ScannerRecu"));
 import MicVocal from "@/components/MicVocal";
@@ -31,6 +32,12 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
   const traiterFichier = async (file: File) => {
     if (file.size > 20 * 1024 * 1024) { toast("Fichier > 20 MB", "warning"); return; }
+    // Une image est compressée à ~250 Ko avant l'envoi ; un PDF part TEL QUEL — au-delà de
+    // 3 Mo, la plateforme le refuse (413) et la dépense n'est jamais enregistrée.
+    if (file.type === "application/pdf") {
+      const tropLourd = fichierTropLourd(file);
+      if (tropLourd) { toast(tropLourd, "warning"); return; }
+    }
     try {
       const data = await compresserImage(file);
       // PDF téléversé : on le garde tel quel (remplace les photos éventuelles).
