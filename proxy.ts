@@ -51,8 +51,25 @@ function estAssetPublic(path: string): boolean {
   return false;
 }
 
+// Domaine canonique. Le domaine technique de Vercel servait l'app EN PARALLÈLE (mesuré
+// en prod le 2026-09-17 : 200, aucune redirection) : deux origines = deux sessions, deux
+// PWA installables, deux caches — un vieux signet sur vercel.app faisait vivre l'équipe
+// sur un site « différent ». Seules les PAGES sont redirigées : les appels /api (crons
+// Vercel, auto-appels internes) restent servis tels quels sur n'importe quel hôte.
+const HOTE_CANONIQUE = "app.revetementviking.com";
+const HOTES_A_REDIRIGER = new Set(["revetement-viking-app.vercel.app"]);
+
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+
+  const hote = (req.headers.get("host") || "").toLowerCase();
+  if (HOTES_A_REDIRIGER.has(hote) && !path.startsWith("/api/")) {
+    const url = req.nextUrl.clone();
+    url.protocol = "https:";
+    url.host = HOTE_CANONIQUE;
+    url.port = "";
+    return avecHeaders(NextResponse.redirect(url, 308));
+  }
 
   // Aucun mot de passe configuré : accès libre en DEV uniquement. En PRODUCTION on refuse
   // le fail-open (fail-closed) : l'app reste protégée tant qu'aucun secret n'est configuré.

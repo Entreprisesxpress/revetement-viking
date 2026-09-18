@@ -43,13 +43,16 @@ export const metadata: Metadata = {
     siteName: "Revêtement Viking",
     title: "Revêtement Viking — Soumissions et gestion de chantiers",
     description: "App de gestion pour Revêtement Viking Inc. · RBQ 5811-4299-01 · soumissions automatisées, suivi projets, paie, CRM.",
-    images: [{ url: "/icon-512.png", width: 512, height: 512, alt: "Revêtement Viking" }],
+    // /icon est l'icône PNG 512×512 générée par Next (app/icon.tsx). /icon-512.png n'a
+    // jamais existé : mesuré 404 en prod le 2026-09-17 — un lien partagé montrait un
+    // aperçu sans image.
+    images: [{ url: "/icon", width: 512, height: 512, alt: "Revêtement Viking" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Revêtement Viking",
     description: "Revêtement extérieur — soffite, fascia, parement",
-    images: ["/icon-512.png"],
+    images: ["/icon"],
   },
   robots: {
     index: false,
