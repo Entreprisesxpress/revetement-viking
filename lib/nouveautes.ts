@@ -24,6 +24,14 @@ export const MAX_BLOCS = 3;
 
 export const NOUVEAUTES: Nouveaute[] = [
   {
+    version: "2026-09-17",
+    titre: "Écran d'ouverture Viking",
+    points: [
+      "À l'ouverture de l'app, le drakkar arrive sur la mer et la corne sonne, puis le tableau de bord apparaît. Une fois par ouverture ; toucher l'écran le passe.",
+      "Le son : sur un téléphone, le navigateur exige un premier toucher avant de laisser jouer un son. Si l'animation est muette, touchez-la une fois — la corne sonne, puis l'écran part. Une fois l'app installée sur l'écran d'accueil, elle sonne d'elle-même.",
+    ],
+  },
+  {
     version: "2026-09-07",
     titre: "Paie : le bandeau d'heures dues ne compte plus la banque",
     points: [

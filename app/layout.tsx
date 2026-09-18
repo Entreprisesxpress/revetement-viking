@@ -10,6 +10,7 @@ import PaletteCommande from "@/components/PaletteCommande";
 import MicroFlottant from "@/components/MicroFlottant";
 import Garde401 from "@/components/Garde401";
 import GardeMaintenance from "@/components/GardeMaintenance";
+import SplashViking from "@/components/SplashViking";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -93,6 +94,7 @@ export default function RootLayout({
         </a>
         <Garde401 />
         <GardeMaintenance />
+        <SplashViking />
         <ToastsProvider>
           <IndicateurHorsLigne />
           <BarreChargementRoute />
