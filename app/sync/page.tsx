@@ -59,9 +59,19 @@ function SyncContent() {
     try {
       // envoyer() : `x.json()` sur un 401/500 non-JSON levait et le bouton restait
       // « en cours » sans un mot ; `r.ok` est vérifié au niveau HTTP ET du corps.
-      const res = await envoyer<any>("/api/drive/resync");
+      // La route traite 10 photos par appel et renvoie `reste` : on rappelle tant qu'il en
+      // reste (borne : 20 tours = 200 photos), en cumulant les compteurs.
+      let res = await envoyer<any>("/api/drive/resync");
+      const cumul = { synced: 0, ignores: 0, restants: 0, dernierErreur: "" };
+      for (let tour = 0; res.ok && tour < 20; tour++) {
+        const d = res.data || {};
+        cumul.synced += d.synced || 0; cumul.ignores += d.ignores || 0; cumul.restants += d.restants || 0;
+        if (d.dernierErreur) cumul.dernierErreur = d.dernierErreur;
+        if (!d.reste) break;
+        res = await envoyer<any>("/api/drive/resync");
+      }
       if (res.ok) {
-        const r = res.data || {};
+        const r = cumul;
         const msg = `✓ ${r.synced} resynchronisée(s)${r.ignores ? `, ${r.ignores} nettoyée(s)` : ""}${r.restants ? ` · ${r.restants} encore en échec` : ""}`;
         toast(msg, r.restants ? "warning" : "success");
         if (r.restants && r.dernierErreur) toast("Détail : " + r.dernierErreur, "info");

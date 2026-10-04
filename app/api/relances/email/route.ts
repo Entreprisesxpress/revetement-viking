@@ -17,10 +17,12 @@ const COURRIELS: Record<string, string | undefined> = {
 // les clients à relancer aujourd'hui (ou en retard).
 // Protection fail-closed : CRON_SECRET obligatoire, sinon la route est désactivée
 // (sans secret, elle serait déclenchable publiquement → envoi d'emails aux clients).
+// Codes HTTP : Vercel ne regarde que le STATUT du cron. « Non configuré » → 503, rien de
+// parti → 500 ; un 200 `{ok:false}` passait pour un succès dans le tableau des crons.
 export async function GET(req: NextRequest) {
   const refus = verifierCron(req);
   if (refus) return refus;
-  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
+  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" }, { status: 503 });
 
   const dus = await relancesDues();
   if (dus.length === 0) return NextResponse.json({ ok: true, envoyes: 0, relances: 0 });

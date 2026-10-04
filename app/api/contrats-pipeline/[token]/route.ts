@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { getContratPipelineParToken, signerContratPipeline, getClient, marquerContratVu, creerProjetDepuisContrat } from "@/lib/db";
 import { genererContratBlob } from "@/lib/pdf-contrat";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { journaliser } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +19,30 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   const { token } = await ctx.params;
   const c = await getContratPipelineParToken(token);
   if (!c) return NextResponse.json({ error: "introuvable" }, { status: 404 });
-  // Enregistre la première vue (preuve de transmission style DocuSign)
-  marquerContratVu(token, ipDe(req)).catch(() => {});
+  // Enregistre la première vue (preuve de transmission style DocuSign). ATTENDU (await) :
+  // une promesse détachée pouvait être tuée avec la fonction serverless dès la réponse
+  // rendue, et la preuve de consultation — celle du certificat — n'était jamais écrite.
+  // Un échec ne cache pas le contrat au client : il est journalisé.
+  try {
+    await marquerContratVu(token, ipDe(req));
+  } catch (e: any) {
+    console.error(`[/api/contrats-pipeline/[token]] marquage « vu » échoué pour ${c.numero} :`, e?.message || e);
+  }
   const cl = await getClient(c.client_id);
+  // Un data_json illisible en base est une erreur EXPLICITE (JSON + journal), jamais une
+  // page morte sans message pour le client qui vient signer.
+  let data: any;
+  try { data = JSON.parse(c.data_json || "{}"); } catch (e: any) {
+    console.error(`[/api/contrats-pipeline/[token]] data_json illisible pour ${c.numero} :`, e?.message || e);
+    await journaliser("contrat_pipeline.illisible", { ref_type: "contrat_pipeline", ref_id: c.numero, description: `Lien public : données du contrat illisibles (${String(e?.message || e).slice(0, 120)})`, ip: ipDe(req) });
+    return NextResponse.json({ error: "données du contrat illisibles", message: "Le contenu enregistré de ce contrat n'est pas lisible. Contacte Revêtement Viking pour recevoir un nouveau lien." }, { status: 500 });
+  }
   // Le jeton n'est PAS renvoyé : le visiteur l'a déjà (il est dans l'URL), et un JSON
   // public qui le répète n'a aucune raison d'exister (demande de l'agent sécurité).
   return NextResponse.json({
     numero: c.numero,
     statut: c.statut,
-    data: JSON.parse(c.data_json || "{}"),
+    data,
     signature_nom: c.signature_nom,
     signature_date: c.signature_date,
     client_nom: cl?.nom,
@@ -68,7 +84,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
   const signatureNom = String(b.signature_nom).trim().slice(0, 120);
   if (!signatureNom) return NextResponse.json({ error: "signature_nom requis" }, { status: 400 });
 
-  const data = JSON.parse(co.data_json || "{}");
+  let data: any;
+  try { data = JSON.parse(co.data_json || "{}"); } catch (e: any) {
+    console.error(`[/api/contrats-pipeline/[token]] data_json illisible à la signature de ${co.numero} :`, e?.message || e);
+    await journaliser("contrat_pipeline.illisible", { ref_type: "contrat_pipeline", ref_id: co.numero, description: `Signature impossible : données du contrat illisibles (${String(e?.message || e).slice(0, 120)})`, ip: ipDe(req) });
+    return NextResponse.json({ error: "données du contrat illisibles", message: "Le contenu enregistré de ce contrat n'est pas lisible : la signature ne peut pas être générée. Contacte Revêtement Viking." }, { status: 500 });
+  }
   // Le numéro vit dans une COLONNE du contrat, pas dans data_json : sans cette ligne, le
   // PDF signé — la pièce archivée — sortait avec « CONTRAT N° — » sur la couverture et un
   // en-tête « Contrat n° » vide sur chaque page. Vérifié en extrayant le texte du PDF.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ajouterPushSubscription, db, initDb } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
+import { lireCorps } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
@@ -11,15 +12,16 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const user = await utilisateurActif(req);
   if (!user) return NextResponse.json({ error: "non connecté" }, { status: 401 });
-  const b = await req.json();
-  if (!b?.endpoint || !b?.keys?.p256dh || !b?.keys?.auth) {
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  if (!b?.endpoint || typeof b.endpoint !== "string" || !b?.keys?.p256dh || !b?.keys?.auth) {
     return NextResponse.json({ error: "subscription invalide" }, { status: 400 });
   }
   await ajouterPushSubscription({
     utilisateur: user,
     endpoint: b.endpoint,
-    p256dh: b.keys.p256dh,
-    auth: b.keys.auth,
+    p256dh: String(b.keys.p256dh),
+    auth: String(b.keys.auth),
     user_agent: req.headers.get("user-agent") || undefined,
   });
   return NextResponse.json({ ok: true });

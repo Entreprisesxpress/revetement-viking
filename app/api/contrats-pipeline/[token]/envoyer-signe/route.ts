@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { marquerDossierSigneEnvoye } from "@/lib/db";
 import { construireCertificat } from "@/lib/certificat";
 import { genererCertificatBuffer } from "@/lib/pdf-certificat";
@@ -20,10 +20,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     return NextResponse.json({ error: "le contrat n'est pas signé — rien à transmettre" }, { status: 409 });
   }
 
-  const body = await req.json().catch(() => ({} as any));
-  const destinataire = body.to || r.data.client_courriel;
+  const body = (await req.json().catch(() => null)) || {};
+  const destinataire = String(body.to || r.data.client_courriel || "").trim().slice(0, 200);
   if (!destinataire) return NextResponse.json({ error: "courriel du client manquant" }, { status: 400 });
-  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
+  // Contrat de réponse gardé en 200 (l'écran lit `raison`) ; `message` est lisible tel quel.
+  if (!emailEstConfigure()) {
+    return NextResponse.json({ ok: false, raison: "email_non_configure", message: "Le courriel du serveur n'est pas configuré (RESEND_API_KEY + RESEND_FROM, ou Gmail) : le dossier signé n'a pas été envoyé. Télécharge le PDF signé et le certificat, puis envoie-les depuis ton app courriel." });
+  }
 
   // Contrat signé (archivé en base) + certificat régénéré à l'instant
   const m = String(r.contrat.pdf_signe || "").match(/^data:[^;]+;base64,(.+)$/);
@@ -115,18 +118,18 @@ Revêtement Viking Inc. · 1634 Rue Joliette, Montréal H1W 3E9<br>
   if (!envoi.ok) {
     // Un dossier signé qui ne part pas doit laisser une trace : Francis a cliqué, le
     // client n'a rien reçu, et sans cette ligne rien ne le disait six mois plus tard.
-    journaliser("contrat.signe", {
+    after(() => journaliser("contrat.signe", {
       req, ref_type: "contrat", ref_id: r.data.numero,
       description: `ÉCHEC d'envoi du dossier signé à ${destinataire} : ${envoi.error || envoi.raison || "?"}`,
-    }).catch(() => {});
+    }));
     return NextResponse.json({ ok: false, error: envoi.error || envoi.raison });
   }
 
   await marquerDossierSigneEnvoye(token, destinataire);
-  journaliser("contrat.signe", {
+  after(() => journaliser("contrat.signe", {
     req, ref_type: "contrat", ref_id: r.data.numero,
     description: `Dossier signé (contrat + certificat) transmis à ${destinataire} — intégrité ${r.data.verdict}`,
-  }).catch(() => {});
+  }));
 
   return NextResponse.json({ ok: true, destinataire, messageId: envoi.messageId, verdict: r.data.verdict });
 }

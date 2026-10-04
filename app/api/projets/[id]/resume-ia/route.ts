@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjet, listerHeuresProjet, listerDepensesProjet, listerPhotosChantier } from "@/lib/db";
 import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -8,8 +9,8 @@ export const maxDuration = 60;
 /** Résumé IA d'un chantier : agrège heures + dépenses + photos + notes
  *  et appelle Claude (ANTHROPIC_API_KEY) pour produire un récap pro. */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const pid = +id;
+  const pid = idEntier((await ctx.params).id);
+  if (!pid) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: "ANTHROPIC_API_KEY non configurée" }, { status: 500 });
   }
@@ -54,8 +55,10 @@ ${joursTries.map((j) => {
 }).join("")}`;
 
   try {
+    // Délai borné (sous maxDuration) : un appel qui traîne ne laisse pas l'écran sans réponse.
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
+      signal: AbortSignal.timeout(55_000),
       headers: {
         "x-api-key": process.env.ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",

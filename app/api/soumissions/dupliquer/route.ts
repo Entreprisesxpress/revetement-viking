@@ -1,20 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { sauvegarder, charger } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { lireCorps } from "@/lib/requete";
 
 /** Dupliquer une soumission existante : crée une nouvelle entrée avec un numéro neuf,
  * payload identique (articles, taux, etc.), statut "brouillon", date du jour. */
 export async function POST(req: NextRequest) {
   try {
-    const { numero } = await req.json();
+    const b = await lireCorps(req);
+    if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const numero = String(b.numero || "").trim();
     if (!numero) return NextResponse.json({ error: "numero requis" }, { status: 400 });
     const source = await charger(numero);
     if (!source) return NextResponse.json({ error: "introuvable" }, { status: 404 });
     // payload_json ne contient QUE le « data » (lignes, frais, taxes…). sauvegarder()
     // attend { client, total, heuresEstimees, data } : avant, on lui repassait le data
     // brut → payload.total/heuresEstimees/data étaient undefined → copie VIDE à 0 $.
-    const data = JSON.parse(source.payload_json || "{}");
+    // Un payload illisible en base est une erreur EXPLICITE (JSON), jamais une page morte.
+    let data: any;
+    try { data = JSON.parse(source.payload_json || "{}"); } catch (e: any) {
+      console.error(`[/api/soumissions/dupliquer] payload_json illisible pour ${numero} :`, e?.message || e);
+      return NextResponse.json({ error: "données de la soumission illisibles", message: `Le contenu enregistré de la soumission ${numero} n'est pas un JSON valide : elle ne peut pas être dupliquée telle quelle.` }, { status: 500 });
+    }
     // Réinitialise les champs propres à la soumission source
     delete data.numero;
     data.statut = "brouillon";
@@ -32,7 +40,10 @@ export async function POST(req: NextRequest) {
       heuresEstimees: source.heures_estimees,
       data,
     });
-    journaliser("soumission.dupliquee", { ref_type: "soumission", ref_id: nouveauNumero, description: `Dupliquée depuis ${numero}` });
+    after(() => journaliser("soumission.dupliquee", { ref_type: "soumission", ref_id: nouveauNumero, description: `Dupliquée depuis ${numero}` }));
     return NextResponse.json({ ok: true, numero: nouveauNumero });
-  } catch (e: any) { return NextResponse.json({ error: e?.message }, { status: 500 }); }
+  } catch (e: any) {
+    console.error("[/api/soumissions/dupliquer]", e);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
 }

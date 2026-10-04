@@ -1,12 +1,14 @@
 import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 import { NextRequest, NextResponse } from "next/server";
 import { getFichierClient } from "@/lib/db";
+import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const f = await getFichierClient(+id);
+  const id = idEntier((await ctx.params).id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  const f = await getFichierClient(id);
   if (!f || !f.data) return new NextResponse("Not found", { status: 404 });
   const m = String(f.data).match(/^data:([^;]+);base64,(.+)$/);
   if (!m) return new NextResponse("Invalid data", { status: 500 });

@@ -188,12 +188,15 @@ export default function HoraireePage() {
     if (!editing) return;
     // Refus des NaN ici, avec un message : « 7,5 » passe (nombreSaisi), « abc » non.
     const heuresN = nombreSaisi(editing.heures);
-    const tauxN = nombreSaisi(editing.taux_horaire);
     if (!Number.isFinite(heuresN) || heuresN <= 0) { toast("Nombre d'heures illisible (ex. : 7,5)", "warning"); return; }
-    if (!Number.isFinite(tauxN)) { toast("Taux horaire illisible (ex. : 30,50)", "warning"); return; }
+    // Taux VIDE = inchangé : le champ n'est pas envoyé (le serveur ignore de toute façon
+    // un taux vide ou à 0). Seule une valeur saisie et illisible est refusée.
+    const tauxVide = !String(editing.taux_horaire ?? "").trim();
+    const tauxN = tauxVide ? undefined : nombreSaisi(editing.taux_horaire);
+    if (tauxN !== undefined && !Number.isFinite(tauxN)) { toast("Taux horaire illisible (ex. : 30,50) — laisse vide pour ne pas le changer", "warning"); return; }
     const body = {
       id: editing.id, projet_id: editing.projet_id, date: editing.date,
-      heures: heuresN, taux_horaire: tauxN,
+      heures: heuresN, ...(tauxN !== undefined ? { taux_horaire: tauxN } : {}),
       employe: editing.employe, description: editing.description,
       version: editing.version, // verrouillage optimiste (B7)
     };
@@ -479,8 +482,8 @@ export default function HoraireePage() {
                 <input type="text" inputMode="decimal" value={editing.heures} onChange={(e) => setEditing({ ...editing, heures: e.target.value })} placeholder="Ex. : 7,5" className="w-full px-3 py-2 border rounded text-sm text-right font-bold" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Taux $/h</label>
-                <input type="text" inputMode="decimal" value={editing.taux_horaire} onChange={(e) => setEditing({ ...editing, taux_horaire: e.target.value })} placeholder="Ex. : 30,50" className="w-full px-3 py-2 border rounded text-sm text-right" />
+                <label className="block text-xs font-medium text-slate-600 mb-1">Taux $/h <span className="font-normal text-slate-400">(vide = inchangé)</span></label>
+                <input type="text" inputMode="decimal" value={editing.taux_horaire ?? ""} onChange={(e) => setEditing({ ...editing, taux_horaire: e.target.value })} placeholder="Ex. : 30,50" className="w-full px-3 py-2 border rounded text-sm text-right" />
               </div>
             </div>
             <div>

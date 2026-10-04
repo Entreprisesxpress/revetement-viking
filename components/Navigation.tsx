@@ -11,19 +11,8 @@ import { purgerLocal } from "@/lib/purge-locale";
 import { signaler } from "@/lib/toast-bus";
 import BoutonTheme from "@/components/BoutonTheme";
 
-/** Précharge le cache hors-ligne (5 API) UNE fois par session, et seulement en Wi-Fi.
- *  Avant : à CHAQUE navigation, sur n'importe quel réseau — pour un cache que
- *  `fetchAvecOffline` ne lit nulle part encore. Sans information de connexion
- *  (iOS, desktop), on ne télécharge rien. */
-function prechargerHorsLigneUneFois() {
-  try {
-    if (sessionStorage.getItem("vk-precharge-fait")) return;
-    const connexion = (navigator as any).connection;
-    if (!connexion || connexion.type !== "wifi") return;
-    sessionStorage.setItem("vk-precharge-fait", "1");
-    import("@/lib/offlineCache").then((m) => m.prechargerCache()).catch(() => {});
-  } catch { /* sessionStorage indisponible */ }
-}
+// Le préchargement « hors ligne » (5 requêtes API par session vers un cache IndexedDB
+// que rien ne lisait — lib/offlineCache.ts, supprimé) n'existe plus (V-44).
 
 interface NavLink {
   href: string;
@@ -99,7 +88,6 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
       // La file hors-ligne mémorise qui a saisi : elle refuse de rejouer pour un autre.
       memoriserUtilisateur(p.username || null);
     });
-    prechargerHorsLigneUneFois();
     // Le moniteur rend maintenant une fonction d'arrêt : Navigation n'est PAS dans le
     // layout, elle se remonte à chaque navigation, et sans ce nettoyage on empilait un
     // écouteur « online » et une minuterie par page visitée.

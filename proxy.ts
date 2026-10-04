@@ -16,7 +16,9 @@ const CSP = [
   // Tesseract.js (OCR) charge un Worker + WASM depuis blob:/data: et son CDN
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com https://cdn.jsdelivr.net",
   "worker-src 'self' blob:",
-  "style-src 'self' 'unsafe-inline'",
+  // Leaflet (carte des chantiers, app/projets/carte) charge sa feuille de style depuis
+  // unpkg : sans cette origine, la carte s'affichait sans CSS en production.
+  "style-src 'self' 'unsafe-inline' https://unpkg.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   // OCR : tessdata + CDN ; météo Open-Meteo ; Google APIs (Drive)

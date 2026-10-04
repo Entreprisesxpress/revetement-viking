@@ -11,7 +11,7 @@ import ModalPhotos from "@/components/ModalPhotos";
 import ModalExtra from "@/components/ModalExtra";
 import FAB from "@/components/FAB";
 import Meteo from "@/components/Meteo";
-import { fetchInstantane } from "@/lib/cacheClient";
+import { fetchInstantane, type MetaInstantane } from "@/lib/cacheClient";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire } from "@/lib/envoi";
 import BanniereNouveaute from "@/components/BanniereNouveaute";
@@ -80,6 +80,12 @@ export default function Home() {
   const [caBusy, setCaBusy] = useState(false);
   const { toast } = useToast();
   const annee = anneeCourante();
+  // Date des données quand AU MOINS une section vient du cache périmé (réseau coupé ou
+  // copie hors ligne du service worker) : affichée en badge, sinon les chiffres d'hier
+  // passaient pour ceux d'aujourd'hui (V-41/V-42).
+  const [donneesDu, setDonneesDu] = useState<number | null>(null);
+  const noter = (meta: MetaInstantane) => { if (meta.perime) setDonneesDu((d) => d ?? meta.date ?? Date.now()); };
+  const avecMeta = <T,>(set: (d: T) => void) => (d: T, meta: MetaInstantane) => { set(d); noter(meta); };
 
   const fermerDetail = useCallback(() => { setDetailFin(null); setMoDetail(null); setCaDetail(null); }, []);
   const chargerMO = async () => {
@@ -115,21 +121,22 @@ export default function Home() {
     // Affichage INSTANTANÉ : chaque section montre ses dernières données connues
     // (cache local) tout de suite, puis se rafraîchit en arrière-plan. Plus de
     // spinner d'attente sur cold start / réseau lent.
-    fetchInstantane("/api/soumissions?stats=1", setStats, { cle: "dash:stats" });
-    fetchInstantane("/api/projets?statut=actif", (d: any) => setProjetsActifs(Array.isArray(d) ? d : []), { cle: "dash:projetsActifs" });
-    fetchInstantane(`/api/heures-sommaire?depuis=${lundiSemaineISO()}`, (d: any) => setHeuresSemaine(Array.isArray(d) ? d : []), { cle: "dash:heuresSemaine" });
-    fetchInstantane("/api/relances", (d: any) => setRelances(Array.isArray(d) ? d : []), { cle: "dash:relances" });
-    fetchInstantane("/api/dashboard", setTableauBord, { cle: "dash:tableauBord" });
-    fetchInstantane("/api/extras?statut=a_charger", (d: any) => setExtras(Array.isArray(d) ? d : []), { cle: "dash:extras" });
-    fetchInstantane("/api/projets?a_facturer=1", (d: any) => setAFacturer(Array.isArray(d) ? d : []), { cle: "dash:aFacturer" });
-    fetchInstantane("/api/taches?statut=a_faire", (d: any) => setTachesAFaire(Array.isArray(d) ? d : []), { cle: "dash:tachesAFaire" });
+    setDonneesDu(null);
+    fetchInstantane("/api/soumissions?stats=1", avecMeta(setStats), { cle: "dash:stats" });
+    fetchInstantane("/api/projets?statut=actif", avecMeta((d: any) => setProjetsActifs(Array.isArray(d) ? d : [])), { cle: "dash:projetsActifs" });
+    fetchInstantane(`/api/heures-sommaire?depuis=${lundiSemaineISO()}`, avecMeta((d: any) => setHeuresSemaine(Array.isArray(d) ? d : [])), { cle: "dash:heuresSemaine" });
+    fetchInstantane("/api/relances", avecMeta((d: any) => setRelances(Array.isArray(d) ? d : [])), { cle: "dash:relances" });
+    fetchInstantane("/api/dashboard", avecMeta(setTableauBord), { cle: "dash:tableauBord" });
+    fetchInstantane("/api/extras?statut=a_charger", avecMeta((d: any) => setExtras(Array.isArray(d) ? d : [])), { cle: "dash:extras" });
+    fetchInstantane("/api/projets?a_facturer=1", avecMeta((d: any) => setAFacturer(Array.isArray(d) ? d : [])), { cle: "dash:aFacturer" });
+    fetchInstantane("/api/taches?statut=a_faire", avecMeta((d: any) => setTachesAFaire(Array.isArray(d) ? d : [])), { cle: "dash:tachesAFaire" });
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
       const u = d?.user || "";
       setMonUser(u);
-      if (u) fetchInstantane(`/api/mes-taches?user=${u}`, (arr: any) => setMesTaches(Array.isArray(arr) ? arr : []), { cle: `dash:taches:${u}` });
+      if (u) fetchInstantane(`/api/mes-taches?user=${u}`, avecMeta((arr: any) => setMesTaches(Array.isArray(arr) ? arr : [])), { cle: `dash:taches:${u}` });
     }).catch(() => {});
     // Totaux de l'année : chiffre d'affaires + dépenses (tous projets, pas juste actifs)
-    fetchInstantane(`/api/finances?annee=${anneeCourante()}`, setAnnuel, {
+    fetchInstantane(`/api/finances?annee=${anneeCourante()}`, avecMeta(setAnnuel), {
       cle: "dash:annuel",
       transform: (d: any) => (d.mois || []).reduce((s: any, m: any) => ({
         ca: s.ca + (m.revenu || 0), ca_at: s.ca_at + (m.revenu_avant_taxes || 0),
@@ -153,6 +160,17 @@ export default function Home() {
 
         {/* 👋 SALUTATION DU JOUR */}
         <Salutation nom={monUser} />
+
+        {/* Données servies du cache (réseau coupé / hors ligne) : on le dit, avec la date. */}
+        {donneesDu !== null && (
+          <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded-lg px-3 py-2">
+            <span>📴</span>
+            <span>
+              Données du <strong>{new Date(donneesDu).toLocaleString("fr-CA", { timeZone: "America/Toronto", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</strong> — le serveur n'a pas répondu, ces chiffres peuvent être périmés.
+            </span>
+            <button onClick={charger} className="ml-auto font-semibold underline">Réessayer</button>
+          </div>
+        )}
 
         {/* ✨ NOUVEAUTÉS — ce que la personne n'a pas encore vu (lib/nouveautes.ts) */}
         <BanniereNouveaute />
@@ -195,7 +213,7 @@ export default function Home() {
                     </a>
                     <button
                       onClick={async () => {
-                        if (!(await ecrire("/api/projets", "PATCH", { id: p.id, facturee: 1 }, "Enregistrement"))) return;
+                        if (!(await ecrire("/api/projets", "PATCH", { id: p.id, facturation_confirmee: true }, "Enregistrement"))) return;
                         toast("✓ Projet marqué facturé", "success");
                         setAFacturer((arr) => arr.filter((x) => x.id !== p.id));
                       }}
@@ -449,8 +467,19 @@ export default function Home() {
         {tableauBord && (
           <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <a href="/finances" className="bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 rounded-lg p-3 hover:shadow-md transition">
-              <div className="text-[10px] uppercase font-bold text-emerald-700">💰 Revenu du mois</div>
-              <div className="text-xl md:text-2xl font-bold text-emerald-900 mt-1">{formatCAD(tableauBord.revenu_mois)}</div>
+              {/* Même base que le CA annuel plus haut : AVANT taxes. Tant que l'API ne
+                  fournit pas `revenu_mois_avant_taxes`, on montre le TTC en le disant (V-34). */}
+              {typeof tableauBord.revenu_mois_avant_taxes === "number" ? (
+                <>
+                  <div className="text-[10px] uppercase font-bold text-emerald-700">💰 Revenu du mois <span className="normal-case font-normal text-emerald-600">(av. taxes)</span></div>
+                  <div className="text-xl md:text-2xl font-bold text-emerald-900 mt-1">{formatCAD(tableauBord.revenu_mois_avant_taxes)}</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[10px] uppercase font-bold text-emerald-700">💰 Revenu du mois <span className="normal-case font-normal text-emerald-600">(taxes incl.)</span></div>
+                  <div className="text-xl md:text-2xl font-bold text-emerald-900 mt-1">{formatCAD(tableauBord.revenu_mois)}</div>
+                </>
+              )}
             </a>
             <a href="/finances?tab=rentabilite" className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-3 hover:shadow-md transition">
               <div className="text-[10px] uppercase font-bold text-blue-700">📊 Marge moyenne</div>

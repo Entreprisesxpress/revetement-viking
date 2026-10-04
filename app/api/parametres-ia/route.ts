@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
+import { lireCorps } from "@/lib/requete";
 
 const c: any = () => db();
 
@@ -45,25 +46,19 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   await initDb();
-  const b = await req.json();
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
   // Accepte soit {cle, valeur} soit {parametres: [{cle, valeur}, ...]}
   const items = Array.isArray(b.parametres) ? b.parametres : [{ cle: b.cle, valeur: b.valeur }];
   for (const it of items) {
-    if (!it.cle) continue;
+    if (!it?.cle) continue;
     await c().execute({
       sql: "UPDATE parametres_ia SET valeur = ?, date_modif = ? WHERE cle = ?",
-      args: [String(it.valeur ?? ""), new Date().toISOString(), it.cle],
+      args: [String(it.valeur ?? "").slice(0, 20_000), new Date().toISOString(), String(it.cle).slice(0, 100)],
     }).catch(() => {});
   }
   return NextResponse.json({ ok: true, n: items.length });
 }
 
-/** Helper interne (pas exposé) : lire tous les paramètres comme objet. */
-export async function lireTousParametres(): Promise<Record<string, string>> {
-  await initDb();
-  await seed();
-  const r = await c().execute({ sql: "SELECT cle, valeur FROM parametres_ia", args: [] }).catch(() => ({ rows: [] }));
-  const out: Record<string, string> = {};
-  for (const row of r.rows as any[]) out[row.cle] = row.valeur;
-  return out;
-}
+// (L'ancien export `lireTousParametres` — un helper sans aucun appelant, exporté depuis
+// un fichier de route où Next n'attend que des handlers — est retiré.)

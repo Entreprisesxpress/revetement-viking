@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { heuresParProjetDate, listerProjets } from "@/lib/db";
 import { celluleCSV } from "@/lib/csv";
+import { idEntier } from "@/lib/requete";
 
 // Chaque cellule passe par celluleCSV : formule neutralisée (=, +, -, @…) et guillemets
 // doublés. Avant, une description « =HYPERLINK(...) » partait telle quelle et s'exécutait
@@ -8,17 +9,19 @@ import { celluleCSV } from "@/lib/csv";
 const ligne = (cellules: any[]) => cellules.map(celluleCSV).join(",");
 
 export async function GET(req: NextRequest) {
-  const projet_id = req.nextUrl.searchParams.get("projet_id");
+  const pidBrut = req.nextUrl.searchParams.get("projet_id");
   const format = req.nextUrl.searchParams.get("format") || "json";
 
-  if (projet_id) {
-    const lignes = await heuresParProjetDate(+projet_id);
+  if (pidBrut) {
+    const projet_id = idEntier(pidBrut);
+    if (!projet_id) return NextResponse.json({ error: "projet_id invalide" }, { status: 400 });
+    const lignes = await heuresParProjetDate(projet_id);
     if (format === "csv") {
       const csv = [ligne(["Employé", "Date", "Heures", "Taux $/h", "Coût", "Description"])]
         .concat(lignes.map((l) => ligne([l.employe, l.date, l.heures, l.taux_horaire, +(l.heures * l.taux_horaire).toFixed(2), l.description || ""])))
         .join("\n");
       return new NextResponse(csv, {
-        headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="heures-projet-${+projet_id || 0}.csv"` },
+        headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="heures-projet-${projet_id}.csv"` },
       });
     }
     return NextResponse.json(lignes);

@@ -4,8 +4,8 @@
 // Protégé par LEAD_WEBHOOK_SECRET (fail-closed : 503 si non configuré).
 // Anti-doublon : si un client existe déjà (courriel/téléphone/nom), on ajoute une
 // interaction au lieu de créer un doublon.
-import { NextRequest, NextResponse } from "next/server";
-import { db, ajouterClient, ajouterInteraction, initDb } from "@/lib/db";
+import { NextRequest, NextResponse, after } from "next/server";
+import { ajouterInteraction, initDb, rattacherOuCreerClient } from "@/lib/db";
 import { envoyerPushUtilisateur } from "@/lib/push";
 import { journaliser } from "@/lib/audit";
 import { rateLimitDepasse, timingSafeEqual, empreinteDejaVue, memoriserEmpreinte } from "@/lib/rateLimit";
@@ -24,8 +24,6 @@ export const dynamic = "force-dynamic";
 import { ipClient } from "@/lib/ip";
 const ipDe = (req: NextRequest) => ipClient(req);
 
-const chiffres = (s: string) => String(s || "").replace(/\D/g, "");
-
 export async function POST(req: NextRequest) {
   const secret = process.env.LEAD_WEBHOOK_SECRET;
   if (!secret) {
@@ -43,7 +41,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "trop de requêtes" }, { status: 429 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  // Un corps absent ou illisible vaut un formulaire vide : la route répond alors 400
+  // (« au moins un de nom/courriel/telephone requis ») — contrat inchangé pour l'émetteur.
+  const brut = await req.json().catch(() => null);
+  const body: any = brut && typeof brut === "object" ? brut : {};
   // Champs structurés d'abord ; le texte brut complète ce qui manque.
   const parse = body.texte_brut ? parserTexteFormulaire(String(body.texte_brut)) : {};
   const nom = String(body.nom || parse.nom || "").trim().slice(0, 120);
@@ -64,35 +65,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, doublon: true });
   }
 
-  // Anti-doublon : courriel (insensible à la casse), sinon téléphone (chiffres seuls), sinon nom exact.
-  const un = async (sql: string, args: any[]) => ((await db().execute({ sql, args })).rows[0] as any) || null;
-  let existant: { id: number; nom: string } | null = null;
-  if (courriel) existant = await un("SELECT id, nom FROM clients WHERE LOWER(courriel) = LOWER(?)", [courriel]);
-  if (!existant && telephone && chiffres(telephone).length >= 10) {
-    const cands = await db().execute({ sql: "SELECT id, nom, telephone FROM clients WHERE telephone IS NOT NULL AND telephone != ''", args: [] });
-    existant = (cands.rows as any[]).find((c) => chiffres(c.telephone).slice(-10) === chiffres(telephone).slice(-10)) || null;
-  }
-  // Par le NOM seulement si ni le lead ni la fiche n'ont de courriel/téléphone : deux
-  // homonymes avec des coordonnées différentes sont deux personnes.
-  if (!existant && nom && !courriel && !telephone) {
-    existant = await un(
-      "SELECT id, nom FROM clients WHERE LOWER(nom) = LOWER(?) AND (courriel IS NULL OR courriel = '') AND (telephone IS NULL OR telephone = '')",
-      [nom],
-    );
-  }
-
-  let client_id: number;
-  let cree = false;
-  if (existant) {
-    client_id = existant.id;
-  } else {
-    client_id = await ajouterClient({
-      nom: nom || courriel || telephone || "Lead site web",
-      courriel: courriel || undefined, telephone: telephone || undefined, adresse: adresse || undefined,
-      statut: "prospect", source, pipeline_stage: "info_1",
-    } as any);
-    cree = true;
-  }
+  // Anti-doublon : courriel (insensible à la casse), sinon téléphone (10 derniers
+  // chiffres), sinon nom exact — seulement si ni le lead ni la fiche n'ont de coordonnées.
+  // La règle vit dans rattacherOuCreerClient (lib/db.ts), partagée avec la création de
+  // projet et de soumission ; une fiche retrouvée reçoit les coordonnées qui lui manquent.
+  // Sans nom, la fiche prend le courriel ou le téléphone comme nom (jamais vide : la route
+  // exige au moins l'un des trois).
+  const r = await rattacherOuCreerClient(nom, {
+    courriel: courriel || undefined, telephone: telephone || undefined, adresse: adresse || undefined,
+    statut: "prospect", source, pipeline_stage: "info_1",
+  });
+  const client_id = r.id;
+  const cree = r.cree;
+  const existant = cree ? null : { id: r.id, nom: r.nom };
 
   // Le contenu du formulaire devient une interaction visible dans la fiche CRM.
   await ajouterInteraction({
@@ -108,12 +93,14 @@ export async function POST(req: NextRequest) {
   });
   await memoriserEmpreinte(PORTEE_EMPREINTE, empreinte, ip);
 
-  envoyerPushUtilisateur("Francis", {
+  // Push APRÈS la réponse (after) : une promesse détachée pouvait être tuée avec la
+  // fonction serverless dès la réponse rendue — le lead arrivait sans que Francis le sache.
+  after(() => envoyerPushUtilisateur("Francis", {
     title: cree ? "🌐 Nouveau lead du site web" : "🌐 Formulaire web — client existant",
     body: `${nom || courriel || telephone}${sujet ? ` · ${sujet}` : ""}${message ? ` — ${message.slice(0, 80)}` : ""}`,
     url: `/clients?id=${client_id}`,
     tag: "lead-web",
-  }).catch(() => {});
+  }).catch((e: any) => console.error("[/api/lead-web] push non envoyé :", e?.message || e)));
 
   return NextResponse.json({ ok: true, client_id, cree });
 }

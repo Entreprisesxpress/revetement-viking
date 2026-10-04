@@ -43,8 +43,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ token: str
     return NextResponse.json({ error: `message trop long (max ${MESSAGE_MAX} caractères)` }, { status: 400 });
   }
 
+  // Contrat de réponse gardé en 200 (l'écran lit `raison`) ; `message` est lisible tel quel.
   if (!emailEstConfigure()) {
-    return NextResponse.json({ ok: false, raison: "email_non_configure" });
+    return NextResponse.json({ ok: false, raison: "email_non_configure", message: "Le courriel du serveur n'est pas configuré (RESEND_API_KEY + RESEND_FROM, ou Gmail) : le contrat n'a pas été envoyé. Copie le lien et envoie-le depuis ton app courriel." });
   }
 
   const lien = `${publicOrigin(req)}/contrat/${co.token}`;

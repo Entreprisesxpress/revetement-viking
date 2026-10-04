@@ -2,18 +2,20 @@ import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // Sert la facture finale d'un projet en binaire (PDF/image) — évite le popup bloqué sur mobile.
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
+import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   await initDb();
-  const { id } = await ctx.params;
+  const id = idEntier((await ctx.params).id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   // Requête directe : getProjet() ne renvoie PAS le blob facture_finale_data (par perf).
   // On va le chercher directement avec une requête dédiée.
   const c: any = db();
   const r = await c.execute({
     sql: "SELECT facture_finale_data, facture_finale_type FROM projets WHERE id = ?",
-    args: [+id],
+    args: [id],
   });
   const row = r.rows[0] as any;
   if (!row || !row.facture_finale_data) return new NextResponse("Not found", { status: 404 });

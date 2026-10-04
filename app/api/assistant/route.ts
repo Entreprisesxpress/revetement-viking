@@ -3,9 +3,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { MATERIAUX } from "@/data/materiaux";
 import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { lireCorps } from "@/lib/requete";
 
 // Assistant conversationnel : prend l'état actuel de la soumission + une demande en langage naturel
 // Retourne des modifications structurées (ajout/modif/suppression de lignes)
+
+// Délai borné SOUS maxDuration : sans ça, un appel IA qui traînait dépassait les 60 s par
+// défaut de la fonction et l'écran restait sans réponse (ni JSON, ni message).
+export const maxDuration = 60;
 
 const SYSTEME = `Tu es l'expert en revêtement extérieur d'Revêtement Viking Inc. (Francis, RBQ 5811-4299-01).
 Tu aides Francis à monter une soumission rapide et précise pour soffite, fascia, solin et parement.
@@ -64,10 +69,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante" }, { status: 500 });
     }
 
-    const { message, etat, historique } = await req.json();
+    const b = await lireCorps(req);
+    if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const { message, etat, historique } = b;
     if (!message) return NextResponse.json({ error: "message requis" }, { status: 400 });
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({ apiKey, timeout: 55_000, maxRetries: 1 });
     const systemPrompt = SYSTEME.replace("{{CATALOGUE}}", catalogueResume);
 
     const messages: any[] = [];

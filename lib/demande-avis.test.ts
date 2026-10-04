@@ -12,6 +12,29 @@ describe("demande d'avis Google", () => {
     expect(messageDemandeAvis(null).startsWith("Bonjour,")).toBe(true);
   });
 
+  it("ne salue ni une civilité ni une particule comme un prénom", () => {
+    // « Bonjour M., » et « Bonjour Les, » sont ce que recevaient les clients.
+    expect(prenomClient("M. Tremblay")).toBe("");
+    expect(prenomClient("Mme Gagnon")).toBe("");
+    expect(prenomClient("Mr Smith")).toBe("");
+    expect(prenomClient("Dr. Roy")).toBe("");
+    expect(prenomClient("Les Jardins du Nord")).toBe("");
+    expect(prenomClient("Le Groupe Maçonnerie")).toBe("");
+    expect(prenomClient("La Maison Blanche")).toBe("");
+    expect(prenomClient("L'Entrepôt du Nord")).toBe("");
+    expect(messageDemandeAvis("M. Tremblay").startsWith("Bonjour,\n")).toBe(true);
+  });
+
+  it("une entreprise (inc., ltée, enr., s.e.n.c.) est saluée sans prénom", () => {
+    expect(prenomClient("Les Constructions ABC inc.")).toBe("");
+    expect(prenomClient("Toiture Morin Ltée")).toBe("");
+    expect(prenomClient("Rénovations Côté enr.")).toBe("");
+    expect(prenomClient("Dubois et Fils s.e.n.c.")).toBe("");
+    expect(messageDemandeAvis("Constructions ABC inc.").startsWith("Bonjour,\n")).toBe(true);
+    // Un vrai prénom reste salué : « Marc Inc » n'est pas un cas réel, mais « Marc » l'est.
+    expect(prenomClient("Marc-Antoine Lévesque")).toBe("Marc-Antoine");
+  });
+
   it("le message porte le lien Google, le courriel et le téléphone Viking", () => {
     const m = messageDemandeAvis("Marc");
     expect(m).toContain(LIEN_AVIS_GOOGLE);

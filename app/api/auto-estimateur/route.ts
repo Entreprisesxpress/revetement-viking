@@ -13,6 +13,7 @@ import { REGLES_METIER_VIKING, MODELES, fewShotExemples, trouverProjetsSimilaire
 import { journaliserCoutReponse } from "@/lib/ia-couts";
 import { validerSortieEstimateur } from "@/lib/estimateur-validation";
 import { encadrerDonnees, CONSIGNE_DONNEES } from "@/lib/jarvis";
+import { lireCorps } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 // Un appel principal + jusqu'à 3 recherches web : au-delà des 60 s par défaut.
@@ -93,7 +94,9 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante" }, { status: 500 });
 
-    const { extraction, preferenceMateriau } = await req.json();
+    const b = await lireCorps(req);
+    if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const { extraction, preferenceMateriau } = b;
     if (!extraction) return NextResponse.json({ error: "extraction Hover requise" }, { status: 400 });
 
     // Délai borné par appel (sous maxDuration) et un seul réessai.
@@ -177,28 +180,33 @@ Construis la soumission complète maintenant. Sélectionne les matériaux exacts
       for (const i of data.items_a_verifier_prix_web) aVerifier.push(i);
     }
 
-    // Limiter à 3 pour pas exploser les coûts API
-    const verifications = [];
-    for (const v of aVerifier.slice(0, 3)) {
-      const mat = MATERIAUX.find((m) => m.code === v.code);
-      if (!mat) continue;
-      try {
-        const resp = await client.messages.create({
-          model: MODELES.construction,
-          max_tokens: 1024,
-          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 } as any],
-          messages: [
-            {
-              role: "user",
-              content: `Cherche le prix actuel au Québec pour : ${mat.nom} (${mat.fournisseur}, code ${mat.code}). Prix coûtant interne actuel : ${mat.prixCoutantParUniteCalcul.toFixed(2)}$/${mat.uniteCalcul}.
+    // Limiter à 3 pour pas exploser les coûts API. EN PARALLÈLE (allSettled) et bornées à
+    // 40 s chacune : en série, trois recherches web de 55 s + l'appel principal dépassaient
+    // les 300 s de la fonction, et l'écran ne recevait jamais la soumission pourtant prête.
+    const materiauxAVerifier = aVerifier.slice(0, 3)
+      .map((v) => MATERIAUX.find((m) => m.code === v.code))
+      .filter((m): m is NonNullable<typeof m> => !!m);
+    const resultats = await Promise.allSettled(materiauxAVerifier.map(async (mat) => {
+      const resp = await client.messages.create({
+        model: MODELES.construction,
+        max_tokens: 1024,
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 } as any],
+        messages: [
+          {
+            role: "user",
+            content: `Cherche le prix actuel au Québec pour : ${mat.nom} (${mat.fournisseur}, code ${mat.code}). Prix coûtant interne actuel : ${mat.prixCoutantParUniteCalcul.toFixed(2)}$/${mat.uniteCalcul}.
 Retourne UNIQUEMENT un JSON: {"code":"${mat.code}","prix_web_moyen":0,"source":"url","ecart_pct":0,"note":"..."}`,
-            },
-          ],
-        });
-        journaliserCoutReponse("auto-estimateur:affinage", MODELES.construction, resp);
-        const t = resp.content.filter((c) => c.type === "text").map((c: any) => c.text).join("").replace(/^```json\s*|\s*```$/g, "").trim();
-        try { verifications.push(JSON.parse(t)); } catch {}
-      } catch {}
+          },
+        ],
+      }, { timeout: 40_000, maxRetries: 0 });
+      journaliserCoutReponse("auto-estimateur:affinage", MODELES.construction, resp);
+      const t = resp.content.filter((c) => c.type === "text").map((c: any) => c.text).join("").replace(/^```json\s*|\s*```$/g, "").trim();
+      return JSON.parse(t);
+    }));
+    const verifications: any[] = [];
+    for (const r of resultats) {
+      if (r.status === "fulfilled") verifications.push(r.value);
+      else console.warn("[/api/auto-estimateur] vérification web ignorée :", (r.reason as any)?.message || r.reason);
     }
 
     return NextResponse.json({ ok: true, ...data, avertissements: valide.avertissements, verifications_web: verifications, jobs_reference_utilisees: jobsRef.length });

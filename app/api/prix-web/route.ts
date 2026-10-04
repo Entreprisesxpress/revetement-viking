@@ -5,8 +5,9 @@ import { journaliserCoutReponse } from "@/lib/ia-couts";
 import { validerPrixWeb } from "@/lib/prix-web-validation";
 import { rateLimitDepasse } from "@/lib/rateLimit";
 import { estAppelCron } from "@/lib/cron-auth";
-import { journaliser, type ActiviteType } from "@/lib/audit";
+import { journaliser } from "@/lib/audit";
 import { ipClient } from "@/lib/ip";
+import { lireCorps, texte } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,9 +15,7 @@ export const maxDuration = 60;
 // `force:true` contourne le cache de 7 jours et déclenche une recherche web IA payante :
 // plafonné à 20 par heure et par IP. Le cron de nuit (secret de cron) n'est pas compté.
 const FORCE_MAX_PAR_HEURE = 20;
-// Type « prix_web.force » : à ajouter à ActiviteType (lib/audit.ts, fichier d'un autre
-// agent — demande écrite). Le cast tombera de lui-même ensuite.
-const TYPE_FORCE = "prix_web.force" as ActiviteType;
+const TYPE_FORCE = "prix_web.force" as const;
 
 const PROMPT = (nomProduit: string, codeProduit: string, fournisseur: string) => `
 Tu es un assistant qui aide à vérifier les prix de matériaux de construction au Québec.
@@ -49,7 +48,13 @@ Pas de markdown, JSON pur.`;
 
 export async function POST(req: NextRequest) {
   try {
-    const { nom, code, fournisseur, force } = await req.json();
+    const b = await lireCorps(req);
+    if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const nom = texte(b.nom, 200) || "";
+    const code = texte(b.code, 60) || "";
+    const fournisseur = texte(b.fournisseur, 100) || "";
+    const force = !!b.force;
+    if (!nom && !code) return NextResponse.json({ error: "nom ou code requis" }, { status: 400 });
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante" }, { status: 500 });
@@ -67,7 +72,9 @@ export async function POST(req: NextRequest) {
       if (await rateLimitDepasse(TYPE_FORCE, ip, FORCE_MAX_PAR_HEURE, 60)) {
         return NextResponse.json({ error: "trop de recherches forcées", message: `Maximum ${FORCE_MAX_PAR_HEURE} recherches forcées par heure. Réessaie plus tard ou laisse le cache répondre.` }, { status: 429 });
       }
-      journaliser(TYPE_FORCE, { ip, ref_type: "prix_web", description: `force · ${cleCache.slice(0, 120)}` }).catch(() => {});
+      // AWAIT : c'est cette ligne que compte le plafond horaire (rateLimitDepasse lit le
+      // journal) — détachée, elle pouvait ne jamais s'écrire et le plafond ne tenait pas.
+      await journaliser(TYPE_FORCE, { ip, ref_type: "prix_web", description: `force · ${cleCache.slice(0, 120)}` });
     }
 
     // Délai borné et un seul réessai : un appel qui traîne ne doit pas dépasser la

@@ -7,8 +7,9 @@ import BottomSheet from "@/components/BottomSheet";
 import { compresserImage } from "@/lib/img";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { fichierTropLourd } from "@/lib/limites-fichiers";
-import { nombreSaisi } from "@/lib/envoi";
+import { nombreSaisi, lireJson } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
+import { depensesFiche } from "@/lib/budget-saisie";
 
 const ScannerRecu = lazy(() => import("@/components/ScannerRecu"));
 import MicVocal from "@/components/MicVocal";
@@ -31,6 +32,35 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
   const [scannerOuvert, setScannerOuvert] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  // Catégorie par défaut : « matériaux » si la liste dynamique la contient encore,
+  // sinon la première de la liste (V-45 : le formulaire repartait sur une catégorie
+  // qui n'existait plus).
+  const categorieDefaut = categories.includes("matériaux") ? "matériaux" : (categories[0] || CATEGORIES_FALLBACK[0]);
+  const formVide = (projetId: number) => ({ projet_id: projetId, date: aujourdhuiMontreal(), montant: "", fournisseur: "", description: "", categorie: categorieDefaut, detaxe: false });
+
+  // Fiche COMPLÈTE du chantier choisi (`/api/projets?id=`), une requête par chantier et
+  // par ouverture, en cache dans une Map. La liste `?lite=1` ne porte pas
+  // `total_depenses` : lu dessus, « Dépenses : NaN $ » (V-37).
+  const fichesEnCours = useRef(new Map<number, Promise<any | null>>());
+  const [fiches, setFiches] = useState<Record<number, any>>({});
+  const chargerFiche = (pid: number): Promise<any | null> => {
+    if (!pid) return Promise.resolve(null);
+    const connue = fichesEnCours.current.get(pid);
+    if (connue) return connue;
+    const p = lireJson<any>(`/api/projets?id=${pid}`).then((r) => {
+      if (!r.ok || !r.data?.id) { fichesEnCours.current.delete(pid); return null; }
+      setFiches((f) => ({ ...f, [pid]: r.data }));
+      return r.data;
+    });
+    fichesEnCours.current.set(pid, p);
+    return p;
+  };
+  // Changement de chantier dans le sélecteur ; l'ouverture, elle, charge directement
+  // la fiche du chantier initial (voir l'effet d'ouverture plus bas).
+  useEffect(() => {
+    if (ouvert && form.projet_id) chargerFiche(form.projet_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.projet_id]);
 
   const traiterFichier = async (file: File) => {
     if (file.size > 20 * 1024 * 1024) { toast("Fichier > 20 Mo", "warning"); return; }
@@ -82,7 +112,10 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
       setForm((f) => ({
         ...f,
         montant: donnees.montant !== undefined && !f.montant ? String(donnees.montant.toFixed(2)) : f.montant,
-        date: donnees.date && !f.date ? donnees.date : f.date,
+        // La date vaut toujours « aujourd'hui » par défaut, jamais vide : la condition
+        // `!f.date` ne pré-remplissait donc JAMAIS la date lue sur la facture (V-05).
+        // On ne garde la date du formulaire que si elle a été changée à la main.
+        date: donnees.date && f.date === today ? donnees.date : f.date,
         fournisseur: donnees.fournisseur && !f.fournisseur ? donnees.fournisseur : f.fournisseur,
       }));
       if (donnees.montant || donnees.date || donnees.fournisseur) toast("✓ Formulaire pré-rempli depuis l'OCR", "success");
@@ -91,13 +124,21 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
 
   useEffect(() => {
     if (!ouvert) return;
+    // Formulaire remis à neuf À L'OUVERTURE (V-45) : avant, une dépense abandonnée à
+    // moitié saisie (montant, fournisseur, pages photographiées) réapparaissait à
+    // l'ouverture suivante, et le chantier choisi la fois d'avant restait sélectionné
+    // même quand on ouvrait la modale depuis une AUTRE fiche projet.
+    setForm(formVide(projetIdInitial || 0));
+    setRecu(null); setPagesRecu([]);
+    fichesEnCours.current = new Map();
+    setFiches({});
+    if (projetIdInitial) chargerFiche(projetIdInitial);
     fetch("/api/projets?lite=1").then((r) => r.json()).then((tous: any[]) => {
       // Règle commune aux dépenses et aux heures — voir lib/statuts-projet.ts.
       const dispo = trierProjetsPourSaisie(
         (Array.isArray(tous) ? tous : []).filter((p) => accepteSaisieTardive(p)),
       );
       setProjets(dispo);
-      if (dispo.length > 0 && !form.projet_id) setForm((f) => ({ ...f, projet_id: projetIdInitial || 0 }));
     });
     fetch("/api/depenses?fournisseurs=1").then((r) => r.json()).then((d) => {
       if (Array.isArray(d)) setFournisseursConnus(d);
@@ -128,8 +169,11 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
     // nombreSaisi (lib/calculs.ts) : « 88,50 », « 1 250,50 $ » acceptés (virgule décimale,
     // espaces de milliers, symbole). Avant, seul `.replace(",", ".")` : « 1 250,50 » → NaN
     // → dépense refusée. Une saisie illisible est refusée AVEC message, jamais convertie.
+    // Un montant NÉGATIF est permis : note de crédit / remboursement fournisseur (même
+    // règle que les factures du projet et que /api/depenses). Seuls 0 et l'illisible
+    // sont refusés.
     const montantNum = nombreSaisi(form.montant);
-    if (!Number.isFinite(montantNum) || montantNum <= 0) { toast(`Montant illisible ou nul${form.montant ? ` : « ${form.montant} »` : ""} — écris par exemple 88,50`, "warning"); return; }
+    if (!Number.isFinite(montantNum) || montantNum === 0) { toast(`Montant illisible ou nul${form.montant ? ` : « ${form.montant} »` : ""} — écris par exemple 88,50 (négatif = note de crédit)`, "warning"); return; }
     // Normaliser le fournisseur en cherchant un match case-insensitive parmi les connus
     let fournisseurNormalise = form.fournisseur.trim();
     if (fournisseurNormalise) {
@@ -155,7 +199,8 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
         projet_nom: projet?.nom,
       });
       const reinitialiser = () => {
-        setForm({ projet_id: form.projet_id, date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux", detaxe: false });
+        // Le chantier reste sélectionné pour enchaîner plusieurs dépenses du même jour.
+        setForm(formVide(form.projet_id));
         setRecu(null); setPagesRecu([]);
       };
       if (r.ok && r.offline) {
@@ -210,12 +255,16 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Projet (optionnel)</label>
             <ProjetPicker value={form.projet_id || 0} onChange={(pid) => setForm({ ...form, projet_id: pid })} projets={projets} aucunLabel="— Aucun (dépense générale, ex: outils)" />
-            {projet && (
-              <div className="text-xs text-slate-500 mt-1 flex justify-between">
-                <span>Budget : <strong>{formatCAD(projet.budget_estime || 0)}</strong></span>
-                <span>Dépenses : <strong className="text-orange-700">{formatCAD(projet.total_depenses)}</strong></span>
-              </div>
-            )}
+            {projet && (() => {
+              // Dépenses déjà saisies : lues sur la fiche complète seulement (sinon NaN).
+              const dep = depensesFiche(fiches[projet.id]);
+              return (
+                <div className="text-xs text-slate-500 mt-1 flex justify-between">
+                  <span>Budget : <strong>{formatCAD(projet.budget_estime || 0)}</strong></span>
+                  {dep !== null && <span>Dépenses : <strong className="text-orange-700">{formatCAD(dep)}</strong></span>}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -224,7 +273,7 @@ export default function ModalDepense({ ouvert, onClose, onSuccess, projetIdIniti
               <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full px-3 py-3 border rounded-lg text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Montant $ *</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Montant $ * <span className="font-normal text-slate-400">(négatif = note de crédit)</span></label>
               {/* type="text" : un <input type="number"> refuse la virgule du clavier québécois (valeur vidée en silence). */}
               <input type="text" inputMode="decimal" value={form.montant} onChange={(e) => setForm({ ...form, montant: e.target.value })} placeholder="0,00" className="w-full px-3 py-3 border rounded-lg text-base text-right font-bold" autoFocus />
             </div>

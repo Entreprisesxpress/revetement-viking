@@ -2,9 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   FERIES_PAYES_DEPUIS, feriesPayesQC, feriesPayesEntre, fenetreReference,
   baseReferenceFerie, indemniteFerie, feriesDeLaPeriode, lundiDeLaSemaine, resumeFeries,
-  repartitionFerie,
 } from "./paie-feries";
-import { SEUIL_SUP_PERIODE } from "./calculs";
 
 // Une semaine de 5 jours × 10 h, à partir d'un lundi.
 function semaine(lundiISO: string, heuresParJour: number, jours = 5) {
@@ -173,37 +171,36 @@ describe("feriesDeLaPeriode (ce que la quinzaine doit créditer)", () => {
   });
 });
 
-// La règle que Francis a tranchée : l'indemnité compte dans le seuil, donc c'est elle qui
-// peut pousser des heures en banque. Sans cette barrière, la règle ne vivait que dans une
-// ligne de lib/db.ts, non testable — et un « petit nettoyage » l'aurait effacée.
-describe("repartitionFerie (l'indemnité compte dans les 80 h de la quinzaine)", () => {
-  it("80 h punchées + 8 h de férié = 80 h payées, 8 h à la banque", () => {
-    const r = repartitionFerie(80, 8, SEUIL_SUP_PERIODE);
-    expect(r.creditees).toBe(88);
-    expect(r.payeesDoffice).toBe(80);
-    expect(r.versBanque).toBe(8);
+// La règle « l'indemnité compte dans les 80 h » est testée là où elle vit : sur
+// calculerPaieQuinzaine, dans lib/calculs.test.ts (section « indemnité de jour férié »).
+
+describe("férié reporté au lundi : la référence se calcule sur la date D'ORIGINE", () => {
+  // Fête nationale 2029 : dimanche 24 juin, congé reporté au lundi 25. Les 4 semaines de
+  // référence précèdent la semaine du 24 (18 → 24 juin), donc 21 mai → 17 juin. Calculée
+  // sur le 25, la fenêtre (28 mai → 24 juin) incluait la semaine du congé réel.
+  it("feriesPayesQC garde la date d'origine à côté de la date reportée", () => {
+    const f = feriesPayesQC(2029).find((x) => x.nom.startsWith("Fête nationale"))!;
+    expect(f.date).toBe("2029-06-25");
+    expect(f.date_origine).toBe("2029-06-24");
+    // Un férié non reporté porte sa propre date comme origine.
+    const ag = feriesPayesQC(2026).find((x) => x.nom === "Action de grâce")!;
+    expect(ag.date_origine).toBe("2026-10-12");
   });
-  it("70 h punchées + 8 h de férié = 78 h payées, rien en banque", () => {
-    const r = repartitionFerie(70, 8, SEUIL_SUP_PERIODE);
-    expect(r.payeesDoffice).toBe(78);
-    expect(r.versBanque).toBe(0);
+  it("fenêtre de référence : 2029-05-21 → 2029-06-17 pour le 24 juin 2029", () => {
+    expect(fenetreReference("2029-06-24")).toEqual({ debut: "2029-05-21", fin: "2029-06-17" });
   });
-  it("le seuil s'atteint pile : 72 h + 8 h = 80 h payées, rien en banque", () => {
-    const r = repartitionFerie(72, 8, SEUIL_SUP_PERIODE);
-    expect(r.payeesDoffice).toBe(80);
-    expect(r.versBanque).toBe(0);
-  });
-  it("sans férié, le comportement d'avant est intact (surplus = banque)", () => {
-    expect(repartitionFerie(84.5, 0, SEUIL_SUP_PERIODE)).toEqual({ creditees: 84.5, payeesDoffice: 80, versBanque: 4.5 });
-    expect(repartitionFerie(75, 0, SEUIL_SUP_PERIODE)).toEqual({ creditees: 75, payeesDoffice: 75, versBanque: 0 });
-  });
-  it("aucune heure punchée, seulement le férié (congé complet) : tout est payé", () => {
-    const r = repartitionFerie(0, 6.9, SEUIL_SUP_PERIODE);
-    expect(r.payeesDoffice).toBe(6.9);
-    expect(r.versBanque).toBe(0);
-  });
-  it("ne traîne pas d'erreur de virgule flottante", () => {
-    // 79,9 + 8,2 = 88,100000000000001 en flottant : la banque afficherait 8,100000000000001.
-    expect(repartitionFerie(79.9, 8.2, SEUIL_SUP_PERIODE).versBanque).toBe(8.1);
+  it("feriesDeLaPeriode crédite le lundi 25 juin avec la fenêtre du 24 : la semaine du 18 juin ne compte pas", () => {
+    // 4 semaines pleines du 21 mai au 15 juin (8 h/j), PLUS 10 h/j la semaine du 18 juin.
+    const h = [
+      ...semaine("2029-05-21", 8), ...semaine("2029-05-28", 8),
+      ...semaine("2029-06-04", 8), ...semaine("2029-06-11", 8),
+      ...semaine("2029-06-18", 10),
+    ];
+    // Période de paie contenant le lundi 25 juin 2029 (et pas le 2 juillet, l'autre report).
+    const r = feriesDeLaPeriode(h, "2029-06-18", "2029-07-01");
+    expect(r.detail.map((f) => f.date)).toEqual(["2029-06-25"]);
+    expect(r.heures).toBe(8); // 160 h / 20 — sans les 50 h de la semaine du congé
+    // Sans heure dans la vraie fenêtre, aucun droit, même avec du travail la semaine du 18.
+    expect(feriesDeLaPeriode(semaine("2029-06-18", 10), "2029-06-18", "2029-07-01").heures).toBe(0);
   });
 });

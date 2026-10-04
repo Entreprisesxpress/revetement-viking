@@ -1,5 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { emailEstConfigure, enProduction, masquerCourriel } from "./email";
+import { emailEstConfigure, enProduction, masquerCourriel, fournisseurCourriel } from "./email";
+
+describe("fournisseurCourriel — une seule décision pour emailEstConfigure() et l'envoi", () => {
+  it("Resend utilisable (clé + expéditeur en prod) → resend, même si Gmail est aussi prêt", () => {
+    expect(fournisseurCourriel({ RESEND_API_KEY: "re_x", RESEND_FROM: "c@viking.com", VERCEL: "1", GMAIL_USER: "x@gmail.com", GMAIL_APP_PASSWORD: "p" } as any)).toBe("resend");
+    expect(fournisseurCourriel({ RESEND_API_KEY: "re_x", NODE_ENV: "development" } as any)).toBe("resend");
+  });
+
+  it("Resend sans RESEND_FROM en production : bascule sur Gmail s'il est prêt (le cas qui échouait)", () => {
+    // Avant : emailEstConfigure disait oui (Gmail prêt) et envoyer() prenait Resend → échec.
+    const env = { RESEND_API_KEY: "re_x", VERCEL: "1", GMAIL_USER: "x@gmail.com", GMAIL_APP_PASSWORD: "p" } as any;
+    expect(fournisseurCourriel(env)).toBe("gmail");
+    expect(emailEstConfigure(env)).toBe(true);
+  });
+
+  it("Resend inutilisable et pas de Gmail → null, et emailEstConfigure dit non", () => {
+    const env = { RESEND_API_KEY: "re_x", VERCEL: "1" } as any;
+    expect(fournisseurCourriel(env)).toBeNull();
+    expect(emailEstConfigure(env)).toBe(false);
+    expect(fournisseurCourriel({} as any)).toBeNull();
+  });
+
+  it("Gmail à moitié configuré (sans mot de passe) ne compte pas", () => {
+    expect(fournisseurCourriel({ GMAIL_USER: "x@gmail.com" } as any)).toBeNull();
+  });
+});
 
 describe("emailEstConfigure — l'app ne promet un envoi que si elle peut le tenir", () => {
   it("Resend sans RESEND_FROM en production = NON configuré (les écrans retombent sur Gmail/mailto)", () => {

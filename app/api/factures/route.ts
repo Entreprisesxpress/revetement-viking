@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { listerFacturesProjet, ajouterFactureProjet, marquerFacturePayee, annulerPaiementFacture, supprimerFactureProjet, projetReferenceValide, numeroFactureExiste, doublonsDeLaPieceEnregistree } from "@/lib/db";
+import { idEntier, lireCorps, texte } from "@/lib/requete";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { nombreSaisi } from "@/lib/calculs";
 import { validerEcritureArgent } from "@/lib/validation-argent";
@@ -14,21 +15,25 @@ function fail(e: any, status = 500) { console.error("[/api/factures]", e); retur
 
 export async function GET(req: NextRequest) {
   try {
-    const projet_id = req.nextUrl.searchParams.get("projet_id");
-    if (!projet_id) return NextResponse.json({ error: "projet_id requis" }, { status: 400 });
-    return NextResponse.json(await listerFacturesProjet(+projet_id));
+    const projet_id = idEntier(req.nextUrl.searchParams.get("projet_id"));
+    if (!projet_id) return NextResponse.json({ error: "projet_id invalide" }, { status: 400 });
+    return NextResponse.json(await listerFacturesProjet(projet_id));
   } catch (e) { return fail(e); }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await lireCorps(req);
+    if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
     // Montant : NOMBRE fini exigé (« abc » passait). Virgule décimale acceptée.
     // Négatif toléré (note de crédit).
     const montant = nombreSaisi(body.montant);
-    if (!body.projet_id || !body.montant || !isFinite(montant) || !body.date) {
+    const projetId = idEntier(body.projet_id);
+    if (!projetId || !body.montant || !isFinite(montant) || !body.date) {
       return NextResponse.json({ error: "projet_id, montant (nombre) et date requis" }, { status: 400 });
     }
+    body.projet_id = projetId;
+    body.description = texte(body.description, 200);
     // Bornes partagées : sans elles, un 1e21 saisi ici faisait exploser le facturé, le
     // « à recevoir » et la marge du projet dans tous les écrans (mesuré).
     const invalide = validerEcritureArgent(body, { champsDate: ["date", "date_paiement", "date_echeance"] });
@@ -52,8 +57,8 @@ export async function POST(req: NextRequest) {
     } else delete body.montant_paye;
     const id = await ajouterFactureProjet(body);
     const u = await utilisateurActif(req);
-    journaliser("facture.creee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id,
-      description: `${body.numero || "sans n°"} · ${montant} $ · projet ${body.projet_id}` }).catch(() => {});
+    after(() => journaliser("facture.creee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id,
+      description: `${body.numero || "sans n°"} · ${montant} $ · projet ${body.projet_id}` }));
     // Deux factures au même numéro, ou même chantier/même montant à quelques jours : on le
     // dit tout de suite, sans refuser l'écriture (un contrat peut avoir deux versements
     // égaux). La facture est déjà créée quand cette vérification tourne.
@@ -64,18 +69,23 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const body = await req.json();
-    if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+    const body = await lireCorps(req);
+    if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const id = idEntier(body.id);
+    if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
     const invalidePatch = validerEcritureArgent(body, { champsDate: ["date", "date_paiement", "date_echeance"] });
     if (invalidePatch) return NextResponse.json({ error: invalidePatch }, { status: 400 });
     const u = await utilisateurActif(req);
     if (body.action === "marquer_payee") {
       const d = body.date_paiement || aujourdhuiMontreal();
-      await marquerFacturePayee(body.id, d);
-      journaliser("facture.encaissee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: body.id, description: `Encaissée le ${d}` }).catch(() => {});
+      // Idempotent : une facture déjà encaissée n'est pas remarquée payée (sinon sa date
+      // d'encaissement était écrasée par la date du jour). 409 avec le motif.
+      const marque = await marquerFacturePayee(id, d);
+      if (!marque.ok) return NextResponse.json({ error: "déjà payée", message: marque.raison }, { status: marque.raison?.includes("introuvable") ? 404 : 409 });
+      after(() => journaliser("facture.encaissee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id, description: `Encaissée le ${d}` }));
     } else if (body.action === "annuler_paiement") {
-      await annulerPaiementFacture(body.id);
-      journaliser("facture.paiement_annule", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: body.id, description: "Encaissement annulé" }).catch(() => {});
+      await annulerPaiementFacture(id);
+      after(() => journaliser("facture.paiement_annule", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id, description: "Encaissement annulé" }));
     } else {
       return NextResponse.json({ error: "action inconnue" }, { status: 400 });
     }
@@ -85,14 +95,14 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const id = req.nextUrl.searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+    const id = idEntier(req.nextUrl.searchParams.get("id"));
+    if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
     const u = await utilisateurActif(req);
     // Une facture ENCAISSÉE ne se supprime plus d'un clic : sans corbeille, c'était de
     // l'argent reçu effacé définitivement, sans confirmation ni possibilité de retour.
-    const res = await supprimerFactureProjet(+id);
-    if (!res.ok) return NextResponse.json({ error: "suppression refusée", message: res.raison }, { status: 409 });
-    journaliser("facture.supprimee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id, description: `Suppression facture #${id}` }).catch(() => {});
+    const res = await supprimerFactureProjet(id);
+    if (!res.ok) return NextResponse.json({ error: "suppression refusée", message: res.raison }, { status: res.raison?.includes("introuvable") ? 404 : 409 });
+    after(() => journaliser("facture.supprimee", { req, utilisateur: u || undefined, ref_type: "facture", ref_id: id, description: `Suppression facture #${id}` }));
     return NextResponse.json({ ok: true });
   } catch (e) { return fail(e); }
 }

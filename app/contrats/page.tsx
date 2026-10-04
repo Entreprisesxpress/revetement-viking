@@ -105,12 +105,17 @@ export default function ContratsPage() {
     return true;
   };
 
+  // Envoi par courriel : le PDF est téléchargé, puis un panneau propose un VRAI lien
+  // mailto: (touché par l'utilisateur, donc jamais bloqué comme pop-up) et le contrat
+  // n'est marqué « envoyé » que sur « J'ai envoyé le courriel ». Avant (V-30), le
+  // statut passait à « envoyé » AVANT l'ouverture du courriel : un client mail absent
+  // ou un courriel abandonné laissait un contrat « envoyé » que personne n'avait reçu.
+  const [envoiPanneau, setEnvoiPanneau] = useState<null | { c: any; detail: any; mailto: string }>(null);
   const envoyer = async (c: any) => {
     const detail = await lireDetail(c);
     if (!detail) return;
     if (!detail.client_courriel) { toast("Pas de courriel client", "warning"); return; }
     if (!(await telechargerPDF(c))) return;
-    if (!(await ecrire("/api/contrats", "PATCH", { id: c.id, statut: "envoye" }, "Enregistrement"))) return;
     const sujet = `Contrat ${c.numero} - Revêtement Viking Inc.`;
     const corps = `Bonjour ${detail.client_nom},
 
@@ -119,15 +124,19 @@ Vous trouverez ci-joint le contrat ${c.numero} pour les travaux : ${detail.titre
 Montant total : ${formatCAD(detail.montant_total || 0)}
 Dépôt requis à la signature : ${formatCAD(detail.depot_montant || 0)} (${detail.depot_pct}%)
 
-Le PDF vient d'être téléchargé sur votre appareil. Veuillez le joindre à ce courriel avant d'envoyer.
-
 Une fois signé, scannez-le et retournez-le à : ${COURRIEL_ENTREPRISE}
 
 Cordialement,
 Revêtement Viking Inc.
 RBQ 5811-4299-01`;
-    window.location.href = `mailto:${detail.client_courriel}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
-    setTimeout(charger, 500);
+    setEnvoiPanneau({ c, detail, mailto: `mailto:${encodeURIComponent(detail.client_courriel)}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}` });
+  };
+  const confirmerEnvoi = async () => {
+    if (!envoiPanneau) return;
+    if (!(await ecrire("/api/contrats", "PATCH", { id: envoiPanneau.c.id, statut: "envoye" }, "Enregistrement"))) return;
+    toast(`Contrat ${envoiPanneau.c.numero} marqué envoyé`, "success");
+    setEnvoiPanneau(null);
+    charger();
   };
 
   const marquerSigne = async (c: any) => {
@@ -210,6 +219,20 @@ RBQ 5811-4299-01`;
           </>
         )}
       </main>
+
+      {envoiPanneau && (
+        <Modale onClose={() => setEnvoiPanneau(null)} titre="Envoyer le contrat par courriel" className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="bg-white rounded-t-2xl md:rounded-lg max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">✉️ Envoyer le contrat {envoiPanneau.c.numero}</h3>
+            <p className="text-sm text-slate-700">
+              Le PDF vient d'être téléchargé sur ton appareil. Le courriel pour <strong className="break-all">{envoiPanneau.detail.client_courriel}</strong> est prérempli : <strong>joins le PDF</strong> avant d'envoyer, puis confirme ici.
+            </p>
+            <a href={envoiPanneau.mailto} className="block w-full text-center px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold">📱 Ouvrir mon app courriel</a>
+            <button onClick={confirmerEnvoi} className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-sm">✓ J'ai envoyé le courriel — marquer « envoyé »</button>
+            <button onClick={() => setEnvoiPanneau(null)} className="w-full px-3 py-2 text-sm text-slate-600 hover:text-slate-900">Fermer sans marquer</button>
+          </div>
+        </Modale>
+      )}
 
       {creerOuvert && (
         <Modale onClose={() => setCreerOuvert(false)} titre="Nouveau contrat" className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-0 md:p-4">

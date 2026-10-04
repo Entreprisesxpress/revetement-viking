@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { listerHeuresProjet, ajouterHeureProjet, supprimerHeureProjet, modifierHeureProjet, listerToutesHeures, getHeureProjet, projetPourSaisie, employeParNom, heureDansPaiePayee, controlesSaisieHeures } from "@/lib/db";
+import { idEntier, lireCorps, texte, entierBorne } from "@/lib/requete";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
 import { validerDate } from "@/lib/validation-argent";
@@ -15,6 +16,12 @@ const ipDe = (req: NextRequest) => ipClient(req);
  *  La validation stricte de types était trop agressive — bloquait des saisies légitimes. */
 function valider(body: any): string | null {
   if (!body || typeof body !== "object") return "payload invalide";
+  body.description = texte(body.description, 500);
+  if (body.projet_id !== undefined && body.projet_id !== null && body.projet_id !== "") {
+    const pid = idEntier(body.projet_id);
+    if (!pid) return "projet_id invalide";
+    body.projet_id = pid;
+  }
   if (body.date !== undefined && body.date !== null) {
     // Date RÉELLE (le 2026-02-31 était accepté puis décalé au 3 mars) et jamais dans le
     // futur : des heures « travaillées demain » entraient dans la paie et le coût du chantier.
@@ -51,13 +58,17 @@ function refusSaisie(p: { statut: string | null; date_fin_reelle: string | null;
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  const projet_id = sp.get("projet_id");
-  if (projet_id) return NextResponse.json(await listerHeuresProjet(+projet_id));
+  const pidBrut = sp.get("projet_id");
+  if (pidBrut) {
+    const projet_id = idEntier(pidBrut);
+    if (!projet_id) return NextResponse.json({ error: "projet_id invalide" }, { status: 400 });
+    return NextResponse.json(await listerHeuresProjet(projet_id));
+  }
   const filtres: any = {};
   if (sp.get("employe")) filtres.employe = sp.get("employe");
   if (sp.get("depuis")) filtres.depuis = sp.get("depuis");
   if (sp.get("jusqu_a")) filtres.jusqu_a = sp.get("jusqu_a");
-  if (sp.get("limit")) filtres.limit = +sp.get("limit")!;
+  if (sp.get("limit")) filtres.limit = entierBorne(sp.get("limit"), 5000, 1, 5000);
   return NextResponse.json(await listerToutesHeures(filtres));
 }
 
@@ -66,8 +77,9 @@ export async function POST(req: NextRequest) {
 }
 
 async function creerHeure(req: NextRequest): Promise<NextResponse> {
-  const body = await req.json().catch(() => null);
-  if (!body || !body.projet_id || !body.date || !body.heures) {
+  const body = await lireCorps(req);
+  if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  if (!body.projet_id || !body.date || !body.heures) {
     return NextResponse.json({ error: "projet_id, date et heures requis" }, { status: 400 });
   }
   const err = valider(body);
@@ -104,22 +116,31 @@ async function creerHeure(req: NextRequest): Promise<NextResponse> {
   }
   const user = await utilisateurActif(req);
   const id = await ajouterHeureProjet({ ...body, employe: emp.nom, taux_horaire: tauxFiche, ajoute_par: user || undefined });
-  journaliser("heures.ajoutees", {
+  const ip = ipDe(req);
+  after(() => journaliser("heures.ajoutees", {
     ref_type: "heures", ref_id: id, utilisateur: user || undefined,
     description: `${body.employe || "?"} · ${body.heures}h · projet ${body.projet_id} · ${body.date}`,
     apres: { projet_id: body.projet_id, date: body.date, heures: body.heures, employe: emp.nom, taux_horaire: tauxFiche },
-    ip: ipDe(req),
-  });
+    ip,
+  }));
   return NextResponse.json({ ok: true, id });
 }
 
 export async function PATCH(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-  if (!body || !body.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const body = await lireCorps(req);
+  if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  const id = idEntier(body.id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   const err = valider(body);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
+  // Un taux VIDE, absent ou à 0 ne touche pas la ligne (elle garde le taux de la fiche au
+  // moment de la saisie) : un champ vidé à l'écran écrivait 0 $/h, donc 0 $ de coût de
+  // main-d'œuvre et une paie à zéro. Un taux explicite > 0 reste permis (correction voulue).
+  if (body.taux_horaire === undefined || body.taux_horaire === null || body.taux_horaire === "" || Number(body.taux_horaire) === 0) {
+    delete body.taux_horaire;
+  }
   // Snapshot avant modification pour audit
-  const avant = await getHeureProjet(+body.id);
+  const avant = await getHeureProjet(id);
   if (!avant) return NextResponse.json({ error: "entrée introuvable" }, { status: 404 });
   // Une paie VERSÉE ne bouge plus — ni l'entrée qu'on en sort (AVANT), ni celle qu'on y
   // ferait entrer (APRÈS : nouvelle date ou nouvel employé). DELETE le refusait déjà ;
@@ -138,42 +159,53 @@ export async function PATCH(req: NextRequest) {
   // Plafond de 24 h par jour et par employé, l'entrée modifiée exclue du cumul.
   if (body.heures !== undefined || body.date !== undefined || body.employe !== undefined) {
     const heuresApres = body.heures !== undefined ? Number(body.heures) : Number(avant.heures || 0);
-    const ctrl = await controlesSaisieHeures({ employe: employeApres, date: dateApres, projet_id: +projetVise, heures: heuresApres, exclureId: +body.id });
+    const ctrl = await controlesSaisieHeures({ employe: employeApres, date: dateApres, projet_id: +projetVise, heures: heuresApres, exclureId: id });
     if (ctrl.total_jour + heuresApres > 24) {
       return NextResponse.json({ error: "plus de 24 h dans la journée", message: `${employeApres} aurait ${ctrl.total_jour + heuresApres} h le ${dateApres}.` }, { status: 409 });
     }
   }
   // Verrouillage optimiste (B7) : si le client fournit `version`, on refuse (409) si
   // la ligne a changé entre-temps, au lieu d'écraser silencieusement.
-  const res = await modifierHeureProjet(+body.id, body, body.version);
+  const res = await modifierHeureProjet(id, body, body.version);
   if (!res.ok) {
     if (res.conflit) return NextResponse.json({ error: "conflit", message: "Cette entrée a été modifiée par quelqu'un d'autre entre-temps. Recharge la liste avant de sauvegarder.", versionActuelle: res.versionActuelle }, { status: 409 });
     return NextResponse.json({ error: "entrée introuvable" }, { status: 404 });
   }
-  const apres = await getHeureProjet(+body.id);
-  journaliser("heures.modifiees", {
-    ref_type: "heures", ref_id: body.id,
+  const apres = await getHeureProjet(id);
+  const ip = ipDe(req);
+  after(() => journaliser("heures.modifiees", {
+    ref_type: "heures", ref_id: id,
     description: `${avant.employe || "?"} · ${avant.heures}h → ${apres?.heures}h sur ${apres?.date}`,
     avant: { date: avant.date, heures: avant.heures, employe: avant.employe, projet_id: avant.projet_id, taux_horaire: avant.taux_horaire, description: avant.description },
     apres: { date: apres?.date, heures: apres?.heures, employe: apres?.employe, projet_id: apres?.projet_id, taux_horaire: apres?.taux_horaire, description: apres?.description },
-    ip: ipDe(req),
-  });
+    ip,
+  }));
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const id = idEntier(req.nextUrl.searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   // Snapshot avant suppression pour traçabilité paie/audit
-  const avant = await getHeureProjet(+id);
+  const avant = await getHeureProjet(id);
+  if (!avant) return NextResponse.json({ error: "entrée introuvable" }, { status: 404 });
+  // Même règle de chantier fermé que POST et PATCH : supprimer des heures d'un chantier
+  // annulé ou complété depuis plus de 14 jours change le coût de revient d'un dossier déjà
+  // facturé. Avant, seule l'écriture était gardée, pas l'effacement.
+  const ref = await projetPourSaisie(avant.projet_id);
+  if (ref && ref.existe) {
+    const refus = refusSaisie(ref.projet);
+    if (refus) return NextResponse.json({ error: "suppression refusée", message: refus }, { status: 409 });
+  }
   // Refus si ces heures sont couvertes par une paie déjà versée.
-  const res = await supprimerHeureProjet(+id);
+  const res = await supprimerHeureProjet(id);
   if (!res.ok) return NextResponse.json({ error: res.raison }, { status: 409 });
-  journaliser("heures.supprimees", {
+  const ip = ipDe(req);
+  after(() => journaliser("heures.supprimees", {
     ref_type: "heures", ref_id: id,
     description: `${avant?.employe || "?"} · ${avant?.heures}h sur ${avant?.date}`,
     avant: avant ? { date: avant.date, heures: avant.heures, employe: avant.employe, projet_id: avant.projet_id, taux_horaire: avant.taux_horaire } : null,
-    ip: ipDe(req),
-  });
+    ip,
+  }));
   return NextResponse.json({ ok: true });
 }

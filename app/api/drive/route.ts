@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { driveEstActif, testerConnexion, uploaderFichier, trouverOuCreerSousDossier, listerDossier, oauthClientConfigure } from "@/lib/drive";
 import { compterPhotosErreursDrive } from "@/lib/db";
+import { lireCorps, texte } from "@/lib/requete";
 
 // Le message d'erreur Drive brut (URL Google, extrait de réponse, jeton tronqué) reste
 // dans le journal serveur ; le client reçoit un message générique.
@@ -29,14 +30,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!(await driveEstActif())) return NextResponse.json({ error: "Drive non actif" }, { status: 400 });
-  const b = await req.json();
-  if (!b.nom || !b.dataUrl) return NextResponse.json({ error: "nom et dataUrl requis" }, { status: 400 });
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  const nom = texte(b.nom, 200);
+  if (!nom || !b.dataUrl) return NextResponse.json({ error: "nom et dataUrl requis" }, { status: 400 });
   try {
     let dossierId = b.dossier_id;
     if (!dossierId && b.sous_dossier_nom) {
-      dossierId = await trouverOuCreerSousDossier(b.sous_dossier_nom);
+      dossierId = await trouverOuCreerSousDossier(String(b.sous_dossier_nom).slice(0, 200));
     }
-    const r = await uploaderFichier({ nom: b.nom, dataUrl: b.dataUrl, dossierId, description: b.description });
+    const r = await uploaderFichier({ nom, dataUrl: b.dataUrl, dossierId, description: texte(b.description, 500) || undefined });
     return NextResponse.json({ ok: true, ...r });
   } catch (e: any) {
     return echec("envoi", e);

@@ -12,6 +12,7 @@ import ZoneDepot from "@/components/ZoneDepot";
 import FacturesProjet from "@/components/FacturesProjet";
 import ExtrasVue from "@/components/ExtrasVue";
 import DocumentsProjet from "@/components/DocumentsProjet";
+import ModalDepense from "@/components/ModalDepense";
 import MicVocal from "@/components/MicVocal";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { envoyer, nombreSaisi, ecrire, lireJson, lireListe } from "@/lib/envoi";
@@ -56,8 +57,6 @@ const STATUTS_LABEL: Record<string, string> = {
   complete: "✅ Complété",
   annule: "❌ Annulé",
 };
-
-const CAT_DEPENSES = ["matériaux", "outils", "location équipement", "sous-traitant", "transport", "permis", "essence", "autre"];
 
 async function telechargerFeuilleTemps(projet: any) {
   const r = await fetch(`/api/rapports?projet_id=${projet.id}`);
@@ -132,7 +131,11 @@ export default function ProjetDetail() {
       else toast("IA : " + res.erreur, "error");
     } finally { setResumeBusy(false); }
   };
-  const [dForm, setDForm] = useState({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
+  // Saisie d'une dépense : la MÊME modale que le tableau de bord (ModalDepense), avec ce
+  // chantier présélectionné — case « Facture détaxée », catégories de /api/categories-depense,
+  // reçu photographié, note de crédit. L'ancien petit formulaire de l'onglet n'avait rien
+  // de tout ça et lisait ses catégories dans une liste en dur (V-01/V-02/V-03).
+  const [depenseOuverte, setDepenseOuverte] = useState(false);
   // Erreur de chargement de la fiche : affichée avec « Réessayer » au lieu d'un
   // « Chargement... » éternel (500, réseau coupé, projet supprimé entre-temps).
   const [erreurChargement, setErreurChargement] = useState<string | null>(null);
@@ -151,12 +154,16 @@ export default function ProjetDetail() {
       setPhotos(frais.photos);
       setErreurChargement(null);
       setProjetPrefetch(id, d); // garde le cache à jour pour les retours rapides
-      // Compteurs des onglets Extras, Documents et Notes — requêtes à part et non
-      // bloquantes : elles ne doivent ni ralentir l'affichage de la fiche, ni la faire
-      // échouer si elles ratent.
-      lireListe(`/api/extras?projet_id=${id}`).then((l) => l.ok && setNbExtras(l.data.length));
-      lireListe(`/api/projet-fichiers?projet_id=${id}`).then((l) => l.ok && setNbDocs(l.data.length));
-      lireListe(`/api/notes-rapides?projet_id=${id}`).then((l) => l.ok && setNbNotes(l.data.length));
+      // Compteurs des onglets Extras, Documents et Notes : lus dans `/full` quand la
+      // route les fournit (nb_extras / nb_documents / nb_notes — trois requêtes de moins
+      // à l'ouverture), sinon requêtes à part et non bloquantes : elles ne doivent ni
+      // ralentir l'affichage de la fiche, ni la faire échouer si elles ratent.
+      if (typeof d.nb_extras === "number") setNbExtras(d.nb_extras);
+      else lireListe(`/api/extras?projet_id=${id}`).then((l) => l.ok && setNbExtras(l.data.length));
+      if (typeof d.nb_documents === "number") setNbDocs(d.nb_documents);
+      else lireListe(`/api/projet-fichiers?projet_id=${id}`).then((l) => l.ok && setNbDocs(l.data.length));
+      if (typeof d.nb_notes === "number") setNbNotes(d.nb_notes);
+      else lireListe(`/api/notes-rapides?projet_id=${id}`).then((l) => l.ok && setNbNotes(l.data.length));
       return frais;
     }
     // Un 401 : Garde401 redirige déjà vers /login, inutile d'insister.
@@ -178,7 +185,15 @@ export default function ProjetDetail() {
     return frais;
   };
 
+  // `?avis=1` dans l'URL (Jarvis vient de compléter le chantier) : ouvrir le panneau de
+  // demande d'avis dès que la fiche (et son courriel client) est chargée, une seule fois.
+  const avisDemandeParUrl = useRef(false);
+
   useEffect(() => {
+    // Compteurs remis à « inconnu » quand on change de projet (V-43) : sinon les
+    // chiffres de l'ancien chantier restaient sur les onglets le temps du chargement.
+    setNbExtras(null); setNbDocs(null); setNbNotes(null);
+    try { avisDemandeParUrl.current = new URLSearchParams(window.location.search).get("avis") === "1"; } catch { avisDemandeParUrl.current = false; }
     charger();
     lireListe("/api/employes").then((r) => { if (r.ok) setEmployes(r.data); });
     // Qui est connecté : sert uniquement au libellé « Facturé par Francis ! ». Le serveur
@@ -201,27 +216,25 @@ export default function ProjetDetail() {
   // dépense. Rien ne signalait que le premier clic avait été pris, le champ n'étant vidé
   // qu'après la réponse du serveur.
   const [busyHeures, setBusyHeures] = useState(false);
-  const [busyDepense, setBusyDepense] = useState(false);
   // Le verrou qui compte est le REF, pas l'état : `if (busyX) return` sur un useState
   // laisse passer deux clics tirés dans le même instant — React n'a pas encore re-rendu,
   // ni appliqué `disabled` au bouton. Mesuré ailleurs dans l'app : le double-clic créait
   // bien deux enregistrements. L'état ne sert plus qu'à griser le bouton. Voir lib/verrou.ts.
   const envoiHeures = useRef(false);
-  const envoiDepense = useRef(false);
 
   const ajouterHeures = async () => {
     if (envoiHeures.current) return;
     if (!hForm.heures) { toast("Heures requises", "warning"); return; }
     if (!Number.isFinite(nombreSaisi(hForm.heures)) || nombreSaisi(hForm.heures) <= 0) { toast("Nombre d'heures illisible (ex. : 7,5)", "warning"); return; }
     if (!hForm.employe) { toast("Sélectionne un employé", "warning"); return; }
-    if (!hForm.taux_horaire) { toast("Taux horaire manquant", "warning"); return; }
-    if (!Number.isFinite(nombreSaisi(hForm.taux_horaire))) { toast("Taux horaire illisible (ex. : 30,50)", "warning"); return; }
+    // Pas de taux horaire envoyé ni exigé ici (V-08) : /api/heures l'impose depuis la
+    // fiche de l'employé et refuse lui-même, avec son message, une fiche sans taux.
     envoiHeures.current = true;
     setBusyHeures(true);
     // postOuFile (et non envoyer) : réseau coupé sur un toit = la saisie est mise en file
     // locale et repartira au retour du réseau, au lieu d'être à ressaisir.
     const r = await postOuFile("/api/heures",
-      { projet_id: id, date: hForm.date, heures: nombreSaisi(hForm.heures), description: hForm.description, employe: hForm.employe, taux_horaire: nombreSaisi(hForm.taux_horaire) },
+      { projet_id: id, date: hForm.date, heures: nombreSaisi(hForm.heures), description: hForm.description, employe: hForm.employe },
     ).finally(() => { envoiHeures.current = false; setBusyHeures(false); });
     if (!r.ok) { toast(`Heures NON enregistrées : ${r.erreur}`, "error"); return; }
     if (r.offline) {
@@ -242,30 +255,6 @@ export default function ProjetDetail() {
       if (frais && totalToday >= 2 && photosToday === 0) {
         toast(`📸 ${totalToday.toFixed(1)}h saisies aujourd'hui sans photo — pense à en prendre quelques-unes du chantier !`, "info");
       }
-    }
-  };
-
-  const ajouterDepense = async () => {
-    if (envoiDepense.current) return;
-    if (!dForm.montant) { toast("Montant requis", "warning"); return; }
-    // nombreSaisi lit « 1 250,75 » ; un montant illisible est refusé ici, pas envoyé
-    // au serveur comme NaN → null.
-    if (!Number.isFinite(nombreSaisi(dForm.montant))) { toast("Montant illisible (ex. : 1 250,75)", "warning"); return; }
-    envoiDepense.current = true;
-    setBusyDepense(true);
-    const r = await postOuFile("/api/depenses",
-      { projet_id: id, date: dForm.date, montant: nombreSaisi(dForm.montant), fournisseur: dForm.fournisseur, description: dForm.description, categorie: dForm.categorie },
-    ).finally(() => { envoiDepense.current = false; setBusyDepense(false); });
-    if (!r.ok) { toast(`Dépense NON enregistrée : ${r.erreur}`, "error"); return; }
-    if (r.offline) {
-      toast(`📴 Hors ligne — dépense ${formatCAD(nombreSaisi(dForm.montant))} en attente d'envoi`, "warning");
-      setDForm({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
-      return;
-    }
-    {
-      toast(`Dépense ${formatCAD(nombreSaisi(dForm.montant))} ajoutée`, "success");
-      setDForm({ date: today, montant: "", fournisseur: "", description: "", categorie: "matériaux" });
-      charger();
     }
   };
 
@@ -310,6 +299,16 @@ export default function ProjetDetail() {
       setAvisEnvoiServeur(false);
     }
   };
+
+  // Fiche chargée après une arrivée avec `?avis=1` : on ouvre le panneau, puis on
+  // nettoie l'URL pour qu'un rechargement ne le rouvre pas.
+  useEffect(() => {
+    if (!projet || !avisDemandeParUrl.current) return;
+    avisDemandeParUrl.current = false;
+    ouvrirDemandeAvis();
+    router.replace(`/projets/${id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projet]);
 
   const changerStatut = async (nouveauStatut: string) => {
     if (!(await ecrire("/api/projets", "PATCH", { id, statut: nouveauStatut }, "Enregistrement"))) return;
@@ -500,7 +499,7 @@ export default function ProjetDetail() {
             <button onClick={genererResumeIa} disabled={resumeBusy} className="text-xs px-3 py-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 disabled:opacity-50 rounded font-semibold" title="Résumé automatique du chantier par IA">🤖 {resumeBusy ? "Analyse…" : "Résumé IA"}</button>
             <button
               onClick={async () => {
-                if (!confirm(`Supprimer définitivement le projet « ${projet.nom} » ?\n\n⚠️ Cette action est irréversible. Les heures, dépenses, photos et contrats liés deviendront orphelins.`)) return;
+                if (!confirm(`Supprimer définitivement le projet « ${projet.nom} » ?\n\n⚠️ Cette action est irréversible. Les heures, dépenses, photos, factures, extras et notes liés seront supprimés avec le projet.`)) return;
                 // La raison du refus (ex. contrat signé rattaché) s'affiche, pas un « Erreur suppression » muet.
                 if (!(await ecrire(`/api/projets?id=${id}`, "DELETE", undefined, "Suppression du projet"))) return;
                 toast(`Projet « ${projet.nom} » supprimé`, "success"); router.push("/projets");
@@ -945,23 +944,12 @@ export default function ProjetDetail() {
         {/* ONGLET DÉPENSES */}
         {onglet === "depenses" && (
           <div className="space-y-3">
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold mb-3">💸 Ajouter une dépense</h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                <FieldDate label="Date" value={dForm.date} onChange={(v) => setDForm({ ...dForm, date: v })} />
-                <FieldNum label="Montant *" value={dForm.montant} onChange={(v) => setDForm({ ...dForm, montant: v })} placeholder="Ex. : 1 250,75" />
-                <Field label="Fournisseur" value={dForm.fournisseur} onChange={(v) => setDForm({ ...dForm, fournisseur: v })} placeholder="Gentek, MAC..." />
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Catégorie</label>
-                  <select value={dForm.categorie} onChange={(e) => setDForm({ ...dForm, categorie: e.target.value })} className="w-full px-3 py-2 border rounded text-sm">
-                    {CAT_DEPENSES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="flex items-end"><button onClick={ajouterDepense} disabled={busyDepense} className="w-full px-3 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-semibold">{busyDepense ? "…" : "＋ Ajouter"}</button></div>
+            <div className="bg-white rounded-lg shadow p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h3 className="font-semibold">💸 Dépenses du chantier</h3>
+                <p className="text-xs text-slate-500">Reçu photographié ou PDF, facture détaxée (sans TPS/TVQ), note de crédit en montant négatif.</p>
               </div>
-              <div className="mt-2">
-                <Field label="Description" value={dForm.description} onChange={(v) => setDForm({ ...dForm, description: v })} placeholder="Détails..." />
-              </div>
+              <button onClick={() => setDepenseOuverte(true)} className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded text-sm font-semibold min-h-[44px]">＋ Ajouter une dépense</button>
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -994,6 +982,8 @@ export default function ProjetDetail() {
           </div>
         )}
       </main>
+
+      <ModalDepense ouvert={depenseOuverte} onClose={() => setDepenseOuverte(false)} onSuccess={charger} projetIdInitial={projet.id} />
 
       {/* MODAL ÉDITION nom / client du projet */}
       {avisPanneau && (

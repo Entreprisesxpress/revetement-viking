@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { formatCAD } from "@/lib/calculateur";
 import Navigation from "@/components/Navigation";
 import { useToast } from "@/components/Toasts";
@@ -49,6 +50,7 @@ export default function ClientsPage() {
   const [tacheForm, setTacheForm] = useState<{ client_id: number | null; titre: string; assignee: string; date_echeance: string }>({ client_id: null, titre: "", assignee: "", date_echeance: "" });
   const [tacheRecherche, setTacheRecherche] = useState("");
   const { toast } = useToast();
+  const router = useRouter();
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
 
@@ -89,26 +91,16 @@ export default function ClientsPage() {
   });
 
   const supprimer = async (id: number) => {
-    if (!confirm("Supprimer ce client ?")) return;
-    // Capture une copie pour pouvoir annuler (re-créer côté serveur si Undo)
-    const sauvegarde = clients.find((c) => c.id === id);
+    // La suppression est DÉFINITIVE : l'ancien « Annuler » du toast recréait une fiche
+    // neuve (nouvel id) sans ses projets, tâches, fichiers ni commentaires — une
+    // restauration trompeuse. On le dit avant, et on ne promet plus rien après.
+    if (!confirm("Supprimer ce client ?\n\nCette suppression est définitive (fiche, tâches, fichiers et commentaires).")) return;
     // Le serveur refuse (409) si des contrats SIGNÉS sont rattachés : il faut montrer
     // sa raison, pas un « Erreur suppression » qui n'explique rien. envoyer() lit le
     // message même si la réponse n'est pas du JSON (page 401/413 de la plateforme).
     const r = await envoyer(`/api/clients?id=${id}`, { methode: "DELETE" });
     if (!r.ok) { toast(`Suppression refusée : ${r.erreur}`, "error"); return; }
-    toast("Client supprimé", "success", {
-      action: sauvegarde ? {
-        label: "Annuler",
-        onClick: async () => {
-          try {
-            if (!(await ecrire("/api/clients", "POST", sauvegarde, "Enregistrement"))) return;
-            toast("Client restauré", "success");
-            charger();
-          } catch { toast("Restauration échouée", "error"); }
-        }
-      } : undefined
-    });
+    toast("Client supprimé", "success");
     charger();
   };
 
@@ -359,11 +351,23 @@ export default function ClientsPage() {
               const tachesClient = taches.filter((t) => t.client_id === c.id);
               const totalPaye = pc.reduce((s, p) => s + (p.total_paye || 0), 0);
               const statutInfo = STATUTS_CRM[c.statut || "prospect"];
+              const ouvrir = () => router.push(`/clients/${c.id}`);
               return (
-                <a key={c.id} href={`/clients/${c.id}`} className="bg-white rounded-lg shadow hover:shadow-lg transition p-4 space-y-2 block">
+                // Carte cliquable rendue avec un <div role="link"> et non un <a> : elle
+                // contient les liens tel: et mailto:, et un <a> ne peut pas en contenir un
+                // autre — le navigateur refermait l'ancre à la volée et React signalait une
+                // erreur d'hydratation à chaque ouverture de la page.
+                <div
+                  key={c.id}
+                  role="link"
+                  tabIndex={0}
+                  onClick={ouvrir}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ouvrir(); } }}
+                  className="bg-white rounded-lg shadow hover:shadow-lg transition p-4 space-y-2 block cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
                   <div className="flex justify-between items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold text-slate-900 truncate">{c.nom}</div>
+                      <a href={`/clients/${c.id}`} onClick={(e) => e.stopPropagation()} className="font-bold text-slate-900 truncate block hover:underline">{c.nom}</a>
                       {c.adresse && <div className="text-xs text-slate-500 truncate">📍 {c.adresse}</div>}
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${statutInfo.couleur}`}>{statutInfo.label}</span>
@@ -378,7 +382,7 @@ export default function ClientsPage() {
                     <span className="text-emerald-700 font-bold">{formatCAD(totalPaye)}</span>
                   </div>
                   {tachesClient.length > 0 && <div className="text-[10px] text-amber-700">📌 {tachesClient.length} tâche(s) ouverte(s)</div>}
-                </a>
+                </div>
               );
             })}
           </div>

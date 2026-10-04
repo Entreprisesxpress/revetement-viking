@@ -206,9 +206,17 @@ export function calculerPaieQuinzaine(
  *  d'heures (1 h pour 1 h), payable plus tard sur une quinzaine sous 80 h. Le compter ici
  *  affichait les mêmes heures deux fois — au crédit de l'employé dans la carte « Banque »,
  *  et comme dette envers lui dans le bandeau juste en dessous (30,5 h ainsi réclamées à
- *  tort en juin 2026 pour Gabriel et Maxime, cinq quinzaines à 80 h payées pile). */
-export function heuresDuesPeriodePayee(travaillees: number, payees: number): number {
-  const sousSeuil = Math.min(travaillees || 0, SEUIL_SUP_PERIODE);
+ *  tort en juin 2026 pour Gabriel et Maxime, cinq quinzaines à 80 h payées pile).
+ *
+ *  `payees` = heures de TRAVAIL payées (l'indemnité de férié déjà retirée) ; `heuresFerie`
+ *  = l'indemnité créditée à la période. Le férié COMPTE dans le seuil (LNT art. 53) : sur
+ *  une quinzaine de 80 h punchées + 8 h de férié, seules 72 h de travail peuvent être
+ *  payées, les 8 autres partent en banque. Comparer les 80 h travaillées aux 72 h payées
+ *  affichait donc « 8 h dues » — les mêmes 8 h qui étaient déjà au crédit de la banque.
+ *  Le plafond des heures de travail payables est donc le seuil MOINS le férié. */
+export function heuresDuesPeriodePayee(travaillees: number, payees: number, heuresFerie = 0): number {
+  const plafondTravail = Math.max(0, SEUIL_SUP_PERIODE - Math.max(0, heuresFerie || 0));
+  const sousSeuil = Math.min(travaillees || 0, plafondTravail);
   return Math.max(0, Math.round((sousSeuil - (payees || 0)) * 100) / 100);
 }
 

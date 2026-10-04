@@ -49,12 +49,33 @@ describe("factures de fournisseurs (dépenses)", () => {
       dep(2, "BMR", 100.01, "2026-09-10"),
     ])).toEqual([]);
   });
-  it("ne dit rien au-delà de la fenêtre de 30 jours (achat mensuel récurrent)", () => {
+  it("une mensualité fixe (30 ou 31 jours d'écart) n'est JAMAIS signalée", () => {
+    // Loyer, Bell, assurance : la même facture revient tous les 28 à 31 jours. Avec une
+    // fenêtre de 30 jours, elle était signalée cinq fois par an.
     expect(detecterDoublonsDepenses([
-      dep(1, "Bell", 189.99, "2026-08-01"),
-      dep(2, "Bell", 189.99, "2026-09-05"),
+      dep(1, "Bell", 189.99, "2026-08-05"),
+      dep(2, "Bell", 189.99, "2026-09-04"), // 30 jours
     ])).toEqual([]);
-    expect(FENETRE_JOURS).toBe(30);
+    expect(detecterDoublonsDepenses([
+      dep(1, "Loyer Entrepôt", 1500, "2026-08-01"),
+      dep(2, "Loyer Entrepôt", 1500, "2026-09-01"), // 31 jours
+    ])).toEqual([]);
+    expect(detecterDoublonsDepenses([
+      dep(1, "Bell", 189.99, "2026-02-01"),
+      dep(2, "Bell", 189.99, "2026-02-29"), // 28 jours (février bissextile) : hors fenêtre aussi
+    ])).toEqual([]);
+    expect(FENETRE_JOURS).toBe(27);
+  });
+  it("à 20 jours d'écart, c'est signalé (une double saisie arrive à quelques jours)", () => {
+    const r = detecterDoublonsDepenses([
+      dep(1, "Bell", 189.99, "2026-08-05"),
+      dep(2, "Bell", 189.99, "2026-08-25"),
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0].ecart_jours).toBe(20);
+    // 27 jours : encore dans la fenêtre ; 28 : plus jamais.
+    expect(detecterDoublonsDepenses([dep(1, "Bell", 10, "2026-08-01"), dep(2, "Bell", 10, "2026-08-28")])).toHaveLength(1);
+    expect(detecterDoublonsDepenses([dep(1, "Bell", 10, "2026-08-01"), dep(2, "Bell", 10, "2026-08-29")])).toEqual([]);
   });
   it("sans fournisseur, on ne devine pas : deux achats de 20 $ ne sont pas un doublon", () => {
     expect(detecterDoublonsDepenses([

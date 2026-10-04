@@ -11,9 +11,23 @@ export const VIKING_TELEPHONE = "(438) 493-2041";
 export const LIEN_AVIS_GOOGLE = "https://g.page/r/CY_Ub0jeQKebEB0/review";
 export const SUJET_DEMANDE_AVIS = "Travaux complétés — Revêtement Viking Inc.";
 
-/** Premier mot du nom du client, pour le « Bonjour Julie ». */
+// Civilités et particules qui ouvrent un nom sans être un prénom : « M. Tremblay » donnait
+// « Bonjour M., » et « Les Constructions ABC inc. » donnait « Bonjour Les, ».
+const CIVILITES = new Set(["m", "m.", "mr", "mr.", "mme", "mme.", "mlle", "dr", "dr.", "me", "pr", "les", "le", "la", "l'", "l’"]);
+// Raison sociale : on salue sans prénom, une entreprise n'en a pas.
+const RX_ENTREPRISE = /\b(inc|ltée|ltee|enr|s\.e\.n\.c|senc|cie|corp|co)\b\.?/i;
+
+/** Premier mot du nom du client, pour le « Bonjour Julie » — vide (donc « Bonjour, ») quand
+ *  le nom commence par une civilité ou une particule, ou quand c'est une entreprise. */
 export function prenomClient(nomClient?: string | null): string {
-  return String(nomClient || "").trim().split(/\s+/)[0] || "";
+  const nom = String(nomClient || "").trim();
+  if (!nom) return "";
+  if (RX_ENTREPRISE.test(nom)) return "";
+  const premier = nom.split(/\s+/)[0] || "";
+  if (CIVILITES.has(premier.toLowerCase())) return "";
+  // « L'Heureux » ou « L’Entrepôt » : la particule est collée au mot.
+  if (/^l['’]/i.test(premier)) return "";
+  return premier;
 }
 
 export function messageDemandeAvis(nomClient?: string | null): string {

@@ -4,6 +4,8 @@ import { listerClients, sqlAjouterClient, sqlModifierClient, executerLot, type E
 
 // Taille d'un lot d'écritures : un aller-retour par lot au lieu d'un par tâche Asana.
 const TAILLE_LOT = 50;
+// Des centaines de tâches Asana à lire + les lots d'écriture : au-delà des 60 s par défaut.
+export const maxDuration = 300;
 
 /**
  * POST /api/asana/sync — pull les tâches Asana vers le CRM

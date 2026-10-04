@@ -50,6 +50,17 @@ function estApiLecture(pathname) {
   return API_LECTURE.includes(pathname);
 }
 
+// Réponse API servie DU CACHE en repli hors ligne : on la marque d'un en-tête pour que
+// l'app sache qu'elle est périmée. Avant, elle arrivait comme un 200 ordinaire, et
+// lib/cacheClient.ts la réécrivait dans localStorage comme si elle était fraîche.
+const EN_TETE_CACHE = "X-Viking-Cache";
+function marquerPerimee(res) {
+  if (!res) return res;
+  const headers = new Headers(res.headers);
+  headers.set(EN_TETE_CACHE, "stale");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE)
@@ -92,7 +103,7 @@ self.addEventListener("fetch", (event) => {
             }
             return res;
           })
-          .catch(() => caches.open(API_CACHE).then((c) => c.match(request)))
+          .catch(() => caches.open(API_CACHE).then((c) => c.match(request)).then(marquerPerimee))
       );
     }
     return;

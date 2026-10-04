@@ -21,7 +21,9 @@
 import { joursFeriesQC } from "./calendrier-quebec";
 import { dateISOLocale } from "./calculs";
 
-export interface FeriePaye { date: string; nom: string; }
+/** `date` = jour crédité (le lundi quand le congé est reporté) ; `date_origine` = jour du
+ *  férié selon le calendrier, qui fixe la fenêtre de référence du 1/20. */
+export interface FeriePaye { date: string; nom: string; date_origine: string; }
 /** Un férié payé tombant dans une période de paie, avec l'indemnité qu'il vaut. */
 export interface FeriePeriode extends FeriePaye { heures: number; }
 
@@ -67,9 +69,9 @@ export function feriesPayesQC(annee: number): FeriePaye[] {
     .filter((f) => !NON_PAYES.has(f.nom))
     .map((f) => {
       if (REPORTABLES.has(f.nom) && dateISOLocale(f.date).getDay() === 0) {
-        return { date: plusJours(f.date, 1), nom: `${f.nom} (reporté au lundi)` };
+        return { date: plusJours(f.date, 1), nom: `${f.nom} (reporté au lundi)`, date_origine: f.date };
       }
-      return { date: f.date, nom: f.nom };
+      return { date: f.date, nom: f.nom, date_origine: f.date };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -90,7 +92,9 @@ export function feriesPayesEntre(debutISO: string, finISO: string, depuis = FERI
 }
 
 /** Fenêtre de référence d'un férié : les 4 semaines COMPLÈTES (lundi → dimanche) qui
- *  précèdent la semaine du congé. La semaine du férié elle-même en est exclue. */
+ *  précèdent la semaine du congé. La semaine du férié elle-même en est exclue.
+ *  Lui passer la date D'ORIGINE (`date_origine`) d'un férié reporté au lundi : calculée sur
+ *  le lundi, la fenêtre engloberait la semaine du congé réel. */
 export function fenetreReference(ferieISO: string): { debut: string; fin: string } {
   const lundiSemaineFerie = lundiDeLaSemaine(ferieISO);
   return {
@@ -137,35 +141,17 @@ export function feriesDeLaPeriode(
 ): { heures: number; detail: FeriePeriode[] } {
   const detail: FeriePeriode[] = [];
   for (const f of feriesPayesEntre(debutISO, finISO, depuis)) {
-    const h = indemniteFerie(heures, f.date);
+    // Crédité sur la date reportée, calculé sur la date d'origine.
+    const h = indemniteFerie(heures, f.date_origine || f.date);
     if (h > 0) detail.push({ ...f, heures: h });
   }
   const total = Math.round(detail.reduce((s, f) => s + f.heures, 0) * 100) / 100;
   return { heures: total, detail };
 }
 
-/** Répartition d'une quinzaine quand une indemnité de férié s'y ajoute.
- *
- *  Décision de Francis (2026-09-21) : l'indemnité COMPTE dans le seuil de la période
- *  (LNT art. 53). Son exemple : 40 h travaillées + une indemnité, sur une semaine à 40 h,
- *  paient 40 h et mettent le reste à la banque. Chez Viking le seuil est la QUINZAINE à
- *  80 h — donc 80 h punchées + 8 h de férié = 80 h payées et 8 h reportées à la banque,
- *  et 70 h punchées + 8 h de férié = 78 h payées, rien en banque.
- *
- *  L'employé ne perd rien : ce qui dépasse est reporté, pas effacé. C'est le régime maison
- *  (aucune majoration, 1 h pour 1 h — voir la carte « Banque d'heures »). */
-export function repartitionFerie(
-  travaillees: number,
-  heuresFerie: number,
-  seuil: number
-): { creditees: number; payeesDoffice: number; versBanque: number } {
-  const creditees = Math.round(((travaillees || 0) + (heuresFerie || 0)) * 100) / 100;
-  return {
-    creditees,
-    payeesDoffice: Math.min(creditees, seuil),
-    versBanque: Math.max(0, Math.round((creditees - seuil) * 100) / 100),
-  };
-}
+// La répartition « l'indemnité compte dans les 80 h de la quinzaine » (décision de Francis,
+// 2026-09-21) vit dans calculerPaieQuinzaine (lib/calculs.ts, option `heuresFerie`) — c'est
+// la fonction que listerPaiePeriodes appelle, et c'est elle qui est testée.
 
 /** Résumé lisible pour le talon et l'écran : « Action de grâce (12 oct.) — 8,00 h ».
  *  Les heures s'écrivent avec la VIRGULE décimale : ce texte est remis à l'employé. */

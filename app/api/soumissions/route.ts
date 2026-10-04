@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { sauvegarder, lister, charger, supprimer, changerStatut, enregistrerHeuresReelles, statistiques, trouverOuCreerClient, clientParNom } from "@/lib/db";
 import { journaliser } from "@/lib/audit";
 import { courrielValide } from "@/lib/vocabulaire";
 import { calculerSoumission } from "@/lib/calculateur";
+import { nombreSaisi } from "@/lib/calculs";
+import { lireCorps } from "@/lib/requete";
 
 import { ipClient } from "@/lib/ip";
 const ipDe = (req: NextRequest) => ipClient(req);
@@ -43,7 +45,13 @@ export async function GET(req: NextRequest) {
     if (numero) {
       const s = await charger(numero);
       if (!s) return NextResponse.json({ error: "not found" }, { status: 404 });
-      return NextResponse.json({ ...s, payload: JSON.parse(s.payload_json) });
+      // Un payload illisible en base est une erreur EXPLICITE (JSON), jamais une page morte.
+      let payload: any;
+      try { payload = JSON.parse(s.payload_json || "{}"); } catch (e: any) {
+        console.error(`[/api/soumissions] payload_json illisible pour ${numero} :`, e?.message || e);
+        return NextResponse.json({ error: "données de la soumission illisibles", message: `Le contenu enregistré de la soumission ${numero} n'est pas un JSON valide.` }, { status: 500 });
+      }
+      return NextResponse.json({ ...s, payload });
     }
     return NextResponse.json(await lister(statut || undefined));
   } catch (e) { return fail(e); }
@@ -51,8 +59,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    if (!body || typeof body !== "object") return NextResponse.json({ error: "payload invalide" }, { status: 400 });
+    const body = await lireCorps(req);
+    if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
     const nouveau = !body.numero;
 
     // Fiche client créée au passage, comme à la création d'un projet. Une soumission
@@ -82,11 +90,13 @@ export async function POST(req: NextRequest) {
 
     const { total } = totalServeur(body);
     const numero = await sauvegarder({ ...body, total });
-    journaliser(nouveau ? "soumission.creee" : "soumission.modifiee", {
+    const ip = ipDe(req);
+    const user_agent = req.headers.get("user-agent") || undefined;
+    after(() => journaliser(nouveau ? "soumission.creee" : "soumission.modifiee", {
       ref_type: "soumission", ref_id: numero,
       description: `${body.client?.nom || "?"} · ${total ? total + " $" : "0 $"}`,
-      ip: ipDe(req), user_agent: req.headers.get("user-agent") || undefined,
-    });
+      ip, user_agent,
+    }));
     return NextResponse.json({ numero, ok: true, client_id: clientId, client_cree: clientCree });
   } catch (e: any) {
     // Refus métier (soumission signée) ≠ panne. 409 pour que l'écran affiche le motif
@@ -100,22 +110,38 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const body = await req.json();
-    if (!body.numero) return NextResponse.json({ error: "numero requis" }, { status: 400 });
+    const body = await lireCorps(req);
+    if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const numero = String(body.numero || "").trim();
+    if (!numero) return NextResponse.json({ error: "numero requis" }, { status: 400 });
+    // `heuresReelles` : nombre fini ≥ 0 (virgule acceptée), ou null pour effacer. « abc »
+    // était stocké tel quel et faussait les rendements.
+    let heuresReelles: number | null | undefined;
+    if (body.heuresReelles !== undefined) {
+      if (body.heuresReelles === null || body.heuresReelles === "") heuresReelles = null;
+      else {
+        const h = nombreSaisi(body.heuresReelles);
+        if (!Number.isFinite(h) || h < 0) return NextResponse.json({ error: "heuresReelles invalide (nombre d'heures ≥ 0, ex. : 112,5)" }, { status: 400 });
+        heuresReelles = h;
+      }
+    }
     if (body.statut) {
-      await changerStatut(body.numero, body.statut);
+      if (!(await changerStatut(numero, body.statut))) return NextResponse.json({ error: "soumission introuvable" }, { status: 404 });
       const map: Record<string, any> = {
         envoyee: "soumission.envoyee", acceptee: "soumission.acceptee",
         refusee: "soumission.refusee", facturee: "soumission.facturee",
       };
-      journaliser(map[body.statut] || "soumission.statut_change", {
-        ref_type: "soumission", ref_id: body.numero,
+      const ip = ipDe(req);
+      after(() => journaliser(map[body.statut] || "soumission.statut_change", {
+        ref_type: "soumission", ref_id: numero,
         description: `Statut → ${body.statut}`,
         apres: { statut: body.statut },
-        ip: ipDe(req),
-      });
+        ip,
+      }));
     }
-    if (body.heuresReelles !== undefined) await enregistrerHeuresReelles(body.numero, body.heuresReelles);
+    if (heuresReelles !== undefined) {
+      if (!(await enregistrerHeuresReelles(numero, heuresReelles as any))) return NextResponse.json({ error: "soumission introuvable" }, { status: 404 });
+    }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     // Statut inconnu, ou retour en arrière sur une soumission signée : refus métier,
@@ -131,11 +157,14 @@ export async function DELETE(req: NextRequest) {
   try {
     const numero = req.nextUrl.searchParams.get("numero");
     if (!numero) return NextResponse.json({ error: "numero requis" }, { status: 400 });
-    await supprimer(numero);
-    journaliser("soumission.supprimee", {
+    // Une soumission signée en ligne ou acceptée/facturée ne se supprime pas : 409.
+    const supp = await supprimer(numero);
+    if (!supp.ok) return NextResponse.json({ error: "suppression refusée", message: supp.raison }, { status: supp.raison?.includes("introuvable") ? 404 : 409 });
+    const ip = ipDe(req);
+    after(() => journaliser("soumission.supprimee", {
       ref_type: "soumission", ref_id: numero,
-      description: `Suppression définitive`, ip: ipDe(req),
-    });
+      description: `Suppression définitive`, ip,
+    }));
     return NextResponse.json({ ok: true });
   } catch (e) { return fail(e); }
 }

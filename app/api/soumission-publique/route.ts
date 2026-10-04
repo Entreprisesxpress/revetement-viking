@@ -1,6 +1,6 @@
 // API publique (sans auth) pour la signature de soumission par le client.
 // Sécurité : le token HMAC dans l'URL fait foi — sans lui, accès refusé.
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { charger, marquerSoumissionVue, signerSoumission, refuserSoumission } from "@/lib/db";
 import { verifierTokenSoumission } from "@/lib/lien-public";
 import { journaliser } from "@/lib/audit";
@@ -45,13 +45,27 @@ export async function GET(req: NextRequest) {
     }
     const s = await charger(numero);
     if (!s) return NextResponse.json({ error: "introuvable" }, { status: 404 });
-    // Marque comme vue (1re fois)
+    // Marque comme vue (1re fois). ATTENDU (await) et non détaché : sur Vercel, une
+    // promesse flottante pouvait être tuée avec la fonction dès la réponse rendue — la
+    // preuve de consultation n'était jamais écrite. Un échec ne doit pas empêcher le
+    // client de voir sa soumission : il est journalisé.
     if (!s.vue_client_le) {
-      marquerSoumissionVue(numero);
-      journaliser("soumission.statut_change", { ref_type: "soumission", ref_id: numero, description: "👁 Vue par le client (lien public)", ip: ipDe(req) });
+      const ip = ipDe(req);
+      try {
+        await marquerSoumissionVue(numero);
+      } catch (e: any) {
+        console.error(`[/api/soumission-publique] marquage « vue » échoué pour ${numero} :`, e?.message || e);
+      }
+      after(() => journaliser("soumission.statut_change", { ref_type: "soumission", ref_id: numero, description: "👁 Vue par le client (lien public)", ip }));
     }
-    // Retourne UNIQUEMENT les infos nécessaires au client (pas les coûts internes)
-    const payload = JSON.parse(s.payload_json || "{}");
+    // Retourne UNIQUEMENT les infos nécessaires au client (pas les coûts internes).
+    // Un payload illisible en base est une erreur EXPLICITE (JSON + journal), pas une page morte.
+    let payload: any;
+    try { payload = JSON.parse(s.payload_json || "{}"); } catch (e: any) {
+      console.error(`[/api/soumission-publique] payload_json illisible pour ${numero} :`, e?.message || e);
+      after(() => journaliser("soumission.statut_change", { ref_type: "soumission", ref_id: numero, description: `Lien public : données de la soumission illisibles (${String(e?.message || e).slice(0, 120)})`, ip: ipDe(req) }));
+      return NextResponse.json({ error: "données de la soumission illisibles" }, { status: 500 });
+    }
     return NextResponse.json({
       numero: s.numero,
       date_creation: s.date_creation,
@@ -76,9 +90,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { numero, token, action, nom } = body || {};
-    if (!numero || !token || !(await verifierTokenSoumission(numero, token))) {
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const { numero, token, action, nom } = body;
+    if (!numero || !token || typeof numero !== "string" || typeof token !== "string" || !(await verifierTokenSoumission(numero, token))) {
       return NextResponse.json({ error: "lien invalide" }, { status: 403 });
     }
     const s = await charger(numero);
@@ -88,28 +103,38 @@ export async function POST(req: NextRequest) {
     }
     const ip = ipDe(req);
     // Avis INTERNE (push + courriel à la boîte Viking) : avant, un client acceptait ou
-    // refusait en ligne et personne n'était averti. Détaché et sans exception : la réponse
-    // du client ne doit jamais échouer parce qu'un avis a raté. Issue journalisée.
+    // refusait en ligne et personne n'était averti. Envoyé APRÈS la réponse via `after()` :
+    // sur Vercel, une promesse simplement détachée pouvait être tuée avec la fonction dès
+    // la réponse rendue. Sans exception : la réponse du client ne doit jamais échouer parce
+    // qu'un avis a raté. Issue journalisée, échec écrit au journal serveur.
     const avertir = (act: "accepter" | "refuser", signataire?: string) => {
       const titre = act === "accepter" ? `✅ Soumission ${numero} ACCEPTÉE` : `❌ Soumission ${numero} refusée`;
-      envoyerPushUtilisateur("Francis", { title: titre, body: `${s.client_nom || "Client"} · ${Number(s.total || 0).toLocaleString("fr-CA")} $`, url: `/soumissions/nouveau?modifier=${numero}`, tag: `soum-${numero}` }).catch(() => {});
       const origine = publicOrigin(req);
-      avertirSoumissionReponse(s, act, signataire, origine)
-        .then((r) => journaliser(r.ok ? "soumission.avis_courriel" : "soumission.avis_courriel_echec", {
-          ref_type: "soumission", ref_id: numero,
-          description: r.ok ? `Avis envoyé à ${destinataireNotifications()}` : `Avis NON envoyé : ${r.raison}`,
-        }))
-        .catch(() => {});
+      after(async () => {
+        await envoyerPushUtilisateur("Francis", { title: titre, body: `${s.client_nom || "Client"} · ${Number(s.total || 0).toLocaleString("fr-CA")} $`, url: `/soumissions/nouveau?modifier=${numero}`, tag: `soum-${numero}` })
+          .catch((e: any) => console.error("[/api/soumission-publique] push non envoyé :", e?.message || e));
+        try {
+          const r = await avertirSoumissionReponse(s, act, signataire, origine);
+          if (!r.ok) console.error("[/api/soumission-publique] avis courriel NON envoyé :", r.raison);
+          await journaliser(r.ok ? "soumission.avis_courriel" : "soumission.avis_courriel_echec", {
+            ref_type: "soumission", ref_id: numero,
+            description: r.ok ? `Avis envoyé à ${destinataireNotifications()}` : `Avis NON envoyé : ${r.raison}`,
+          });
+        } catch (e: any) {
+          console.error("[/api/soumission-publique] avis courriel : exception", e?.message || e);
+        }
+      });
     };
     if (action === "accepter") {
-      if (!nom?.trim()) return NextResponse.json({ error: "nom requis pour signer" }, { status: 400 });
-      await signerSoumission(numero, nom.trim(), ip);
-      journaliser("soumission.acceptee", { ref_type: "soumission", ref_id: numero, description: `✍️ Signée en ligne par ${nom.trim()}`, apres: { signature_nom: nom.trim() }, ip });
-      avertir("accepter", nom.trim());
+      const signataire = String(nom || "").trim().slice(0, 120);
+      if (!signataire) return NextResponse.json({ error: "nom requis pour signer" }, { status: 400 });
+      await signerSoumission(numero, signataire, ip);
+      after(() => journaliser("soumission.acceptee", { ref_type: "soumission", ref_id: numero, description: `✍️ Signée en ligne par ${signataire}`, apres: { signature_nom: signataire }, ip }));
+      avertir("accepter", signataire);
       return NextResponse.json({ ok: true, statut: "acceptee" });
     } else if (action === "refuser") {
       await refuserSoumission(numero, ip);
-      journaliser("soumission.refusee", { ref_type: "soumission", ref_id: numero, description: "Refusée en ligne par le client", ip });
+      after(() => journaliser("soumission.refusee", { ref_type: "soumission", ref_id: numero, description: "Refusée en ligne par le client", ip }));
       avertir("refuser");
       return NextResponse.json({ ok: true, statut: "refusee" });
     }

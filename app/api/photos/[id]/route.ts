@@ -3,13 +3,15 @@ import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // ?thumb=1 → sert la vignette (~15ko) pour les grilles ; sinon le plein format.
 import { NextRequest, NextResponse } from "next/server";
 import { getVignettePhoto } from "@/lib/db";
+import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+  const id = idEntier((await ctx.params).id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   const veutThumb = req.nextUrl.searchParams.get("thumb") === "1";
-  const photo = await getVignettePhoto(+id);
+  const photo = await getVignettePhoto(id);
   if (!photo) return new NextResponse("Not found", { status: 404 });
   // Vignette demandée et dispo → sert la vignette ; sinon fallback plein format
   const source = veutThumb && photo.thumb_data ? photo.thumb_data : photo.photo_data;

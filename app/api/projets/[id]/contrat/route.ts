@@ -2,17 +2,19 @@ import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 // Sert le contrat signé d'un projet en binaire (PDF/image).
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
+import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   await initDb();
-  const { id } = await ctx.params;
+  const id = idEntier((await ctx.params).id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   // Requête directe : getProjet() ne renvoie PAS le blob contrat_signe_data (par perf).
   const c: any = db();
   const r = await c.execute({
     sql: "SELECT contrat_signe_data, contrat_signe_type FROM projets WHERE id = ?",
-    args: [+id],
+    args: [id],
   });
   const row = r.rows[0] as any;
   if (!row || !row.contrat_signe_data) return new NextResponse("Not found", { status: 404 });

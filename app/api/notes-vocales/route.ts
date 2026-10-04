@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { lireCorps } from "@/lib/requete";
+
+// Délai borné sous maxDuration (un appel qui traîne ne laisse pas l'écran sans réponse).
+export const maxDuration = 60;
 
 const SYSTEME = `Tu es l'assistant terrain de Francis (Revêtement Viking, revêtement extérieur QC).
 Francis te dicte des notes vocales depuis un chantier ou après visite.
@@ -72,10 +76,12 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante" }, { status: 500 });
 
-    const { transcription, contexte } = await req.json();
-    if (!transcription) return NextResponse.json({ error: "transcription requise" }, { status: 400 });
+    const b = await lireCorps(req);
+    if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const { transcription, contexte } = b;
+    if (!transcription || typeof transcription !== "string") return NextResponse.json({ error: "transcription requise" }, { status: 400 });
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({ apiKey, timeout: 55_000, maxRetries: 1 });
     const response = await client.messages.create({
       model: "claude-opus-4-7",
       max_tokens: 2048,

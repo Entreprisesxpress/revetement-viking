@@ -7,10 +7,11 @@ import BottomSheet from "@/components/BottomSheet";
 import { compresserImage, genererVignette } from "@/lib/img";
 import MicVocal from "@/components/MicVocal";
 import ProjetPicker from "@/components/ProjetPicker";
-import { envoyer, nombreSaisi } from "@/lib/envoi";
+import { envoyer, nombreSaisi, lireJson } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
 import ErreurChargement from "@/components/ErreurChargement";
 import { accepteSaisieTardive, estProjetActif, trierProjetsPourSaisie } from "@/lib/statuts-projet";
+import { pctBudgetApresAjout, resteBudget } from "@/lib/budget-saisie";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; onExtra?: () => void; }
 interface LigneJour {
@@ -52,6 +53,25 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
   const [erreurEmployes, setErreurEmployes] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Fiches COMPLÈTES des chantiers choisis (`/api/projets?id=`), une requête par chantier
+  // et par ouverture, mises en cache dans une Map. La liste `?lite=1` ne porte ni
+  // `cout_total` ni `revenu_avant_taxes` : lus dessus, « Reste budget » affichait NaN $
+  // et l'alerte de dépassement ne partait jamais (V-37). La Map garde la PROMESSE pour
+  // que deux lignes sur le même chantier ne lancent qu'une requête.
+  const fichesEnCours = useRef(new Map<number, Promise<any | null>>());
+  const [fiches, setFiches] = useState<Record<number, any>>({});
+  const chargerFiche = (pid: number): Promise<any | null> => {
+    if (!pid) return Promise.resolve(null);
+    const connue = fichesEnCours.current.get(pid);
+    if (connue) return connue;
+    const p = lireJson<any>(`/api/projets?id=${pid}`).then((r) => {
+      if (!r.ok || !r.data?.id) { fichesEnCours.current.delete(pid); return null; }
+      setFiches((f) => ({ ...f, [pid]: r.data }));
+      return r.data;
+    });
+    fichesEnCours.current.set(pid, p);
+    return p;
+  };
   // Avant : sans catch, un 500 ou un réseau coupé laissait la liste d'employés vide sans
   // un mot — et « Sélectionne au moins un employé » à l'enregistrement, sans issue.
   const chargerEmployes = async () => {
@@ -73,6 +93,9 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
 
   useEffect(() => {
     if (!ouvert) return;
+    // Les totaux d'un chantier bougent à chaque saisie : on repart à neuf à l'ouverture.
+    fichesEnCours.current = new Map();
+    setFiches({});
     chargerEmployes();
     // On charge TOUS les projets (pas seulement 'actif') puis on garde ceux qui
     // acceptent encore une saisie. On charge aussi les dernières heures pour
@@ -104,6 +127,15 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
       }
     });
   }, [ouvert]);
+
+  // Fiche complète de chaque chantier choisi — déclaré APRÈS l'effet d'ouverture pour que
+  // la remise à neuf de la Map précède le chargement (même commit, ordre de déclaration).
+  const idsLignes = lignes.map((l) => l.projet_id).join(",");
+  useEffect(() => {
+    if (!ouvert) return;
+    for (const l of lignes) if (l.projet_id) chargerFiche(l.projet_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ouvert, idsLignes]);
 
   const ajouterPhoto = async (ligneIdx: number, file: File) => {
     if (file.size > 20 * 1024 * 1024) { toast("Photo > 20 Mo", "warning"); return; }
@@ -186,22 +218,17 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
       const totalReel = empsActifs.length * totalParEmpJour;
       if (!confirm(`Tu vas créer ${empsActifs.length * valides.length} entrées (${empsActifs.length} employé(s) × ${valides.length} ligne(s)) = ${totalReel.toFixed(1)} h totales sur le ${date}.\n\nConfirmer ?`)) return;
     }
-    // Alerte budget dépassé
+    // Alerte budget dépassé — sur la fiche COMPLÈTE du chantier (lib/budget-saisie.ts :
+    // coût HT et budget HT des deux côtés, comme la fiche projet). Sans fiche (réseau
+    // coupé), pas d'alerte plutôt qu'une alerte fausse.
     for (const l of valides) {
-      const p = projets.find((x) => x.id === l.projet_id);
-      if (p?.budget_estime > 0) {
-        // heuresEffectives : gère la virgule ET la saisie début/fin. Avant, +l.heures
-        // donnait NaN (virgule) ou 0 (heures calculées) → alerte budget jamais montrée.
-        const ajout = heuresEffectives(l) * coutEmployes;
-        const nouveauCout = p.cout_total + ajout;
-        // `cout_total` est HORS taxes : le comparer au budget taxes incluses minorait le
-        // ratio de ~13 %, donc cette alerte se déclenchait à ~113 % réels alors que la
-        // fiche projet alerte à 100 %. Même base des deux côtés.
-        const budgetHT = p.revenu_avant_taxes ?? (p.budget_estime / 1.14975);
-        const pct = budgetHT > 0 ? (nouveauCout / budgetHT) * 100 : 0;
-        if (pct > 100) toast(`⚠️ ${p.nom} : budget DÉPASSÉ (${pct.toFixed(0)}%)`, "error");
-        else if (pct > 90) toast(`⚠️ ${p.nom} : ${pct.toFixed(0)}% du budget`, "warning");
-      }
+      const p = await chargerFiche(l.projet_id);
+      // heuresEffectives : gère la virgule ET la saisie début/fin. Avant, +l.heures
+      // donnait NaN (virgule) ou 0 (heures calculées) → alerte budget jamais montrée.
+      const pct = pctBudgetApresAjout(p, heuresEffectives(l) * coutEmployes);
+      if (pct === null) continue;
+      if (pct > 100) toast(`⚠️ ${p.nom} : budget DÉPASSÉ (${pct.toFixed(0)}%)`, "error");
+      else if (pct > 90) toast(`⚠️ ${p.nom} : ${pct.toFixed(0)}% du budget`, "warning");
     }
     setLoading(true);
     try {
@@ -353,6 +380,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
             {lignes.map((l, i) => {
               const proj = projets.find((p) => p.id === l.projet_id);
               const heuresCalc = heuresEffectives(l);
+              // Reste de budget HT : seulement quand la fiche complète est chargée.
+              const reste = resteBudget(fiches[l.projet_id]);
               return (
                 <div key={i} className="border-2 border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50">
                   <div className="flex gap-2 items-end">
@@ -437,7 +466,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
 
                   {proj && heuresCalc > 0 && empsActifs.length > 0 && (
                     <div className="text-xs text-slate-600 flex justify-between">
-                      <span>Reste budget: {formatCAD((proj.budget_estime || 0) - proj.cout_total)}</span>
+                      <span>{reste !== null ? `Reste budget (av. taxes) : ${formatCAD(reste)}` : ""}</span>
                       <span className="font-bold text-emerald-700">+ {formatCAD(heuresCalc * coutEmployes)}</span>
                     </div>
                   )}

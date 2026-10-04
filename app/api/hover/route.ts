@@ -3,6 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { journaliserCoutReponse } from "@/lib/ia-couts";
 
+// Délai borné sous maxDuration : un rapport Hover de 40 pages pouvait dépasser les 60 s
+// par défaut de la fonction, et l'écran restait sans réponse.
+export const maxDuration = 60;
+
 const PROMPT_HOVER = `Tu es un expert en estimation de revêtement extérieur résidentiel (soffite, fascia, solin, parement) au Québec.
 
 On te fournit un rapport de mesures HOVER (ou similaire EagleView, RoofSnap, etc.) ou des photos/plans de maison avec mesures.
@@ -81,7 +85,7 @@ export async function POST(req: NextRequest) {
     const base64 = buffer.toString("base64");
     const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({ apiKey, timeout: 55_000, maxRetries: 1 });
 
     const content: any[] = [];
     if (isPDF) {

@@ -32,8 +32,8 @@ function avecDelai<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 
 async function supprimerIndexedDB(): Promise<void> {
   if (typeof indexedDB === "undefined") return;
-  // La connexion ouverte par offlineCache bloquerait la suppression : on la ferme d'abord.
-  try { (await import("./offlineCache")).fermerCacheOffline(); } catch { /* module absent */ }
+  // Plus rien n'ouvre cette base (lib/offlineCache.ts supprimé, V-44) : on efface
+  // seulement ce que les anciennes versions de l'app ont pu laisser sur l'appareil.
   await avecDelai(new Promise<void>((resolve) => {
     try {
       const req = indexedDB.deleteDatabase(BASE_INDEXEDDB);

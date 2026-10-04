@@ -288,6 +288,51 @@ describe("calculerPaieQuinzaine (régime banque d'heures, 1 h pour 1 h, sans ×1
   });
 });
 
+// La règle que Francis a tranchée (2026-09-21) : l'indemnité de férié COMPTE dans le seuil
+// de 80 h, donc c'est elle qui peut pousser des heures en banque. Elle vit dans
+// calculerPaieQuinzaine, la fonction que lib/db.ts appelle vraiment — pas dans une fonction
+// à part que seul son test appelait (l'ancienne `repartitionFerie`, retirée).
+describe("calculerPaieQuinzaine — indemnité de jour férié dans les 80 h", () => {
+  it("80 h punchées + 8 h de férié = 80 h payées, 8 h à la banque", () => {
+    const r = calculerPaieQuinzaine([{ heures: 80, taux: 45 }], { heuresFerie: 8 });
+    expect(r.payees).toBe(80);
+    expect(r.heures_ferie).toBe(8);
+    expect(r.surplus).toBe(8);
+    expect(r.banque_solde).toBe(8);
+    expect(r.brut).toBe(80 * 45);
+  });
+  it("70 h punchées + 8 h de férié = 78 h payées, rien en banque", () => {
+    const r = calculerPaieQuinzaine([{ heures: 70, taux: 45 }], { heuresFerie: 8 });
+    expect(r.payees).toBe(78);
+    expect(r.surplus).toBe(0);
+    expect(r.banque_solde).toBe(0);
+    expect(r.brut).toBe(78 * 45);
+    // La ventilation par taux ne porte que le TRAVAIL (70 h) ; le férié a sa propre ligne.
+    expect(r.gains_par_taux).toEqual([{ taux: 45, heures: 70, montant: 70 * 45 }]);
+  });
+  it("0 h punchée + 8 h de férié (congé des Fêtes) : 8 h au taux de repli de la fiche", () => {
+    const r = calculerPaieQuinzaine([], { heuresFerie: 8, tauxRepli: 40 });
+    expect(r.travaillees).toBe(0);
+    expect(r.payees).toBe(8);
+    expect(r.taux).toBe(40);
+    expect(r.brut).toBe(320);
+    expect(r.gains_par_taux).toEqual([]);
+    // Sans taux de repli, rien à payer : la fiche doit porter un taux.
+    expect(calculerPaieQuinzaine([], { heuresFerie: 8 }).brut).toBe(0);
+  });
+  it("banque appliquée + férié : les heures payées restent bornées à 80", () => {
+    // 70 h punchées + 8 h de férié = 78 créditées ; manque 2 h ; 10 h demandées de la banque.
+    const r = calculerPaieQuinzaine([{ heures: 70, taux: 45 }], { heuresFerie: 8, banqueAvant: 10, banqueAppliqueeDemandee: 10 });
+    expect(r.banque_appliquee).toBe(2);
+    expect(r.payees).toBe(80);
+    expect(r.banque_solde).toBe(8);
+    // Quinzaine déjà pleine avec le férié : la banque n'a rien à combler.
+    const r2 = calculerPaieQuinzaine([{ heures: 72, taux: 45 }], { heuresFerie: 8, banqueAvant: 10, banqueAppliqueeDemandee: 10 });
+    expect(r2.banque_appliquee).toBe(0);
+    expect(r2.payees).toBe(80);
+  });
+});
+
 // Le bandeau « X h travaillées ne sont dans aucune paye » réclamait le surplus de banque
 // comme une dette : cinq quinzaines à 80 h payées pile (Gabriel 84,5 / 91,5 / 84,25 ;
 // Maxime 89,25 / 81) totalisaient 30,5 h « dues » ≈ 1 218,75 $, alors que ces mêmes heures
@@ -317,6 +362,29 @@ describe("heuresDuesPeriodePayee (dette réelle vs surplus de banque)", () => {
   it("arrondi au centième, jamais négatif", () => {
     expect(heuresDuesPeriodePayee(45.333, 45)).toBe(0.33);
     expect(heuresDuesPeriodePayee(0, 0)).toBe(0);
+  });
+
+  // Quinzaine payée pleine AVEC férié : 80 h punchées + 8 h d'indemnité = 80 h payées
+  // (72 h de travail + 8 h de férié), 8 h en banque. L'écran affichait « 8 h dues » : les
+  // 80 h travaillées comparées aux 72 h de travail payées — double comptage, banque ET dette.
+  describe("avec une indemnité de férié (le férié compte dans les 80 h)", () => {
+    it("80 h punchées + 8 h de férié, payée pleine → rien de dû", () => {
+      // heures_normales = 80, dont 8 de férié → 72 h de travail payées.
+      expect(heuresDuesPeriodePayee(80, 72, 8)).toBe(0);
+    });
+    it("76 h punchées + 8 h de férié (84 créditées, 80 payées, 4 en banque) → rien de dû", () => {
+      expect(heuresDuesPeriodePayee(76, 72, 8)).toBe(0);
+    });
+    it("60 h payées, puis 65 h travaillées (5 h saisies en retard) → 5 h dues, férié ou pas", () => {
+      expect(heuresDuesPeriodePayee(65, 60)).toBe(5);
+      // Même quinzaine avec 8 h de férié : 68 h payées dont 8 de férié → 60 h de travail.
+      expect(heuresDuesPeriodePayee(65, 60, 8)).toBe(5);
+    });
+    it("sans férié, rien ne change", () => {
+      expect(heuresDuesPeriodePayee(84.5, 80, 0)).toBe(0);
+      expect(heuresDuesPeriodePayee(53, 45, 0)).toBe(8);
+      expect(heuresDuesPeriodePayee(91, 45, 0)).toBe(35);
+    });
   });
 });
 

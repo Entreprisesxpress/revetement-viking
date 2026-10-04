@@ -24,7 +24,9 @@ export async function GET(req: NextRequest) {
   // aller-retour, et un push non configuré ne doit pas empêcher le ménage.
   const purge = await purgerJournaux().then(() => "ok").catch((e: any) => { console.error("[rappels-quotidiens] purge des journaux échouée :", e?.message || e); return `échec : ${e?.message || e}`; });
 
-  if (!pushEstConfigure()) return NextResponse.json({ ok: false, raison: "push_non_configure", purge });
+  // 503 et non 200 : Vercel ne regarde que le statut du cron, un `{ok:false}` en 200
+  // passait pour un succès (le ménage des journaux, lui, est déjà fait).
+  if (!pushEstConfigure()) return NextResponse.json({ ok: false, raison: "push_non_configure", purge }, { status: 503 });
 
   // NOTE — pas de repli à zéro sur les requêtes ci-dessous. Avant, une base injoignable
   // faisait tomber les 4 compteurs à 0, donc `nFact + nPr + nT === 0` → « aucune alerte »,
@@ -42,8 +44,15 @@ export async function GET(req: NextRequest) {
 
   // Le balayage des doublons est le MÊME pour tout le monde : une seule fois, hors de la
   // boucle (il lit jusqu'à 10 000 lignes ; deux fois serait deux fois trop). Il ne peut pas
-  // faire échouer le rappel : en cas de pépin, zéro doublon et les autres alertes partent.
-  const doublons = await compterDoublonsSuspects().catch(() => ({ total: 0, francs: 0 }));
+  // faire échouer le rappel : en cas de pépin, zéro doublon et les autres alertes partent —
+  // mais l'échec est JOURNALISÉ et remonté dans la réponse. Avant, le `.catch` était muet :
+  // une détection cassée ressemblait exactement à « aucun doublon ».
+  let doublons_echec: string | null = null;
+  const doublons = await compterDoublonsSuspects().catch((e: any) => {
+    doublons_echec = String(e?.message || e || "erreur inconnue");
+    console.error("[rappels-quotidiens] détection des doublons échouée :", doublons_echec);
+    return { total: 0, francs: 0 };
+  });
 
   // Les compteurs COMMUNS aux deux utilisateurs sont lus UNE fois (avant : relus à chaque
   // tour de boucle, deux fois les mêmes requêtes). Les factures d'un projet ANNULÉ ne
@@ -111,5 +120,6 @@ export async function GET(req: NextRequest) {
   // Le garde du jour ne se pose que si aucun push n'a échoué : sinon une panne du service
   // de push ferait sauter le rappel pour la journée entière, sans réessai possible.
   if (echecs === 0) await setParametre(cleGuard, new Date().toISOString());
-  return NextResponse.json({ ok: echecs === 0, echecs, resultats, purge });
+  // Un push refusé par le service = panne visible (500), pas un succès à `ok:false`.
+  return NextResponse.json({ ok: echecs === 0, echecs, resultats, purge, doublons_echec }, { status: echecs === 0 ? 200 : 500 });
 }

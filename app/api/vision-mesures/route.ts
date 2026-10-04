@@ -7,6 +7,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { journaliserCoutReponse } from "@/lib/ia-couts";
 
+// Délai borné sous maxDuration : cinq photos en entrée pouvaient dépasser les 60 s par
+// défaut de la fonction, et l'écran restait sans réponse.
+export const maxDuration = 60;
+
 const SYSTEME = `Tu es un expert en estimation de revêtement extérieur résidentiel pour Revêtement Viking (Québec).
 
 L'utilisateur t'envoie 1 à 5 photos d'une maison résidentielle, accompagnées d'une RÉFÉRENCE D'ÉCHELLE (élément de dimension connue dans les photos).
@@ -109,7 +113,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Au moins 1 photo requise" }, { status: 400 });
     }
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({ apiKey, timeout: 55_000, maxRetries: 1 });
 
     // Construire le contenu : toutes les photos + le texte de référence
     const content: any[] = [];

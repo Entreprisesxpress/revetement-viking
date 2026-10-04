@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Navigation from "@/components/Navigation";
 import MicVocal from "@/components/MicVocal";
 import { useToast } from "@/components/Toasts";
@@ -104,6 +105,7 @@ export default function JarvisPage() {
   const [busy, setBusy] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => { finRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
@@ -197,6 +199,13 @@ export default function JarvisPage() {
       setMessages((prev) => prev.map((m, i) => i !== mi ? m : {
         ...m, actions: m.actions?.map((a, j) => j !== ai ? a : { ...a, _statut: ok ? "fait" : "erreur" }),
       }));
+      // Chantier complété par Jarvis : même suite que depuis la fiche — le panneau de
+      // demande d'avis Google s'ouvre sur la fiche (V-14 : il ne s'ouvrait qu'en changeant
+      // le statut depuis la fiche elle-même).
+      if (ok && action.type === "completer_projet" && action.params?.id) {
+        toast("Chantier complété — ouverture de la demande d'avis Google", "success");
+        router.push(`/projets/${action.params.id}?avis=1`);
+      }
     } finally { enCoursAction.current.delete(cle); }
   };
 

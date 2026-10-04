@@ -24,6 +24,23 @@ export const MAX_BLOCS = 3;
 
 export const NOUVEAUTES: Nouveaute[] = [
   {
+    version: "2026-10-03",
+    titre: "Chasse aux bogues : paie, contrats, dépenses, carte, tableau de bord",
+    points: [
+      "Paie : une quinzaine pleine (80 h) avec un jour férié n'affiche plus de fausses « heures dues » — les 8 h du férié étaient comptées à la fois dans la banque et comme dette.",
+      "Contrat depuis le pipeline : un prix tapé « 12 500,00 » valait 12 $. Il est maintenant lu comme au Québec, et le prompt précise qu'il est taxes incluses. Le numéro du contrat est donné par le serveur, jamais deux fois le même.",
+      "Le bouton « ✓ Facturé » du tableau de bord fonctionne : le chantier ne revient plus dans « Projets à facturer » au rechargement. Rouvrir un chantier efface sa confirmation de facturation.",
+      "Doublons de factures : une facture mensuelle fixe (loyer, Bell, assurance) n'est plus signalée en double — la fenêtre de comparaison est de 27 jours.",
+      "Dépenses depuis la fiche projet : même formulaire que le tableau de bord (facture détaxée, catégories, reçu). Les catégories, le fournisseur et la date sont vérifiés par le serveur.",
+      "Carte des chantiers : la carte s'affiche correctement (sa feuille de style était bloquée).",
+      "Saisie d'heures et de dépenses : le budget et les dépenses du chantier choisi s'affichent (plus de « NaN $ ») et l'alerte de dépassement de budget fonctionne.",
+      "Tableau de bord : « Revenu du mois » est maintenant avant taxes, comme le chiffre d'affaires de l'année ; quand les données affichées viennent du cache (réseau coupé), un bandeau « Données du … » le dit.",
+      "Clients : deux homonymes avec des coordonnées différentes ne sont plus fusionnés ; un nouveau projet retrouve le client par courriel ou téléphone d'abord.",
+      "Garde-fous : supprimer un projet est refusé s'il a une facture encaissée ou des heures déjà payées ; un extra facturé, une soumission signée, une paie versée ne se suppriment plus par mégarde ; marquer payé deux fois ne déplace plus la date de paiement.",
+      "Envoi de contrat : quand le courriel du serveur n'est pas configuré, l'app propose l'app courriel ou Gmail avec le message prérempli, et « envoyé » n'est marqué qu'après ton clic « J'ai envoyé le courriel ».",
+    ],
+  },
+  {
     version: "2026-09-25",
     titre: "Demande d'avis Google : ça marche aussi sur le téléphone",
     points: [
@@ -36,7 +53,7 @@ export const NOUVEAUTES: Nouveaute[] = [
     version: "2026-09-22",
     titre: "Factures en double, jours fériés payés et bouton « Facturé ! »",
     points: [
-      "L'app compare vos factures et signale celles qui semblent être des doublons : même fournisseur, même montant, à 30 jours ou moins — et, pour les factures envoyées aux clients, deux factures qui portent le même numéro.",
+      "L'app compare vos factures et signale celles qui semblent être des doublons : même fournisseur, même montant, à moins de quatre semaines d'écart (27 jours ou moins, pour qu'une facture mensuelle comme le loyer ou Bell ne soit jamais signalée) — et, pour les factures envoyées aux clients, deux factures qui portent le même numéro.",
       "L'avertissement apparaît tout de suite à la saisie (la facture est quand même enregistrée : c'est un signalement, pas un refus), et le nombre de doublons à vérifier s'ajoute au rappel de 8 h du matin.",
       "Tout se règle dans Finances → 🧾 Doublons : les deux factures sont montrées côte à côte. Rien n'est jamais supprimé ni fusionné automatiquement — un bouton « Ce n'est pas un doublon » fait taire l'alerte pour de bon, avec votre nom et la date.",
       "Les jours fériés sont maintenant calculés et payés dans la paie : l'indemnité vaut 1/20 des heures travaillées des 4 semaines complètes qui précèdent le congé (un temps plein donne 8 h). Elle apparaît sur la période et sur le talon de paie, avec le nom du congé.",

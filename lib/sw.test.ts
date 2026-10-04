@@ -8,11 +8,30 @@ import vm from "node:vm";
 
 const ORIGINE = "https://app.test";
 
-type Rep = { status: number; ok: boolean; redirected: boolean; type: string; corps: string; clone(): Rep };
+// Faux `Headers` / `Response` du navigateur : le SW reconstruit une réponse pour y poser
+// l'en-tête X-Viking-Cache quand il sert une copie hors ligne.
+class FauxHeaders {
+  m = new Map<string, string>();
+  constructor(init?: FauxHeaders | Record<string, string>) {
+    if (init instanceof FauxHeaders) init.m.forEach((v, k) => this.m.set(k, v));
+    else if (init) for (const [k, v] of Object.entries(init)) this.m.set(k.toLowerCase(), v);
+  }
+  set(k: string, v: string) { this.m.set(k.toLowerCase(), v); }
+  get(k: string) { return this.m.get(k.toLowerCase()) ?? null; }
+}
+type Rep = { status: number; statusText: string; ok: boolean; redirected: boolean; type: string; corps: string; body: string; headers: FauxHeaders; clone(): Rep };
 const rep = (corps: string, status = 200, extra: Partial<Rep> = {}): Rep => ({
-  status, ok: status >= 200 && status < 300, redirected: false, type: "basic", corps, ...extra,
+  status, statusText: "", ok: status >= 200 && status < 300, redirected: false, type: "basic", corps, body: corps, headers: new FauxHeaders(), ...extra,
   clone() { return { ...this }; },
 });
+class FauxResponse {
+  corps: string; body: string; status: number; statusText: string; headers: FauxHeaders; ok: boolean; type = "basic"; redirected = false;
+  constructor(body: string, init: { status: number; statusText: string; headers: FauxHeaders }) {
+    this.corps = body; this.body = body; this.status = init.status; this.statusText = init.statusText; this.headers = init.headers;
+    this.ok = init.status >= 200 && init.status < 300;
+  }
+  clone() { return new FauxResponse(this.body, { status: this.status, statusText: this.statusText, headers: new FauxHeaders(this.headers) }); }
+}
 
 function faireSandbox() {
   const handlers: Record<string, Function[]> = {};
@@ -45,7 +64,7 @@ function faireSandbox() {
       if (v instanceof Error) throw v;
       return v ?? rep("réponse réseau par défaut");
     },
-    URL, console,
+    URL, console, Headers: FauxHeaders, Response: FauxResponse,
   };
   sandbox.self.location = sandbox.location;
   vm.createContext(sandbox);
@@ -174,9 +193,28 @@ describe("service worker — quoi mettre en cache, et dans quel ordre", () => {
   it("les API de lecture viennent du réseau d'abord ; les autres API ne passent pas par le SW", async () => {
     await sb.precacher("viking-v7-api", "/api/projets", "liste périmée");
     sb.reseau.reponses.set(ORIGINE + "/api/projets", rep("liste fraîche"));
-    expect((await sb.requete("/api/projets"))?.corps).toBe("liste fraîche");
+    const r = await sb.requete("/api/projets");
+    expect(r?.corps).toBe("liste fraîche");
+    // Une réponse fraîche n'est PAS marquée périmée.
+    expect(r?.headers.get("X-Viking-Cache")).toBeNull();
     expect(await sb.requete("/api/paies")).toBeUndefined();
     expect(await sb.requete("/login")).toBeUndefined();
+  });
+
+  it("hors ligne, une API de lecture servie du cache porte X-Viking-Cache: stale (V-42)", async () => {
+    // Avant : la copie arrivait comme un 200 ordinaire, et lib/cacheClient.ts la
+    // réécrivait dans localStorage comme une donnée fraîche.
+    await sb.precacher("viking-v7-api", "/api/dashboard", "chiffres d'hier");
+    sb.reseau.reponses.set(ORIGINE + "/api/dashboard", new Error("réseau coupé"));
+    const r = await sb.requete("/api/dashboard");
+    expect(r?.corps).toBe("chiffres d'hier");
+    expect(r?.status).toBe(200);
+    expect(r?.headers.get("X-Viking-Cache")).toBe("stale");
+  });
+
+  it("hors ligne SANS copie en cache, l'API de lecture répond undefined (pas une fausse réponse)", async () => {
+    sb.reseau.reponses.set(ORIGINE + "/api/dashboard", new Error("réseau coupé"));
+    expect(await sb.requete("/api/dashboard")).toBeUndefined();
   });
 
   it("le cache d'exécution est plafonné : les plus anciens fichiers partent", async () => {

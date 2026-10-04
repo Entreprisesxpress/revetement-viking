@@ -14,6 +14,8 @@ import Navigation from "@/components/Navigation";
 import ZoneDepot from "@/components/ZoneDepot";
 import { useToast } from "@/components/Toasts";
 import { envoyer, nombreSaisi } from "@/lib/envoi";
+import { estEmailNonConfigure, urlGmailContrat, urlMailtoContrat } from "@/lib/courriel-contrat";
+import { estAppareilTactile } from "@/lib/demande-avis";
 import { formatCAD } from "@/lib/calculateur";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { LIMITE_FICHIER_OCTETS, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
@@ -77,6 +79,8 @@ function NouveauContrat() {
   const [resultat, setResultat] = useState<{ token: string; numero: string } | null>(null);
   const [courrielEnvoi, setCourrielEnvoi] = useState("");
   const [envoye, setEnvoye] = useState(false);
+  // Serveur sans courriel configuré : on montre de vrais liens (app courriel, Gmail).
+  const [repliCourriel, setRepliCourriel] = useState(false);
   const [apercu, setApercu] = useState<string | null>(null);
   const fichierRef = useRef<HTMLInputElement>(null);
   // Verrou synchrone : un état laisse passer deux clics du même instant (voir lib/verrou.ts).
@@ -229,13 +233,12 @@ function NouveauContrat() {
     setBusy(true);
     try {
       const r = await envoyer(`/api/contrats-pipeline/${resultat.token}/envoyer`, { corps: { to: courrielEnvoi.trim() } });
-      // `ok:false` avec une raison (courriel non configuré, refus du fournisseur) n'est
-      // pas une erreur réseau : on montre la vraie cause au lieu d'un échec générique.
-      if (!r.ok) { toast(`Courriel NON envoyé : ${r.erreur}`, "error"); return; }
-      if (r.data?.ok === false) {
-        toast(r.data.raison === "email_non_configure"
-          ? "Courriel non configuré sur le serveur — copie le lien et envoie-le toi-même."
-          : `Courriel NON envoyé : ${r.data.error || r.data.raison}`, "error");
+      // `{ ok:false, raison }` arrive en 200 : envoyer() le range dans `data` et met
+      // `ok:false` — le test `r.data?.ok === false` placé APRÈS `if (!r.ok)` n'était jamais
+      // atteint (V-29). Courriel non configuré → repli avec de vrais liens, pas un toast.
+      if (!r.ok) {
+        if (estEmailNonConfigure(r.data)) { setRepliCourriel(true); return; }
+        toast(`Courriel NON envoyé : ${r.data?.error || r.erreur}`, "error");
         return;
       }
       setEnvoye(true);
@@ -284,6 +287,28 @@ function NouveauContrat() {
                 {envoye ? "✓ Envoyé" : busy ? "⏳ Envoi…" : "📧 Envoyer au client"}
               </button>
             </div>
+            {repliCourriel && courrielEnvoi.trim() && (() => {
+              // Vrais liens : un `window.location.href = mailto:` posé après un `await`
+              // est bloqué sur téléphone (voir lib/demande-avis.ts).
+              const dest = courrielEnvoi.trim();
+              const tactile = typeof navigator !== "undefined" && estAppareilTactile(navigator);
+              const lienApp = (
+                <a key="app" href={urlMailtoContrat(dest, resultat.numero, f.client_nom, lien)} className="block w-full text-center px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-sm">
+                  📱 Ouvrir mon app courriel
+                </a>
+              );
+              const lienGmail = (
+                <a key="gmail" href={urlGmailContrat(dest, resultat.numero, f.client_nom, lien)} target="_blank" rel="noopener noreferrer" className="block w-full text-center px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded font-bold text-sm">
+                  ✉️ Ouvrir dans Gmail (ordinateur)
+                </a>
+              );
+              return (
+                <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-left space-y-2">
+                  <p className="text-sm text-amber-900">L'envoi par l'app n'est pas configuré sur le serveur. Le message est prérempli pour <strong className="break-all">{dest}</strong> : envoie-le depuis ton courriel.</p>
+                  {tactile ? [lienApp, lienGmail] : [lienGmail, lienApp]}
+                </div>
+              );
+            })()}
             <button onClick={() => router.push("/clients")} className="text-xs text-slate-500 hover:underline">Retour au CRM</button>
             {devis && <p className="text-xs text-emerald-700">📎 Devis joint : {devis.nom}</p>}
           </div>

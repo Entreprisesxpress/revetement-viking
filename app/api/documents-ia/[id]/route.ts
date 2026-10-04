@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
 import { reponseFichier } from "@/lib/fichier-http";
+import { idEntier } from "@/lib/requete";
 
 const c: any = () => db();
 
 /** GET /api/documents-ia/[id] — télécharge le binaire complet (data_b64 décodé). */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await initDb();
-  const { id } = await params;
-  const r = await c().execute({ sql: "SELECT nom, type_mime, data_b64 FROM documents_ia WHERE id = ?", args: [+id] });
+  const id = idEntier((await params).id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  const r = await c().execute({ sql: "SELECT nom, type_mime, data_b64 FROM documents_ia WHERE id = ?", args: [id] });
   const row = r.rows[0] as any;
   if (!row) return NextResponse.json({ error: "introuvable" }, { status: 404 });
   // data_b64 peut être un data URL "data:application/pdf;base64,XYZ" ou juste le base64 brut.

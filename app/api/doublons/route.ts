@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { listerDoublonsSuspects, compterDoublonsSuspects, ignorerDoublon, reactiverDoublon } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
+import { lireCorps, texte } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +27,17 @@ export async function GET(req: NextRequest) {
  *  l'alerte se tait. Supprimer la mauvaise facture reste un geste explicite, ailleurs. */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
-    const cle = String(body?.cle || "").trim();
+    const body = await lireCorps(req);
+    if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const cle = String(body.cle || "").trim().slice(0, 200);
     if (!cle) return NextResponse.json({ error: "cle requise" }, { status: 400 });
+    const note = texte(body.note, 500) || undefined;
     const user = await utilisateurActif(req);
-    await ignorerDoublon(cle, user, body?.note);
-    journaliser("doublon.ignore", {
+    await ignorerDoublon(cle, user, note);
+    after(() => journaliser("doublon.ignore", {
       req, utilisateur: user || undefined, ref_type: "doublon", ref_id: cle,
-      description: `Écarté : ${cle}${body?.note ? ` — ${String(body.note).slice(0, 120)}` : ""}`,
-    }).catch(() => {});
+      description: `Écarté : ${cle}${note ? ` — ${note.slice(0, 120)}` : ""}`,
+    }));
     return NextResponse.json({ ok: true });
   } catch (e) { return fail(e); }
 }
@@ -46,10 +49,10 @@ export async function DELETE(req: NextRequest) {
     if (!cle) return NextResponse.json({ error: "cle requise" }, { status: 400 });
     const user = await utilisateurActif(req);
     await reactiverDoublon(cle);
-    journaliser("doublon.reactive", {
+    after(() => journaliser("doublon.reactive", {
       req, utilisateur: user || undefined, ref_type: "doublon", ref_id: cle,
       description: `Remis sous surveillance : ${cle}`,
-    }).catch(() => {});
+    }));
     return NextResponse.json({ ok: true });
   } catch (e) { return fail(e); }
 }

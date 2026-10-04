@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { periodeBiHebdo } from "./calculs";
 
 let dossier = "";
 let db: typeof import("./db");
@@ -309,8 +310,240 @@ describe("heures : contrôles de saisie et paie par quinzaine (DAS de la fiche, 
     expect(p2.id).toBe(p.id);
     expect(p2.montant_brut).toBe(p.montant_brut);
     // Paie versée → modifier une heure de la période est refusé (heureDansPaiePayee).
-    await db.marquerPayePeriode(p.id!, true, "2026-10-01");
+    expect((await db.marquerPayePeriode(p.id!, true, "2026-10-01")).ok).toBe(true);
     expect(await db.heureDansPaiePayee("Testeur Paie", "2026-09-16")).toBe(true);
     expect(await db.heureDansPaiePayee("Testeur Paie", "2026-09-28")).toBe(false);
+  });
+});
+
+// Chasse du 2026-10-03 — gardes de la couche données (chaque test ouvre la base isolée
+// du fichier ; les noms d'employés et de clients sont propres à chaque test).
+describe("confirmation de facturation : projet complété seulement, effacée à la réouverture", () => {
+  it("404 logique sur un projet inexistant, refus sur un chantier non complété, ok sur un complété", async () => {
+    expect((await db.confirmerFacturationProjet(999999, "Francis", true)).ok).toBe(false);
+    const pid = await db.ajouterProjet({ nom: "Projet à confirmer", statut: "actif" });
+    const refus = await db.confirmerFacturationProjet(pid, "Francis", true);
+    expect(refus.ok).toBe(false);
+    if (!refus.ok) expect(refus.code).toBe("non_complete");
+    await db.modifierProjet(pid, { statut: "complete", date_fin_reelle: "2026-09-30", facturee: 1 } as any);
+    expect((await db.listerProjetsAFacturer()).map((p) => p.id)).toContain(pid);
+    const okr = await db.confirmerFacturationProjet(pid, "Francis", true);
+    expect(okr.ok).toBe(true);
+    if (okr.ok) expect(okr.par).toBe("Francis");
+    // Confirmé : il sort du rappel « à facturer » (le bouton du tableau de bord envoie
+    // maintenant `facturation_confirmee: true`, plus `facturee: 1` qui ne changeait rien).
+    expect((await db.listerProjetsAFacturer()).map((p) => p.id)).not.toContain(pid);
+    // Réouverture (ce que fait PATCH /api/projets) : la confirmation tombe aussi.
+    await db.modifierProjet(pid, { statut: "actif", facturee: 0, date_fin_reelle: null, facturation_confirmee_le: null, facturation_confirmee_par: null } as any);
+    const p = await db.getProjet(pid);
+    expect((p as any).facturation_confirmee_le).toBeNull();
+    await db.modifierProjet(pid, { statut: "complete", date_fin_reelle: "2026-10-02", facturee: 1 } as any);
+    expect((await db.listerProjetsAFacturer()).map((p) => p.id)).toContain(pid);
+  });
+
+  it("ajouterProjet écrit date_fin_reelle et facturee (projet créé directement complété)", async () => {
+    const pid = await db.ajouterProjet({ nom: "Créé complété", statut: "complete", date_fin_reelle: "2026-09-29", facturee: 1 } as any);
+    const p = await db.getProjet(pid);
+    expect(p?.date_fin_reelle).toBe("2026-09-29");
+    expect(Number((p as any).facturee)).toBe(1);
+  });
+});
+
+describe("paie : fiche retrouvée malgré la casse, férié refusé à un employé désactivé", () => {
+  // 4 semaines de 40 h avant l'Action de grâce 2026 (lundi 12 oct.), puis la semaine du 5
+  // au 9 : la quinzaine 2026-10-05 → 2026-10-18 porte des heures ET le férié.
+  const jours = (lundi: string, n = 5) => {
+    const [y, m, d] = lundi.split("-").map(Number);
+    return Array.from({ length: n }, (_, i) => {
+      const dt = new Date(y, m - 1, d + i);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+    });
+  };
+  const semaines = [...jours("2026-09-14"), ...jours("2026-09-21"), ...jours("2026-09-28"), ...jours("2026-10-05")];
+
+  it("employé ACTIF saisi en minuscules dans les heures : la fiche est retrouvée, le férié est crédité", async () => {
+    const pid = await db.ajouterProjet({ nom: "Projet Férié Casse" });
+    await db.ajouterEmploye({ nom: "Ferie Actif", taux_horaire: 40 } as any);
+    for (const d of semaines) await db.ajouterHeureProjet({ projet_id: pid, date: d, heures: 8, employe: "ferie actif", taux_horaire: 40 });
+    const p = (await db.listerPaiePeriodes("ferie actif")).find((x) => x.debut === "2026-10-05")!;
+    expect(p).toBeTruthy();
+    expect(Number(p.heures_ferie)).toBe(8);
+    expect(Number(p.heures_normales)).toBe(48); // 40 h punchées + 8 h de férié
+  });
+
+  it("employé DÉSACTIVÉ (fin d'emploi) : aucune indemnité, même sur une quinzaine avec des heures", async () => {
+    const pid = await db.ajouterProjet({ nom: "Projet Férié Inactif" });
+    const eid = await db.ajouterEmploye({ nom: "Ferie Inactif", taux_horaire: 40 } as any);
+    await db.modifierEmploye(eid, { actif: 0 });
+    for (const d of semaines) await db.ajouterHeureProjet({ projet_id: pid, date: d, heures: 8, employe: "ferie inactif", taux_horaire: 40 });
+    const p = (await db.listerPaiePeriodes("ferie inactif")).find((x) => x.debut === "2026-10-05")!;
+    expect(p).toBeTruthy();
+    expect(Number(p.heures_ferie)).toBe(0);
+    expect(Number(p.heures_normales)).toBe(40);
+  });
+
+  it("marquerPayePeriode : refuse une période déjà payée et ne réécrit pas la date", async () => {
+    const pid = await db.ajouterProjet({ nom: "Projet Paie Idempotente" });
+    await db.ajouterEmploye({ nom: "Paie Idem", taux_horaire: 30 } as any);
+    await db.ajouterHeureProjet({ projet_id: pid, date: "2026-08-03", heures: 8, employe: "Paie Idem", taux_horaire: 30 });
+    const p = (await db.listerPaiePeriodes("Paie Idem")).find((x) => x.debut === periodeBiHebdo("2026-08-03").debut)!;
+    expect((await db.marquerPayePeriode(p.id!, true, "2026-08-20")).ok).toBe(true);
+    const deux = await db.marquerPayePeriode(p.id!, true, "2026-09-30");
+    expect(deux.ok).toBe(false);
+    expect(deux.raison).toContain("déjà");
+    const lue = (await db.listerPaiePeriodes("Paie Idem")).find((x) => x.id === p.id)!;
+    expect(lue.date_paiement).toBe("2026-08-20");
+    // Suppression d'une période VERSÉE refusée ; annulée, elle redevient supprimable.
+    expect((await db.supprimerPayePeriode(p.id!)).ok).toBe(false);
+    expect((await db.marquerPayePeriode(p.id!, false)).ok).toBe(true);
+    expect((await db.supprimerPayePeriode(p.id!)).ok).toBe(true);
+  });
+});
+
+describe("factures et extras : encaissement idempotent, suppressions verrouillées", () => {
+  it("marquerFacturePayee : la 2e fois est refusée, la date d'encaissement reste", async () => {
+    const pid = await db.ajouterProjet({ nom: "Projet Facture Idem" });
+    const fid = await db.ajouterFactureProjet({ projet_id: pid, montant: 500, date: "2026-09-01" });
+    expect((await db.marquerFacturePayee(fid, "2026-09-10")).ok).toBe(true);
+    const deux = await db.marquerFacturePayee(fid, "2026-09-30");
+    expect(deux.ok).toBe(false);
+    expect(deux.raison).toContain("déjà");
+    const f = (await db.listerFacturesProjet(pid)).find((x) => x.id === fid)!;
+    expect(f.date_paiement).toBe("2026-09-10");
+    expect(Number(f.montant_paye)).toBe(500);
+    expect((await db.marquerFacturePayee(999999, "2026-09-10")).ok).toBe(false);
+  });
+
+  it("supprimerExtra : refusé tant que l'extra est marqué facturé, permis une fois rouvert", async () => {
+    const pid = await db.ajouterProjet({ nom: "Projet Extra Facturé" });
+    const xid = await db.ajouterExtra({ projet_id: pid, date: "2026-09-01", description: "Extra chargé", montant: 200 });
+    await db.marquerExtraCharge(xid, true);
+    const refus = await db.supprimerExtra(xid);
+    expect(refus.ok).toBe(false);
+    expect(refus.raison).toContain("FACTURÉ");
+    expect((await db.listerExtras(undefined, pid)).map((e) => e.id)).toContain(xid);
+    await db.marquerExtraCharge(xid, false);
+    expect((await db.supprimerExtra(xid)).ok).toBe(true);
+    expect((await db.supprimerExtra(xid)).ok).toBe(false); // introuvable
+  });
+
+  it("supprimerProjet refuse un projet avec une facture ENCAISSÉE ou des heures dans une paie VERSÉE", async () => {
+    // Facture encaissée.
+    const p1 = await db.ajouterProjet({ nom: "Projet Facture Encaissée" });
+    const fid = await db.ajouterFactureProjet({ projet_id: p1, montant: 100, date: "2026-09-01" });
+    await db.marquerFacturePayee(fid, "2026-09-05");
+    const r1 = await db.supprimerProjet(p1);
+    expect(r1.ok).toBe(false);
+    expect(r1.raison).toContain("ENCAISSÉE");
+    expect(await db.getProjet(p1)).not.toBeNull();
+    await db.annulerPaiementFacture(fid);
+    expect((await db.supprimerProjet(p1)).ok).toBe(true);
+    // Heures dans une paie versée.
+    const p2 = await db.ajouterProjet({ nom: "Projet Heures Payées" });
+    await db.ajouterEmploye({ nom: "Suppr Paye", taux_horaire: 30 } as any);
+    await db.ajouterHeureProjet({ projet_id: p2, date: "2026-07-06", heures: 8, employe: "Suppr Paye", taux_horaire: 30 });
+    const per = (await db.listerPaiePeriodes("Suppr Paye")).find((x) => x.debut === periodeBiHebdo("2026-07-06").debut)!;
+    await db.marquerPayePeriode(per.id!, true, "2026-07-20");
+    const r2 = await db.supprimerProjet(p2);
+    expect(r2.ok).toBe(false);
+    expect(r2.raison).toContain("VERSÉE");
+    expect((await db.listerHeuresProjet(p2)).length).toBe(1);
+  });
+
+  it("supprimer(soumission) refuse une soumission acceptée ; supprimerContrat refuse un contrat signé", async () => {
+    const numero = await db.sauvegarder({ client: { nom: "Client Accepté" }, total: 100, data: {} });
+    await db.changerStatut(numero, "acceptee");
+    const r = await db.supprimer(numero);
+    expect(r.ok).toBe(false);
+    expect(await db.charger(numero)).not.toBeNull();
+    expect((await db.supprimer("S-INEXISTANTE")).ok).toBe(false);
+    const c = await db.ajouterContrat({ titre: "Contrat signé", date_emission: "2026-09-01" } as any);
+    await db.modifierContrat(c.id, { signe_par_client: 1, date_signature: "2026-09-02" } as any);
+    const rc = await db.supprimerContrat(c.id);
+    expect(rc.ok).toBe(false);
+    expect(rc.raison).toContain("SIGNÉ");
+    expect(await db.getContrat(c.id)).toBeTruthy();
+    const c2 = await db.ajouterContrat({ titre: "Brouillon", date_emission: "2026-09-01" } as any);
+    expect((await db.supprimerContrat(c2.id)).ok).toBe(true);
+  });
+});
+
+describe("clients : rattachement par courriel, téléphone, puis nom sans coordonnées", () => {
+  it("courriel (sans casse) d'abord ; la fiche retrouvée reçoit le téléphone qui lui manquait, jamais écrasé", async () => {
+    const a = await db.ajouterClient({ nom: "Julie Tremblay", courriel: "julie@exemple.ca" } as any);
+    const r = await db.rattacherOuCreerClient("JULIE TREMBLAY", { courriel: "Julie@Exemple.CA", telephone: "514 555-0001" });
+    expect(r.id).toBe(a);
+    expect(r.cree).toBe(false);
+    expect(r.nom).toBe("Julie Tremblay");
+    const fiche = await db.getClient(a);
+    expect(fiche?.telephone).toBe("514 555-0001");
+    expect(fiche?.courriel).toBe("julie@exemple.ca"); // pas réécrit avec la casse du candidat
+    // Même nom, AUTRE courriel : une autre personne — plus de rattachement par le nom seul.
+    const r2 = await db.rattacherOuCreerClient("Julie Tremblay", { courriel: "julie.t@autre.ca" });
+    expect(r2.cree).toBe(true);
+    expect(r2.id).not.toBe(a);
+  });
+
+  it("téléphone : 10 derniers chiffres, quel que soit le format ; le courriel manquant est complété", async () => {
+    const b = await db.ajouterClient({ nom: "Marc Côté", telephone: "(514) 555-1234" } as any);
+    const r = await db.rattacherOuCreerClient("M. Côté", { telephone: "+1 514-555-1234", courriel: "marc@exemple.ca" });
+    expect(r.id).toBe(b);
+    expect((await db.getClient(b))?.courriel).toBe("marc@exemple.ca");
+    expect((await db.getClient(b))?.nom).toBe("Marc Côté"); // le nom n'est jamais réécrit
+  });
+
+  it("nom seul : seulement si ni le candidat ni la fiche n'ont de coordonnées", async () => {
+    const c = await db.ajouterClient({ nom: "Paul Roy" } as any);
+    expect((await db.rattacherOuCreerClient("paul roy", {})).id).toBe(c);
+    // Candidat AVEC courriel : pas de rattachement par le nom → nouvelle fiche.
+    const r = await db.rattacherOuCreerClient("Paul Roy", { courriel: "paul@exemple.ca" });
+    expect(r.cree).toBe(true);
+    expect(r.id).not.toBe(c);
+    // Fiche AVEC coordonnées, candidat sans : pas de rattachement non plus.
+    const d = await db.ajouterClient({ nom: "Anne Lavoie", telephone: "438 555-9999" } as any);
+    const r2 = await db.rattacherOuCreerClient("Anne Lavoie", {});
+    expect(r2.id).not.toBe(d);
+    // Rien du tout : aucune fiche.
+    expect((await db.rattacherOuCreerClient("", {})).id).toBe(0);
+    // trouverOuCreerClient reste l'enveloppe qui rend l'id.
+    expect(await db.trouverOuCreerClient("paul roy")).toBe(c);
+  });
+});
+
+describe("dépenses : fournisseur normalisé côté serveur", () => {
+  it("normaliserFournisseur : espaces, graphie connue, majuscule initiale", () => {
+    const connus = ["Patrick Morin", "BMR"];
+    expect(db.normaliserFournisseur("  patrick   morin ", connus)).toBe("Patrick Morin");
+    expect(db.normaliserFournisseur("bmr", connus)).toBe("BMR");
+    expect(db.normaliserFournisseur("éco-centre", connus)).toBe("Éco-centre");
+    expect(db.normaliserFournisseur("Shell", connus)).toBe("Shell");
+    expect(db.normaliserFournisseur("   ", connus)).toBeNull();
+    expect(db.normaliserFournisseur(null, connus)).toBeNull();
+  });
+  it("ajouterDepenseProjet et modifierDepenseProjet appliquent la normalisation", async () => {
+    const pid = await db.ajouterProjet({ nom: "Projet Fournisseur" });
+    const id1 = await db.ajouterDepenseProjet({ projet_id: pid, date: "2026-09-01", montant: 10, fournisseur: "canac" });
+    const id2 = await db.ajouterDepenseProjet({ projet_id: pid, date: "2026-09-02", montant: 10, fournisseur: "  CANAC " });
+    const liste = await db.listerDepensesProjet(pid);
+    expect(liste.find((d) => d.id === id1)?.fournisseur).toBe("Canac");
+    expect(liste.find((d) => d.id === id2)?.fournisseur).toBe("Canac"); // la graphie connue gagne
+    await db.modifierDepenseProjet(id2, { fournisseur: "  patrick  morin" });
+    expect((await db.listerDepensesProjet(pid)).find((d) => d.id === id2)?.fournisseur).toBe("Patrick morin");
+  });
+});
+
+describe("contrats en ligne : numéro repris seulement d'un projet du client, jamais en double", () => {
+  it("numeroContratPipelineExiste et projetDuClientParNumero", async () => {
+    const cid = await db.ajouterClient({ nom: "Client Numéro" } as any);
+    const autre = await db.ajouterClient({ nom: "Autre Client" } as any);
+    await db.ajouterProjet({ nom: "Chantier numéroté", client_id: cid, numero: "2026-777" } as any);
+    expect((await db.projetDuClientParNumero(cid, "2026-777"))?.numero).toBe("2026-777");
+    expect(await db.projetDuClientParNumero(autre, "2026-777")).toBeNull();
+    expect(await db.projetDuClientParNumero(cid, "2026-778")).toBeNull();
+    expect(await db.numeroContratPipelineExiste("2026-777")).toBe(false);
+    const coid = await db.creerContratPipeline({ client_id: cid, numero: "2026-777", token: "tok-num-777", data_json: {}, pdf_brouillon: "" });
+    expect(await db.numeroContratPipelineExiste("2026-777")).toBe(true);
+    expect(await db.numeroContratPipelineExiste(" 2026-777 ")).toBe(true);
+    expect(await db.numeroContratPipelineExiste("2026-777", coid)).toBe(false);
   });
 });

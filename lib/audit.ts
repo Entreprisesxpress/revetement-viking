@@ -60,6 +60,11 @@ export type ActiviteType =
   // Contrats en ligne (pipeline_contrats) : création et suppression d'un brouillon.
   | "contrat_pipeline.cree"
   | "contrat_pipeline.supprime"
+  // Lien public d'un contrat en ligne : data_json illisible en base (page de signature
+  // impossible à servir) — journalisé pour que Francis puisse renvoyer un lien propre.
+  | "contrat_pipeline.illisible"
+  // Recherche de prix web FORCÉE (contourne le cache 7 jours) : comptée pour le plafond horaire.
+  | "prix_web.force"
   | "paye.marquee_payee"
   | "paye.banque_appliquee"
   | "paye.periode_supprimee"

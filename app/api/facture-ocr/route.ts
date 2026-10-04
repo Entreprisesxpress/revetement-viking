@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { lireCorps } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
+// Délai borné sous maxDuration (un appel qui traîne ne laisse pas l'écran sans réponse).
+export const maxDuration = 60;
 
 const PROMPT = `Tu analyses une FACTURE / un contrat de travaux. Trouve le MONTANT TOTAL final à payer (grand total, taxes comprises si présentes).
 Réponds UNIQUEMENT par un JSON, sans markdown :
@@ -15,7 +18,9 @@ export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ ok: false, error: "ANTHROPIC_API_KEY manquante" });
-    const { dataUrl } = await req.json();
+    const b = await lireCorps(req);
+    if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const { dataUrl } = b;
     const m = typeof dataUrl === "string" ? dataUrl.match(/^data:([^;]+);base64,(.+)$/) : null;
     if (!m) return NextResponse.json({ ok: false, error: "dataUrl invalide" });
     const mediaType = m[1];
@@ -31,7 +36,7 @@ export async function POST(req: NextRequest) {
     }
     contenu.push({ type: "text", text: PROMPT });
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic({ apiKey, timeout: 55_000, maxRetries: 1 });
     const response = await client.messages.create({
       model: MODELES.vision_photos,
       max_tokens: 300,

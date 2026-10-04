@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db, initDb } from "@/lib/db";
 import { nombreSaisi } from "@/lib/calculs";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
+import { idEntier, lireCorps, bool01, texte } from "@/lib/requete";
 
 const c: any = () => db();
 
@@ -45,9 +46,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   await initDb();
-  const b = await req.json();
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
   const nombreInvalide = normaliserNombres(b);
   if (nombreInvalide) return NextResponse.json({ error: nombreInvalide }, { status: 400 });
+  b.nom = texte(b.nom, 200);
   if (!b.nom || !b.unite) return NextResponse.json({ error: "nom + unite requis" }, { status: 400 });
   const prix_vente = b.prix_vente != null ? +b.prix_vente : calculerPrixVente(b.prix_coutant ?? null, b.majoration_pct ?? null);
   const r = await c().execute({
@@ -71,16 +74,24 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   await initDb();
-  const b = await req.json();
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
   const nombreInvalide = normaliserNombres(b);
   if (nombreInvalide) return NextResponse.json({ error: nombreInvalide }, { status: 400 });
-  if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const id = idEntier(b.id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  if (b.nom !== undefined) {
+    b.nom = texte(b.nom, 200);
+    if (!b.nom) return NextResponse.json({ error: "nom requis" }, { status: 400 });
+  }
+  if (b.actif !== undefined) b.actif = bool01(b.actif);
   // Recalcul prix_vente si coutant ou majoration change
   if (b.prix_coutant != null || b.majoration_pct != null) {
     if (b.prix_vente == null) {
       // Lire l'existant pour combiner
-      const cur = await c().execute({ sql: "SELECT prix_coutant, majoration_pct FROM catalogue_materiaux WHERE id = ?", args: [b.id] });
+      const cur = await c().execute({ sql: "SELECT prix_coutant, majoration_pct FROM catalogue_materiaux WHERE id = ?", args: [id] });
       const old = cur.rows[0] as any;
+      if (!old) return NextResponse.json({ error: "article introuvable" }, { status: 404 });
       const cout = b.prix_coutant ?? old?.prix_coutant;
       const maj = b.majoration_pct ?? old?.majoration_pct;
       b.prix_vente = calculerPrixVente(cout, maj);
@@ -91,24 +102,28 @@ export async function PATCH(req: NextRequest) {
   for (const k of champs) if (b[k] !== undefined) { sets.push(`${k} = ?`); args.push(b[k]); }
   if (!sets.length) return NextResponse.json({ error: "rien a modifier" }, { status: 400 });
   sets.push("date_modif = ?"); args.push(new Date().toISOString());
-  args.push(b.id);
-  await c().execute({ sql: `UPDATE catalogue_materiaux SET ${sets.join(", ")} WHERE id = ?`, args });
+  args.push(id);
+  const r = await c().execute({ sql: `UPDATE catalogue_materiaux SET ${sets.join(", ")} WHERE id = ?`, args });
+  if (!r.rowsAffected) return NextResponse.json({ error: "article introuvable" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
   await initDb();
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const id = idEntier(req.nextUrl.searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   // Soft delete : on désactive plutôt que supprimer (pour préserver l'historique des soumissions)
-  const cur = await c().execute({ sql: "SELECT id, nom, type, fournisseur, unite, prix_coutant, prix_vente, actif FROM catalogue_materiaux WHERE id = ?", args: [+id] });
+  const cur = await c().execute({ sql: "SELECT id, nom, type, fournisseur, unite, prix_coutant, prix_vente, actif FROM catalogue_materiaux WHERE id = ?", args: [id] });
   const avant = (cur.rows[0] as any) || null;
-  await c().execute({ sql: "UPDATE catalogue_materiaux SET actif = 0, date_modif = ? WHERE id = ?", args: [new Date().toISOString(), +id] });
+  if (!avant) return NextResponse.json({ error: "article introuvable" }, { status: 404 });
+  await c().execute({ sql: "UPDATE catalogue_materiaux SET actif = 0, date_modif = ? WHERE id = ?", args: [new Date().toISOString(), id] });
   const user = await utilisateurActif(req);
-  journaliser("catalogue.desactive", {
+  // Journal APRÈS la réponse (after) : une promesse simplement détachée pouvait être
+  // tuée avec la fonction serverless dès la réponse rendue.
+  after(() => journaliser("catalogue.desactive", {
     ref_type: "catalogue", ref_id: id, utilisateur: user || undefined,
-    description: avant ? `${avant.nom} · ${avant.fournisseur || "?"} · ${avant.prix_vente ?? "—"} $/${avant.unite || "u"}` : `Article #${id}`,
+    description: `${avant.nom} · ${avant.fournisseur || "?"} · ${avant.prix_vente ?? "—"} $/${avant.unite || "u"}`,
     avant,
-  });
+  }));
   return NextResponse.json({ ok: true });
 }

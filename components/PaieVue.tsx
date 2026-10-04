@@ -63,6 +63,9 @@ export default function PaieVue() {
       if (!(await ecrire("/api/paies", "PATCH", { id: p.id, paye: true, date_paiement: date }, "Enregistrement"))) return;
       toast(`✓ Paye marquée payée — ${p.employe}`, "success");
     } else {
+      // Dé-payer n'est pas anodin (V-21) : la période est recalculée avec les heures
+      // d'aujourd'hui, et le talon déjà remis à l'employé peut ne plus correspondre.
+      if (!confirm(`Remettre la paye de ${p.employe} (${p.debut} → ${p.fin}) en attente ?\n\nLa période sera recalculée ; le talon remis pourrait ne plus correspondre.`)) return;
       if (!(await ecrire("/api/paies", "PATCH", { id: p.id, paye: false }, "Enregistrement"))) return;
       toast("Paye remise en attente", "info");
     }

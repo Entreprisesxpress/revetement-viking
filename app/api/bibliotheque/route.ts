@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ajouterJobBiblio, listerJobsBiblio, supprimerJobBiblio, jobsSimilaires, ajouterPhotosBiblio } from "@/lib/db";
+import { idEntier, lireCorps } from "@/lib/requete";
 
 // Les photos vont en BASE (table bibliotheque_photos), plus sur le disque local : sur Vercel
 // le système de fichiers est éphémère, les fichiers écrits disparaissaient au déploiement
@@ -11,7 +12,10 @@ export async function GET(req: NextRequest) {
   const similaires = req.nextUrl.searchParams.get("similaires_pour");
   const materiau = req.nextUrl.searchParams.get("materiau") || undefined;
   if (similaires) {
-    const jobs = await jobsSimilaires(+similaires, materiau, 5);
+    // Une surface (pi²), pas un id : nombre fini > 0 exigé (« abc » donnait NaN en SQL).
+    const surface = Number(similaires);
+    if (!Number.isFinite(surface) || surface <= 0) return NextResponse.json({ error: "similaires_pour invalide (surface en pi²)" }, { status: 400 });
+    const jobs = await jobsSimilaires(surface, materiau, 5);
     return NextResponse.json(jobs);
   }
   return NextResponse.json(await listerJobsBiblio());
@@ -19,8 +23,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { photos, ...payload } = body || {};
+    const body = await lireCorps(req);
+    if (!body) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+    const { photos, ...payload } = body;
 
     const id = await ajouterJobBiblio({ ...payload, photos_json: null, date_ajout: new Date().toISOString() });
 
@@ -44,8 +49,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
-  await supprimerJobBiblio(+id);
+  const id = idEntier(req.nextUrl.searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  if (!(await supprimerJobBiblio(id))) return NextResponse.json({ error: "job introuvable" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

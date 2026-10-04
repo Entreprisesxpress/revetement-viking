@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { db, initDb } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { nombreSaisi } from "@/lib/calculs";
 import { journaliser } from "@/lib/audit";
+import { idEntier, lireCorps, texte } from "@/lib/requete";
 
 const c: any = () => db();
 
@@ -28,9 +29,11 @@ function normaliserNombres(b: any): string | null {
 export async function GET(req: NextRequest) {
   await initDb();
   const sp = req.nextUrl.searchParams;
-  const id = sp.get("id");
-  if (id) {
-    const r = await c().execute({ sql: "SELECT * FROM inventaire WHERE id = ?", args: [+id] });
+  const idBrut = sp.get("id");
+  if (idBrut) {
+    const id = idEntier(idBrut);
+    if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+    const r = await c().execute({ sql: "SELECT * FROM inventaire WHERE id = ?", args: [id] });
     if (!r.rows.length) return NextResponse.json({ error: "item introuvable" }, { status: 404 });
     return NextResponse.json(r.rows[0]);
   }
@@ -45,7 +48,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   await initDb();
-  const b = await req.json();
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  b.nom = texte(b.nom, 200);
   if (!b.nom) return NextResponse.json({ error: "nom requis" }, { status: 400 });
   // `+b.quantite || 0` laissait passer une quantité négative (-5 || 0 === -5 en JS) :
   // on créait un item déjà en stock négatif. Même garde que sur les retraits.
@@ -61,8 +66,15 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   await initDb();
-  const b = await req.json();
-  if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  const id = idEntier(b.id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  b.id = id;
+  if (b.nom !== undefined) {
+    b.nom = texte(b.nom, 200);
+    if (!b.nom) return NextResponse.json({ error: "nom requis" }, { status: 400 });
+  }
   const now = new Date().toISOString();
   // Si on modifie la quantité, journaliser le mouvement
   if (typeof b.delta === "number" && b.delta !== 0) {
@@ -142,8 +154,10 @@ export async function PATCH(req: NextRequest) {
     console.error("[/api/inventaire PATCH]", e);
     return NextResponse.json({ error: "Modification refusée par la base — rien n'a été enregistré." }, { status: 500 });
   }
-  if (verrouActif && !res[0].rowsAffected) {
+  if (!res[0].rowsAffected) {
     const cur = await c().execute({ sql: "SELECT quantite FROM inventaire WHERE id = ?", args: [b.id] });
+    if (!cur.rows.length) return NextResponse.json({ error: "item introuvable" }, { status: 404 });
+    if (!verrouActif) return NextResponse.json({ ok: true });
     const actuelle = Number((cur.rows[0] as any)?.quantite ?? 0);
     return NextResponse.json({
       error: `La quantité a changé pendant que tu modifiais la fiche : elle est passée de ${b.quantite_connue} à ${actuelle}. Rouvre la fiche pour repartir de la bonne valeur.`,
@@ -155,20 +169,21 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   await initDb();
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const id = idEntier(req.nextUrl.searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   const user = await utilisateurActif(req);
-  const cur = await c().execute({ sql: "SELECT id, nom, quantite, unite, emplacement, cout_unit FROM inventaire WHERE id = ?", args: [+id] });
+  const cur = await c().execute({ sql: "SELECT id, nom, quantite, unite, emplacement, cout_unit FROM inventaire WHERE id = ?", args: [id] });
   const avant = (cur.rows[0] as any) || null;
+  if (!avant) return NextResponse.json({ error: "item introuvable" }, { status: 404 });
   // Item + ses mouvements dans UNE transaction (avant : deux requêtes séparées).
   await c().batch([
-    { sql: "DELETE FROM inventaire_mouvements WHERE inventaire_id = ?", args: [+id] },
-    { sql: "DELETE FROM inventaire WHERE id = ?", args: [+id] },
+    { sql: "DELETE FROM inventaire_mouvements WHERE inventaire_id = ?", args: [id] },
+    { sql: "DELETE FROM inventaire WHERE id = ?", args: [id] },
   ], "write");
-  journaliser("inventaire.supprime", {
+  after(() => journaliser("inventaire.supprime", {
     ref_type: "inventaire", ref_id: id, utilisateur: user || undefined,
-    description: avant ? `${avant.nom} · ${avant.quantite} ${avant.unite || "u"} · ${avant.emplacement || "—"}` : `Item #${id}`,
+    description: `${avant.nom} · ${avant.quantite} ${avant.unite || "u"} · ${avant.emplacement || "—"}`,
     avant,
-  });
+  }));
   return NextResponse.json({ ok: true });
 }

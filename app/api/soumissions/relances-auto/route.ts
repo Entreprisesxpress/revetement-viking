@@ -8,15 +8,17 @@ export const dynamic = "force-dynamic";
 
 /** Cron quotidien (vercel.json : `0 13 * * *` = 13 h UTC, soit 9 h à Montréal l'été et
  *  8 h l'hiver) : détecte les soumissions ENVOYÉES sans réponse depuis 7+ jours
- *  et envoie un email récap à Francis (assigne par défaut). */
+ *  et envoie un email récap à Francis (assigne par défaut).
+ *  Codes HTTP : Vercel ne regarde que le STATUT du cron. « Non configuré » → 503, envoi
+ *  refusé → 500 ; un 200 `{ok:false}` passait pour un succès dans le tableau des crons. */
 export async function GET(req: NextRequest) {
   // Fail-closed : sans CRON_SECRET, route désactivée (sinon déclenchable publiquement).
   const refus = verifierCron(req);
   if (refus) return refus;
-  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
+  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" }, { status: 503 });
 
   const dest = process.env.FRANCIS_EMAIL || process.env.GABRIEL_EMAIL;
-  if (!dest) return NextResponse.json({ ok: false, raison: "aucun_dest" });
+  if (!dest) return NextResponse.json({ ok: false, raison: "aucun_dest" }, { status: 503 });
 
   // Dédup par jour : un retrigger du cron (retry Vercel, appel manuel) le même jour ne
   // renvoie pas le même récap une 2e fois.
@@ -49,7 +51,7 @@ export async function GET(req: NextRequest) {
   });
   // Le garde du jour ne se pose QUE si l'envoi a réussi : sinon une panne SMTP faisait
   // sauter le récap pour la journée entière, sans réessai et sans que ça se voie.
-  if (!envoi.ok) return NextResponse.json({ ok: false, error: envoi.error || envoi.raison, nb: liste.length });
+  if (!envoi.ok) return NextResponse.json({ ok: false, error: envoi.error || envoi.raison, nb: liste.length }, { status: 500 });
   await setParametre(cleGuard, String(liste.length));
 
   return NextResponse.json({ ok: true, nb: liste.length });

@@ -10,6 +10,11 @@ import { SQL_PROJET_ACTIF, type StatutProjet } from "@/lib/statuts-projet";
 import { estStatutSoumission, STATUTS_SOUMISSION } from "@/lib/vocabulaire";
 import { aujourdhuiMontreal } from "./date";
 import { echapperLike } from "@/lib/sql-like";
+import { bool01 } from "./requete";
+
+// Les `modifierX` / `supprimerX` renvoient maintenant `true` si une ligne a été touchée,
+// `false` si l'id ne pointait sur rien (0 ligne) : la route répond alors 404 au lieu d'un
+// `{ok:true}` qui n'a rien écrit (mesuré : PATCH /api/cameras {id:"1.5"} → ok sans effet).
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DB_DIR, "soumissions.db");
@@ -904,14 +909,13 @@ export async function changerStatut(numero: string, statut: Statut) {
     statut === "acceptee" ? "date_acceptation" :
     statut === "refusee" ? "date_refus" :
     statut === "facturee" ? "date_facturation" : null;
-  if (dateCol) {
+  const r = dateCol
     // COALESCE : on garde la 1re date (ex. date_envoi). Avant, re-cliquer « envoyée »
     // réécrivait date_envoi = aujourd'hui → le cron de relance (seuil 7 j) repartait à
     // zéro et une soumission traînante n'était jamais relancée.
-    await run(`UPDATE soumissions SET statut=?, ${dateCol}=COALESCE(${dateCol}, ?) WHERE numero=?`, [statut, now, numero]);
-  } else {
-    await run(`UPDATE soumissions SET statut=? WHERE numero=?`, [statut, numero]);
-  }
+    ? await run(`UPDATE soumissions SET statut=?, ${dateCol}=COALESCE(${dateCol}, ?) WHERE numero=?`, [statut, now, numero])
+    : await run(`UPDATE soumissions SET statut=? WHERE numero=?`, [statut, numero]);
+  return r.rowsAffected > 0;
 }
 
 /** Marque qu'un client a ouvert le lien public (1re fois seulement). */
@@ -934,8 +938,9 @@ export async function refuserSoumission(numero: string, ip?: string): Promise<vo
   await run(`UPDATE soumissions SET statut='refusee', date_refus=COALESCE(date_refus, ?), signature_ip=? WHERE numero=?`, [now, ip || null, numero]);
 }
 
-export async function enregistrerHeuresReelles(numero: string, heuresReelles: number) {
-  await run("UPDATE soumissions SET heures_reelles=? WHERE numero=?", [heuresReelles, numero]);
+export async function enregistrerHeuresReelles(numero: string, heuresReelles: number): Promise<boolean> {
+  const r = await run("UPDATE soumissions SET heures_reelles=? WHERE numero=?", [heuresReelles, numero]);
+  return r.rowsAffected > 0;
 }
 
 export async function enregistrerRendement(
@@ -971,7 +976,20 @@ export async function lister(statut?: Statut): Promise<SoumissionDB[]> {
 export async function charger(numero: string): Promise<SoumissionDB | null> {
   return await one<SoumissionDB>("SELECT * FROM soumissions WHERE numero = ?", [numero]);
 }
-export async function supprimer(numero: string) {
+/** Supprime une soumission. REFUSE une soumission SIGNÉE en ligne ou ACCEPTÉE/FACTURÉE :
+ *  sa modification est déjà refusée (sauvegarder, changerStatut), la suppression ne doit
+ *  pas être la porte dérobée qui efface la preuve d'acceptation du client. */
+export async function supprimer(numero: string): Promise<{ ok: boolean; raison?: string }> {
+  const s = await one<{ statut: string | null; signature_nom: string | null; signature_date: string | null }>(
+    "SELECT statut, signature_nom, signature_date FROM soumissions WHERE numero = ?", [numero]
+  );
+  if (!s) return { ok: false, raison: "Soumission introuvable." };
+  if (s.signature_nom || s.statut === "acceptee" || s.statut === "facturee") {
+    const motif = s.signature_nom
+      ? `signée en ligne par ${s.signature_nom}${s.signature_date ? ` le ${String(s.signature_date).slice(0, 10)}` : ""}`
+      : `au statut « ${s.statut === "facturee" ? "facturée" : "acceptée"} »`;
+    return { ok: false, raison: `La soumission ${numero} est ${motif} : elle ne se supprime pas. Duplique-la pour repartir d'une version révisée.` };
+  }
   // Les projets et contrats qui pointaient sur cette soumission gardaient un numéro mort
   // (lien « Voir la soumission » vers un 404). Le lien est coupé dans la MÊME transaction.
   await runBatch([
@@ -979,6 +997,7 @@ export async function supprimer(numero: string) {
     { sql: "UPDATE contrats SET soumission_numero = NULL WHERE soumission_numero = ?", args: [numero] },
     { sql: "DELETE FROM soumissions WHERE numero = ?", args: [numero] },
   ]);
+  return { ok: true };
 }
 
 export async function statistiques() {
@@ -1068,10 +1087,11 @@ export function sqlModifierClient(id: number, c: Partial<ClientType>): Enonce | 
   const valeurs = definis.map(k => (c as any)[k]);
   return { sql: `UPDATE clients SET ${sets} WHERE id = ?`, args: [...valeurs, id] };
 }
-export async function modifierClient(id: number, c: Partial<ClientType>) {
+export async function modifierClient(id: number, c: Partial<ClientType>): Promise<boolean> {
   const e = sqlModifierClient(id, c);
-  if (!e) return;
-  await run(e.sql, e.args);
+  if (!e) return true;
+  const r = await run(e.sql, e.args);
+  return r.rowsAffected > 0;
 }
 export async function supprimerClient(id: number): Promise<{ ok: boolean; raison?: string; contrats_signes?: number }> {
   // GARDE-FOU : un contrat SIGNÉ est une pièce juridique (PDF signé + empreinte scellée +
@@ -1115,11 +1135,64 @@ export async function clientParNom(nom: string): Promise<{ id: number; nom: stri
   );
 }
 
+/** Chiffres d'un téléphone, pour comparer « (514) 555-1234 » et « +1 514-555-1234 ». */
+const chiffresTel = (s: any) => String(s || "").replace(/\D/g, "");
+
+/** Retrouve la fiche client qui correspond à (nom, coordonnées), ou la crée.
+ *
+ *  RÈGLE UNIQUE de rattachement (la même que le formulaire du site web, /api/lead-web) :
+ *  1. le COURRIEL (insensible à la casse) ;
+ *  2. sinon le TÉLÉPHONE (10 derniers chiffres) ;
+ *  3. sinon le NOM, seulement si ni le candidat ni la fiche n'ont de coordonnées — deux
+ *     homonymes avec des coordonnées différentes sont deux personnes ;
+ *  4. sinon on CRÉE.
+ *  Avant, le rattachement se faisait par le NOM seul et `infos` était jeté : « Julie
+ *  Tremblay » avec un nouveau courriel atterrissait sur l'ancienne Julie Tremblay, et une
+ *  fiche retrouvée ne recevait jamais le téléphone ou le courriel qu'on venait d'apprendre.
+ *  Quand on rattache, les coordonnées MANQUANTES de la fiche sont complétées — jamais
+ *  écrasées. Renvoie l'id, si la fiche est neuve, et son nom tel qu'en base. */
+export async function rattacherOuCreerClient(
+  nom: string | null | undefined,
+  infos: Partial<ClientType> & { pipeline_stage?: string } = {}
+): Promise<{ id: number; cree: boolean; nom: string }> {
+  const nomPropre = String(nom || "").trim();
+  const courriel = String(infos.courriel || "").trim();
+  const telephone = String(infos.telephone || "").trim();
+  const tel10 = chiffresTel(telephone).slice(-10);
+  type Fiche = { id: number; nom: string; courriel: string | null; telephone: string | null; adresse: string | null };
+  const COLS = "id, nom, courriel, telephone, adresse";
+  let existant: Fiche | null = null;
+  if (courriel) {
+    existant = await one<Fiche>(`SELECT ${COLS} FROM clients WHERE LOWER(TRIM(courriel)) = LOWER(?)`, [courriel]);
+  }
+  if (!existant && tel10.length >= 10) {
+    const cands = await all<Fiche>(`SELECT ${COLS} FROM clients WHERE telephone IS NOT NULL AND telephone != ''`);
+    existant = cands.find((c) => chiffresTel(c.telephone).slice(-10) === tel10) || null;
+  }
+  if (!existant && nomPropre && !courriel && !telephone) {
+    existant = await one<Fiche>(
+      `SELECT ${COLS} FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?) AND (courriel IS NULL OR courriel = '') AND (telephone IS NULL OR telephone = '')`,
+      [nomPropre],
+    );
+  }
+  if (existant) {
+    // Compléter ce qui manque sur la fiche, sans rien écraser.
+    const maj: Partial<ClientType> = {};
+    if (!existant.courriel && courriel) maj.courriel = courriel;
+    if (!existant.telephone && telephone) maj.telephone = telephone;
+    if (!existant.adresse && infos.adresse) maj.adresse = String(infos.adresse).trim();
+    if (Object.keys(maj).length) await modifierClient(existant.id, maj);
+    return { id: existant.id, cree: false, nom: existant.nom };
+  }
+  const nomFiche = nomPropre || courriel || telephone;
+  if (!nomFiche) return { id: 0, cree: false, nom: "" };
+  const id = await ajouterClient({ ...infos, nom: nomFiche } as ClientType);
+  return { id, cree: true, nom: nomFiche };
+}
+
+/** Variante qui ne rend que l'id (0 si rien ne permet de créer une fiche). */
 export async function trouverOuCreerClient(nom: string, infos?: Partial<ClientType>): Promise<number> {
-  if (!nom?.trim()) return 0;
-  const existant = await one<{ id: number }>("SELECT id FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?)", [nom.trim()]);
-  if (existant) return existant.id;
-  return await ajouterClient({ nom: nom.trim(), ...infos } as ClientType);
+  return (await rattacherOuCreerClient(nom, infos || {})).id;
 }
 
 // === CRM : INTERACTIONS ===
@@ -1138,8 +1211,9 @@ export async function ajouterInteraction(i: Interaction): Promise<number> {
   // Mettre à jour notes ou pas — on garde la trace dans interactions
   return r.lastInsertRowid;
 }
-export async function supprimerInteraction(id: number) {
-  await run("DELETE FROM interactions_client WHERE id = ?", [id]);
+export async function supprimerInteraction(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM interactions_client WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === CRM : TÂCHES ===
@@ -1172,16 +1246,18 @@ export async function ajouterTache(t: Tache): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function modifierTache(id: number, t: Partial<Tache>) {
+export async function modifierTache(id: number, t: Partial<Tache>): Promise<boolean> {
   const champs = ['titre', 'description', 'date_due', 'priorite', 'statut', 'assigne_a', 'recurrence', 'date_completion'];
   const definis = champs.filter(k => (t as any)[k] !== undefined);
-  if (!definis.length) return;
+  if (!definis.length) return true;
   const sets = definis.map(k => `${k} = ?`).join(', ');
   const valeurs = definis.map(k => (t as any)[k]);
-  await run(`UPDATE taches_client SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  const r = await run(`UPDATE taches_client SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  return r.rowsAffected > 0;
 }
-export async function supprimerTache(id: number) {
-  await run("DELETE FROM taches_client WHERE id = ?", [id]);
+export async function supprimerTache(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM taches_client WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 /** Marque une tâche complétée. Si elle est récurrente, recrée la prochaine occurrence. */
 export async function terminerTache(id: number, dateCompletion: string): Promise<{ prochaine?: number }> {
@@ -1257,19 +1333,31 @@ export async function ajouterContrat(c: Contrat): Promise<{ id: number; numero: 
   );
   return { id: r.lastInsertRowid, numero };
 }
-export async function modifierContrat(id: number, c: Partial<Contrat>) {
+export async function modifierContrat(id: number, c: Partial<Contrat>): Promise<boolean> {
   const champs = ['titre', 'date_emission', 'date_debut_travaux', 'date_fin_prevue',
                   'montant_avant_taxes', 'taxes_pct', 'montant_total', 'depot_pct',
                   'depot_montant', 'conditions', 'garantie', 'statut',
                   'signe_par_client', 'date_signature', 'payload_json'];
   const definis = champs.filter(k => (c as any)[k] !== undefined);
-  if (!definis.length) return;
+  if (!definis.length) return true;
   const sets = definis.map(k => `${k} = ?`).join(', ');
   const valeurs = definis.map(k => (c as any)[k]);
-  await run(`UPDATE contrats SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  const r = await run(`UPDATE contrats SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  return r.rowsAffected > 0;
 }
-export async function supprimerContrat(id: number) {
+/** Supprime un contrat interne. REFUSE un contrat SIGNÉ par le client : la modification
+ *  d'un contrat signé n'est pas offerte à l'écran, mais la suppression l'était — une pièce
+ *  à valeur juridique partait d'un clic. */
+export async function supprimerContrat(id: number): Promise<{ ok: boolean; raison?: string }> {
+  const c = await one<{ numero: string; statut: string | null; signe_par_client: number | null; date_signature: string | null }>(
+    "SELECT numero, statut, signe_par_client, date_signature FROM contrats WHERE id = ?", [id]
+  );
+  if (!c) return { ok: false, raison: "Contrat introuvable." };
+  if (Number(c.signe_par_client) === 1 || c.statut === "signe") {
+    return { ok: false, raison: `Le contrat ${c.numero} est SIGNÉ par le client${c.date_signature ? ` (${String(c.date_signature).slice(0, 10)})` : ""} : il ne se supprime pas. Passe-le plutôt à « annulé » si les travaux n'ont pas lieu.` };
+  }
   await run("DELETE FROM contrats WHERE id = ?", [id]);
+  return { ok: true };
 }
 
 // === PROJETS ===
@@ -1365,6 +1453,26 @@ export async function definirAnnexeContrat(id: number, a: { data: string; nom: s
   await run("UPDATE pipeline_contrats SET annexe_data=?, annexe_nom=?, annexe_type=? WHERE id=?",
     [a?.data || null, a?.nom || null, a?.type || null, id]);
   return { ok: true };
+}
+/** Un numéro de contrat en ligne est-il déjà porté par un contrat pipeline ? (`saufId` :
+ *  ignorer ce contrat-là.) Deux contrats au même numéro, c'est deux signatures qui se
+ *  disputent le même dossier. */
+export async function numeroContratPipelineExiste(numero: string, saufId?: number): Promise<boolean> {
+  const n = String(numero || "").trim();
+  if (!n) return false;
+  const r = await one<{ id: number }>(
+    "SELECT id FROM pipeline_contrats WHERE LOWER(TRIM(numero)) = LOWER(?) AND id != ?", [n, saufId ?? -1]
+  );
+  return !!r;
+}
+/** Le projet de CE client qui porte ce numéro, s'il existe — pour qu'un contrat en ligne
+ *  ne reprenne un numéro envoyé par l'écran que s'il vient d'un projet lié du même client. */
+export async function projetDuClientParNumero(client_id: number, numero: string): Promise<{ id: number; numero: string } | null> {
+  const n = String(numero || "").trim();
+  if (!n || !client_id) return null;
+  return await one<{ id: number; numero: string }>(
+    "SELECT id, numero FROM projets WHERE client_id = ? AND LOWER(TRIM(numero)) = LOWER(?)", [client_id, n]
+  );
 }
 export async function listerContratsParClient(client_id: number): Promise<any[]> {
   return await all<any>(
@@ -1577,8 +1685,9 @@ export async function ajouterFichierClient(f: { client_id: number; nom: string; 
   );
   return r.lastInsertRowid;
 }
-export async function supprimerFichierClient(id: number): Promise<void> {
-  await run("DELETE FROM client_fichiers WHERE id = ?", [id]);
+export async function supprimerFichierClient(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM client_fichiers WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === DOCUMENTS DE CHANTIER (permis, plans, garanties…) ===
@@ -1613,12 +1722,27 @@ export async function modifierFichierProjet(id: number, f: { nom?: string; categ
   const r = await run(`UPDATE projet_fichiers SET ${sets.join(", ")} WHERE id = ?`, [...args, id]);
   return r.rowsAffected > 0;
 }
-export async function supprimerFichierProjet(id: number): Promise<void> {
-  await run("DELETE FROM projet_fichiers WHERE id = ?", [id]);
+export async function supprimerFichierProjet(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM projet_fichiers WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 export async function compterFichiersProjet(projet_id: number): Promise<number> {
   const r = await one<{ n: number }>("SELECT COUNT(*) AS n FROM projet_fichiers WHERE projet_id = ?", [projet_id]);
   return r?.n || 0;
+}
+/** Compteurs des onglets Extras / Documents / Notes d'une fiche projet, en UNE requête
+ *  (l'écran les lit dans /api/projets/[id]/full au lieu de trois appels à part). Mêmes
+ *  périmètres que listerExtras(projet_id), listerFichiersProjet et la liste des notes :
+ *  aucune de ces trois listes ne filtre de corbeille ni de statut. */
+export async function compterOngletsProjet(projetId: number): Promise<{ nb_extras: number; nb_documents: number; nb_notes: number }> {
+  const r = await one<any>(
+    `SELECT
+       (SELECT COUNT(*) FROM extras WHERE projet_id = ?) AS nb_extras,
+       (SELECT COUNT(*) FROM projet_fichiers WHERE projet_id = ?) AS nb_documents,
+       (SELECT COUNT(*) FROM notes_rapides WHERE projet_id = ?) AS nb_notes`,
+    [projetId, projetId, projetId],
+  );
+  return { nb_extras: Number(r?.nb_extras || 0), nb_documents: Number(r?.nb_documents || 0), nb_notes: Number(r?.nb_notes || 0) };
 }
 
 /** Catégorie la plus utilisée par fournisseur (auto-suggestion). */
@@ -1651,15 +1775,16 @@ export async function ajouterTacheClient(client_id: number, titre: string, assig
   );
   return r.lastInsertRowid;
 }
-export async function modifierTacheClient(id: number, champs: { titre?: string; complete?: boolean; assignee?: string | null; date_echeance?: string | null }): Promise<void> {
+export async function modifierTacheClient(id: number, champs: { titre?: string; complete?: boolean; assignee?: string | null; date_echeance?: string | null }): Promise<boolean> {
   const sets: string[] = [], args: any[] = [];
   if (champs.titre !== undefined) { sets.push("titre = ?"); args.push(champs.titre); }
   if (champs.complete !== undefined) { sets.push("complete = ?"); sets.push("date_completion = ?"); args.push(champs.complete ? 1 : 0); args.push(champs.complete ? new Date().toISOString() : null); }
   if (champs.assignee !== undefined) { sets.push("assignee = ?"); args.push(champs.assignee || null); }
   if (champs.date_echeance !== undefined) { sets.push("date_echeance = ?"); args.push(champs.date_echeance || null); }
-  if (!sets.length) return;
+  if (!sets.length) return true;
   args.push(id);
-  await run(`UPDATE client_taches SET ${sets.join(", ")} WHERE id = ?`, args);
+  const r = await run(`UPDATE client_taches SET ${sets.join(", ")} WHERE id = ?`, args);
+  return r.rowsAffected > 0;
 }
 
 // Liste les tâches d'un utilisateur précis (pour tableau de bord)
@@ -1672,8 +1797,9 @@ export async function tachesPourUtilisateur(assignee: string): Promise<any[]> {
     ORDER BY (t.date_echeance IS NULL) ASC, t.date_echeance ASC, t.id DESC
   `, [assignee]);
 }
-export async function supprimerTacheClient(id: number): Promise<void> {
-  await run("DELETE FROM client_taches WHERE id = ?", [id]);
+export async function supprimerTacheClient(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM client_taches WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === COMMENTAIRES (fil de discussion) ===
@@ -1687,8 +1813,9 @@ export async function ajouterCommentaireClient(c: { client_id: number; auteur: s
   );
   return r.lastInsertRowid;
 }
-export async function supprimerCommentaireClient(id: number): Promise<void> {
-  await run("DELETE FROM client_commentaires WHERE id = ?", [id]);
+export async function supprimerCommentaireClient(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM client_commentaires WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === PROFIL UTILISATEUR ===
@@ -1775,9 +1902,9 @@ export async function ajouterCategorieDepense(nom: string): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function renommerCategorieDepense(id: number, nouveau: string): Promise<void> {
+export async function renommerCategorieDepense(id: number, nouveau: string): Promise<boolean> {
   const old = await one<{ nom: string }>("SELECT nom FROM categories_depense WHERE id = ?", [id]);
-  if (!old) return;
+  if (!old) return false;
   const nv = nouveau.trim();
   // Cascade dans la MÊME transaction : la catégorie et les dépenses qui la portent changent
   // de nom ensemble, ou pas du tout.
@@ -1785,13 +1912,16 @@ export async function renommerCategorieDepense(id: number, nouveau: string): Pro
     { sql: "UPDATE categories_depense SET nom = ? WHERE id = ?", args: [nv, id] },
     { sql: "UPDATE depenses_projet SET categorie = ? WHERE categorie = ?", args: [nv, old.nom] },
   ]);
+  return true;
 }
-export async function supprimerCategorieDepense(id: number): Promise<void> {
+export async function supprimerCategorieDepense(id: number): Promise<boolean> {
   // Soft delete : on désactive (on ne casse pas l'historique des dépenses)
-  await run("UPDATE categories_depense SET actif = 0 WHERE id = ?", [id]);
+  const r = await run("UPDATE categories_depense SET actif = 0 WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
-export async function reactiverCategorieDepense(id: number): Promise<void> {
-  await run("UPDATE categories_depense SET actif = 1 WHERE id = ?", [id]);
+export async function reactiverCategorieDepense(id: number): Promise<boolean> {
+  const r = await run("UPDATE categories_depense SET actif = 1 WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === NOTIFICATIONS PUSH (PWA) ===
@@ -1875,20 +2005,31 @@ export async function listerProjetsAFacturer(): Promise<any[]> {
  *  `par` vient de la SESSION serveur, jamais du corps de la requête : une confirmation de
  *  facturation est une signature, et un nom envoyé par le client ne prouve rien.
  *  Renvoie l'état écrit pour que l'appelant l'affiche sans relire. */
+export type ResultatConfirmationFacturation =
+  | { ok: true; le: string | null; par: string | null }
+  | { ok: false; code: "introuvable" | "non_complete"; raison: string };
 export async function confirmerFacturationProjet(
   id: number, par: string | null, confirme: boolean
-): Promise<{ le: string | null; par: string | null }> {
+): Promise<ResultatConfirmationFacturation> {
   await initDb();
+  // Le projet doit exister, et être COMPLÉTÉ pour être confirmé facturé : avant, l'UPDATE
+  // sur un id inexistant répondait « ok » sans rien écrire, et un chantier en cours pouvait
+  // être « facturé » — il sortait alors d'office du rappel « à facturer » à sa complétion.
+  const p = await one<{ statut: string | null }>("SELECT statut FROM projets WHERE id = ?", [id]);
+  if (!p) return { ok: false, code: "introuvable", raison: "Projet introuvable." };
+  if (confirme && p.statut !== "complete") {
+    return { ok: false, code: "non_complete", raison: `Ce chantier est « ${p.statut || "?"} » : on confirme la facturation d'un chantier COMPLÉTÉ seulement.` };
+  }
   // Pas d'invalidation de cache à faire : run() avance _lastWrite, donc cacheLecture()
   // (liste des projets, 10 s) refuse d'office son entrée construite avant cette écriture.
   if (!confirme) {
     await run("UPDATE projets SET facturation_confirmee_le = NULL, facturation_confirmee_par = NULL WHERE id = ?", [id]);
-    return { le: null, par: null };
+    return { ok: true, le: null, par: null };
   }
   const le = aujourdhuiMontreal();
   const qui = (par || "").trim() || null;
   await run("UPDATE projets SET facturation_confirmee_le = ?, facturation_confirmee_par = ? WHERE id = ?", [le, qui, id]);
-  return { le, par: qui };
+  return { ok: true, le, par: qui };
 }
 export async function getProjet(id: number): Promise<ProjetAvecTotaux | null> {
   // PERF : on ne charge PAS les blobs facture/contrat (plusieurs Mo) dans le JSON.
@@ -1927,10 +2068,15 @@ export async function ajouterProjet(p: Projet): Promise<number> {
   for (let essai = 0; ; essai++) {
     const numero = numeroImpose || await genererNumeroProjet();
     try {
+      // `date_fin_reelle` et `facturee` : un projet CRÉÉ directement « complété » (POST) reçoit
+      // les mêmes effets qu'une complétion par PATCH (route /api/projets, effetsCompletion).
+      // Avant, ces deux colonnes n'étaient pas écrites à l'insertion : le projet était
+      // complété sans date de fin (hors du CA reconnu) et non facturé.
       const r = await run(
-        `INSERT INTO projets (numero, client_id, nom, adresse_chantier, description, statut, date_debut, date_fin_prevue, soumission_numero, budget_estime, heures_estimees, prix_contrat, cree_par, contrat_pipeline_id, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projets (numero, client_id, nom, adresse_chantier, description, statut, date_debut, date_fin_prevue, date_fin_reelle, facturee, soumission_numero, budget_estime, heures_estimees, prix_contrat, cree_par, contrat_pipeline_id, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [numero, p.client_id || null, p.nom, p.adresse_chantier || null, p.description || null,
          p.statut || 'actif', p.date_debut || null, p.date_fin_prevue || null,
+         p.date_fin_reelle || null, (p as any).facturee ? 1 : 0,
          p.soumission_numero || null, p.budget_estime || null, p.heures_estimees || null,
          (p as any).prix_contrat || null, (p as any).cree_par || null, p.contrat_pipeline_id || null,
          new Date().toISOString()]
@@ -1945,7 +2091,10 @@ export async function ajouterProjet(p: Projet): Promise<number> {
   }
 }
 export async function modifierProjet(id: number, p: Partial<Projet>) {
-  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'duree_jours', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type', 'contrat_signe_data', 'contrat_signe_type', 'reno_assistance', 'facturee', 'modifie_par'];
+  // `facturation_confirmee_le/_par` : écrits ici UNIQUEMENT pour les remettre à NULL à la
+  // réouverture d'un chantier (même UPDATE que le statut). La route /api/projets retire ces
+  // deux champs du corps reçu : la confirmation reste le geste à part (confirmerFacturationProjet).
+  const champs = ['client_id', 'nom', 'adresse_chantier', 'description', 'statut', 'date_debut', 'date_fin_prevue', 'date_fin_reelle', 'duree_jours', 'budget_estime', 'heures_estimees', 'prix_contrat', 'facture_finale_data', 'facture_finale_type', 'contrat_signe_data', 'contrat_signe_type', 'reno_assistance', 'facturee', 'modifie_par', 'facturation_confirmee_le', 'facturation_confirmee_par'];
   const definis = champs.filter(k => (p as any)[k] !== undefined);
   if (!definis.length) return;
   const sets = definis.map(k => `${k} = ?`).join(', ');
@@ -1953,10 +2102,27 @@ export async function modifierProjet(id: number, p: Partial<Projet>) {
   await run(`UPDATE projets SET ${sets} WHERE id = ?`, [...valeurs, id]);
 }
 export async function supprimerProjet(id: number): Promise<{ ok: boolean; raison?: string }> {
-  // Un contrat signé téléversé sur le projet est une pièce à conserver.
-  const p = await one<any>("SELECT (contrat_signe_data IS NOT NULL) AS a_contrat FROM projets WHERE id = ?", [id]);
+  // Un contrat signé téléversé sur le projet est une pièce à conserver. Et la cascade ne
+  // doit pas effacer ce que les suppressions unitaires REFUSENT : une facture ENCAISSÉE
+  // (supprimerFactureProjet) et des heures dans une paie VERSÉE (supprimerHeureProjet).
+  // Avant, supprimer le projet emportait tout ça d'un coup — argent reçu et talons de paie
+  // disparus sans trace. UNE requête pour les trois comptes.
+  const p = await one<any>(
+    `SELECT (contrat_signe_data IS NOT NULL) AS a_contrat,
+            (SELECT COUNT(*) FROM factures_projet f WHERE f.projet_id = projets.id AND f.payee = 1) AS factures_payees,
+            (SELECT COUNT(*) FROM heures_projet h
+               WHERE h.projet_id = projets.id
+                 AND EXISTS (SELECT 1 FROM paies_periodes pp WHERE pp.employe = h.employe AND pp.paye = 1 AND h.date BETWEEN pp.debut AND pp.fin)) AS heures_payees
+     FROM projets WHERE id = ?`, [id]
+  );
   if (p && Number(p.a_contrat)) {
     return { ok: false, raison: "Ce projet porte un contrat signé joint. Retire-le d'abord si la suppression est vraiment voulue." };
+  }
+  if (p && Number(p.factures_payees) > 0) {
+    return { ok: false, raison: `Ce projet a ${Number(p.factures_payees)} facture(s) ENCAISSÉE(S) : les supprimer effacerait de l'argent reçu. Annule d'abord les paiements (ou garde le projet en « complété »).` };
+  }
+  if (p && Number(p.heures_payees) > 0) {
+    return { ok: false, raison: `Ce projet a ${Number(p.heures_payees)} entrée(s) d'heures dans une paie DÉJÀ VERSÉE : les supprimer fausserait les talons remis aux employés et la banque d'heures.` };
   }
   // Cascade en UNE transaction. Avant : onze `run()` en séquence, la plupart avec un
   // `.catch(() => {})` — une panne au milieu laissait heures et factures effacées mais le
@@ -2293,9 +2459,10 @@ export async function compterExtrasACharger(): Promise<{ n: number; total: numbe
 export async function getExtraPhoto(id: number): Promise<{ photo_data?: string; thumb_data?: string } | null> {
   return await one<any>("SELECT photo_data, thumb_data FROM extras WHERE id = ?", [id]);
 }
-export async function marquerExtraCharge(id: number, charge: boolean): Promise<void> {
-  await run("UPDATE extras SET statut = ?, date_charge = ? WHERE id = ?",
+export async function marquerExtraCharge(id: number, charge: boolean): Promise<boolean> {
+  const r = await run("UPDATE extras SET statut = ?, date_charge = ? WHERE id = ?",
     [charge ? "charge" : "a_charger", charge ? new Date().toISOString() : null, id]);
+  return r.rowsAffected > 0;
 }
 /** Modifie le texte ou les montants d'un extra.
  *
@@ -2338,8 +2505,17 @@ export async function modifierExtra(
   return { ok: true };
 }
 
-export async function supprimerExtra(id: number): Promise<void> {
+/** Supprime un extra. REFUSE un extra déjà FACTURÉ — la modification l'était déjà
+ *  (modifierExtra) mais la suppression restait libre : le montant chargé au client
+ *  disparaissait du dossier sans trace. Même chemin : rouvrir, puis supprimer. */
+export async function supprimerExtra(id: number): Promise<{ ok: boolean; raison?: string }> {
+  const e = await one<{ statut: string; description: string }>("SELECT statut, description FROM extras WHERE id = ?", [id]);
+  if (!e) return { ok: false, raison: "Extra introuvable." };
+  if (e.statut === "charge") {
+    return { ok: false, raison: `Cet extra (« ${String(e.description || "").slice(0, 60)} ») est déjà marqué FACTURÉ. Rouvre-le d'abord (↩ Rouvrir), puis supprime-le.` };
+  }
   await run("DELETE FROM extras WHERE id = ?", [id]);
+  return { ok: true };
 }
 
 // === FACTURES ===
@@ -2372,9 +2548,19 @@ export async function ajouterFactureProjet(f: FactureProjet): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function marquerFacturePayee(id: number, date_paiement: string) {
-  // Payée en entier : le montant encaissé suit le montant de la facture.
-  await run("UPDATE factures_projet SET payee = 1, date_paiement = ?, montant_paye = montant WHERE id = ?", [date_paiement, id]);
+/** Marque une facture encaissée. IDEMPOTENT : une facture DÉJÀ payée est refusée — avant,
+ *  un second clic écrasait `date_paiement` avec la date du jour et la date réelle de
+ *  l'encaissement (celle qui alimente le mois « encaissé » de Finances) était perdue. */
+export async function marquerFacturePayee(id: number, date_paiement: string): Promise<{ ok: boolean; raison?: string }> {
+  const f = await one<{ payee: number; date_paiement: string | null; numero: string | null }>(
+    "SELECT payee, date_paiement, numero FROM factures_projet WHERE id = ?", [id]
+  );
+  if (!f) return { ok: false, raison: "Facture introuvable." };
+  if (f.payee) return { ok: false, raison: `La facture ${f.numero || `#${id}`} est déjà payée${f.date_paiement ? ` le ${f.date_paiement}` : ""}.` };
+  // Payée en entier : le montant encaissé suit le montant de la facture. COALESCE : une
+  // date déjà posée (facture créée « payée » avec sa date) n'est jamais réécrite.
+  await run("UPDATE factures_projet SET payee = 1, date_paiement = COALESCE(date_paiement, ?), montant_paye = montant WHERE id = ?", [date_paiement, id]);
+  return { ok: true };
 }
 /** Annule un paiement marqué par erreur (le geste inverse manquait). */
 export async function annulerPaiementFacture(id: number) {
@@ -2542,15 +2728,34 @@ export async function fournisseursConnus(): Promise<string[]> {
   const rows = await all<{ fournisseur: string }>("SELECT DISTINCT fournisseur FROM depenses_projet WHERE fournisseur IS NOT NULL AND fournisseur != '' ORDER BY fournisseur ASC");
   return rows.map(r => r.fournisseur);
 }
+/** Nom de fournisseur normalisé, côté SERVEUR (l'écran ModalDepense fait la même chose,
+ *  mais un appel direct ou un autre écran ne la faisait pas) : espaces de bord et doubles
+ *  espaces retirés ; si un fournisseur connu ne diffère que par la casse, c'est SON
+ *  orthographe qui gagne (« patrick morin » → « Patrick Morin ») ; sinon le premier
+ *  caractère passe en majuscule. Sans ça, « BMR » et « bmr » faisaient deux fournisseurs,
+ *  donc deux lignes dans les suggestions et des doublons jamais rapprochés. */
+export function normaliserFournisseur(brut: any, connus: string[]): string | null {
+  const s = String(brut ?? "").replace(/\s+/g, " ").trim();
+  if (!s) return null;
+  const connu = connus.find((f) => String(f || "").trim().toLowerCase() === s.toLowerCase());
+  if (connu) return String(connu).trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+async function fournisseurNormalise(brut: any): Promise<string | null> {
+  if (!String(brut ?? "").trim()) return null; // vide/absent : pas de requête
+  return normaliserFournisseur(brut, await fournisseursConnus());
+}
 export async function ajouterDepenseProjet(d: DepenseProjet & { ajoute_par?: string }): Promise<number> {
+  const fournisseur = await fournisseurNormalise(d.fournisseur);
   const r = await run(
     `INSERT INTO depenses_projet (projet_id, date, montant, fournisseur, description, categorie, recu_data, recu_type, detaxe, ajoute_par, date_saisie) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [d.projet_id || null, d.date, d.montant, d.fournisseur || null, d.description || null, d.categorie || null, d.recu_data || null, d.recu_type || null, d.detaxe ? 1 : 0, d.ajoute_par || null, new Date().toISOString()]
+    [d.projet_id || null, d.date, d.montant, fournisseur || null, d.description || null, d.categorie || null, d.recu_data || null, d.recu_type || null, d.detaxe ? 1 : 0, d.ajoute_par || null, new Date().toISOString()]
   );
   return r.lastInsertRowid;
 }
-export async function supprimerDepenseProjet(id: number) {
-  await run("DELETE FROM depenses_projet WHERE id = ?", [id]);
+export async function supprimerDepenseProjet(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM depenses_projet WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 /** Rattachement d'une dépense (sans le blob du reçu) — pour juger d'une modification. */
 export async function getDepenseProjet(id: number): Promise<{ id: number; projet_id: number | null; date: string; montant: number } | null> {
@@ -2578,7 +2783,10 @@ export async function modifierDepenseProjet(id: number, d: Partial<DepenseProjet
     sets.push("montant = ?"); args.push(m);   // 0 est une valeur, pas une absence
   }
   for (const c of champsTexte) {
-    if ((d as any)[c] !== undefined) { sets.push(`${c} = ?`); args.push((d as any)[c] || null); }
+    if ((d as any)[c] === undefined) continue;
+    // Même normalisation du fournisseur qu'à la création.
+    const v = c === "fournisseur" ? await fournisseurNormalise((d as any)[c]) : (d as any)[c];
+    sets.push(`${c} = ?`); args.push(v || null);
   }
   // detaxe est un booléen 0/1 : à traiter à part (sinon `0 || null` l'écraserait).
   if (d.detaxe !== undefined) { sets.push("detaxe = ?"); args.push(d.detaxe ? 1 : 0); }
@@ -2631,8 +2839,9 @@ export async function ajouterPhotoChantier(p: PhotoChantier): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function supprimerPhotoChantier(id: number) {
-  await run("DELETE FROM photos_chantier WHERE id = ?", [id]);
+export async function supprimerPhotoChantier(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM photos_chantier WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 /** Marqueur posé AVANT de lancer l'envoi vers Drive. Une fonction serverless peut être
  *  arrêtée dès la réponse envoyée : sans cette trace, une photo n'arrivait ni sur Drive ni
@@ -2699,10 +2908,11 @@ export async function listerJobsBiblio(): Promise<JobBiblio[]> {
      FROM bibliotheque_jobs b ORDER BY b.date_ajout DESC LIMIT 200`
   );
 }
-export async function supprimerJobBiblio(id: number) {
+export async function supprimerJobBiblio(id: number): Promise<boolean> {
   // Sans ça, les photos restaient en base pour toujours après la suppression de la job.
   await run("DELETE FROM bibliotheque_photos WHERE job_id = ?", [id]).catch(() => {});
-  await run("DELETE FROM bibliotheque_jobs WHERE id = ?", [id]);
+  const r = await run("DELETE FROM bibliotheque_jobs WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 export async function ajouterPhotoBiblio(job_id: number, data: string, type?: string): Promise<number> {
   const r = await run(
@@ -2792,22 +3002,26 @@ export async function ajouterEmploye(e: Employe): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function modifierEmploye(id: number, e: Partial<Employe>) {
+export async function modifierEmploye(id: number, e: Partial<Employe>): Promise<boolean> {
   const champs = ['nom', 'taux_horaire', 'das_pct', 'actif', 'recoit_talon',
     'telephone', 'courriel', 'adresse', 'date_naissance', 'nas',
     'date_embauche', 'poste', 'contact_urgence_nom', 'contact_urgence_lien',
     'contact_urgence_tel', 'specimen_cheque_data', 'specimen_cheque_type', 'notes'];
   const definis = champs.filter(k => (e as any)[k] !== undefined);
-  if (!definis.length) return;
+  if (!definis.length) return true;
   const sets = definis.map(k => `${k} = ?`).join(', ');
-  const valeurs = definis.map(k => (e as any)[k]);
-  await run(`UPDATE employes SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  // Booléens coercés en 0/1 : `actif: "abc"` ou `recoit_talon: "false"` entraient tels
+  // quels (SQLite les gardait en texte) et l'employé sortait des listes sans explication.
+  const valeurs = definis.map(k => (k === 'actif' || k === 'recoit_talon') ? bool01((e as any)[k]) : (e as any)[k]);
+  const r = await run(`UPDATE employes SET ${sets} WHERE id = ?`, [...valeurs, id]);
+  return r.rowsAffected > 0;
 }
 export async function getEmploye(id: number): Promise<Employe | null> {
   return await one<Employe>("SELECT * FROM employes WHERE id = ?", [id]);
 }
-export async function supprimerEmploye(id: number) {
-  await run("UPDATE employes SET actif = 0 WHERE id = ?", [id]);
+export async function supprimerEmploye(id: number): Promise<boolean> {
+  const r = await run("UPDATE employes SET actif = 0 WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === VÉHICULES ===
@@ -2823,17 +3037,19 @@ export async function ajouterVehicule(v: Vehicule): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function modifierVehicule(id: number, v: Partial<Vehicule>) {
+export async function modifierVehicule(id: number, v: Partial<Vehicule>): Promise<boolean> {
   const champs = ['nom', 'marque', 'modele', 'annee', 'plaque', 'vin', 'date_achat', 'notes'];
   const def = champs.filter(k => (v as any)[k] !== undefined);
-  if (!def.length) return;
-  await run(`UPDATE vehicules SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (v as any)[k] ?? null), id]);
+  if (!def.length) return true;
+  const r = await run(`UPDATE vehicules SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (v as any)[k] ?? null), id]);
+  return r.rowsAffected > 0;
 }
-export async function supprimerVehicule(id: number) {
+export async function supprimerVehicule(id: number): Promise<boolean> {
   // Détache les polices d'assurance liées : sans ça, elles gardaient un vehicule_id
   // pointant dans le vide et disparaissaient silencieusement de l'affichage.
   await run("UPDATE assurances SET vehicule_id = NULL WHERE vehicule_id = ?", [id]).catch(() => {});
-  await run("DELETE FROM vehicules WHERE id = ?", [id]);
+  const r = await run("DELETE FROM vehicules WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
 }
 
 // === ASSURANCES ===
@@ -2854,13 +3070,17 @@ export async function ajouterAssurance(a: Assurance): Promise<number> {
   );
   return r.lastInsertRowid;
 }
-export async function modifierAssurance(id: number, a: Partial<Assurance>) {
+export async function modifierAssurance(id: number, a: Partial<Assurance>): Promise<boolean> {
   const champs = ['type', 'compagnie', 'numero_police', 'vehicule_id', 'date_debut', 'date_renouvellement', 'prime_annuelle', 'document_data', 'document_type', 'notes'];
   const def = champs.filter(k => (a as any)[k] !== undefined);
-  if (!def.length) return;
-  await run(`UPDATE assurances SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (a as any)[k] ?? null), id]);
+  if (!def.length) return true;
+  const r = await run(`UPDATE assurances SET ${def.map(k => `${k} = ?`).join(', ')} WHERE id = ?`, [...def.map(k => (a as any)[k] ?? null), id]);
+  return r.rowsAffected > 0;
 }
-export async function supprimerAssurance(id: number) { await run("DELETE FROM assurances WHERE id = ?", [id]); }
+export async function supprimerAssurance(id: number): Promise<boolean> {
+  const r = await run("DELETE FROM assurances WHERE id = ?", [id]);
+  return r.rowsAffected > 0;
+}
 
 // === PAYE / PÉRIODES BI-HEBDOMADAIRES ===
 // Conventions (régime maison, décision de Francis) :
@@ -2937,11 +3157,15 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
   // 2b. Fiches employés : qui a droit à l'indemnité de férié (actif), et à quel taux quand
   //     la quinzaine du congé n'a AUCUNE heure punchée (congé des Fêtes, semaine de pluie).
   //     Un employé désactivé après une fin d'emploi ne touche pas un férié postérieur.
+  //     Clé NORMALISÉE (trim + minuscules), comme `dasParEmploye` plus bas : avec la clé
+  //     exacte, « gabriel » dans les heures ne retrouvait pas la fiche « Gabriel » — donc un
+  //     employé « toujours actif » par défaut, et un férié seul payé à 0 $ (taux de repli 0).
+  const cleEmploye = (s: any) => String(s || "").trim().toLowerCase();
   const fiches = new Map<string, { actif: boolean; taux: number }>();
   for (const e of await all<{ nom: string; taux_horaire: number; actif: number | null }>(
     "SELECT nom, taux_horaire, actif FROM employes"
   )) {
-    fiches.set(e.nom, { actif: (e.actif ?? 1) !== 0, taux: Number(e.taux_horaire) || 0 });
+    fiches.set(cleEmploye(e.nom), { actif: (e.actif ?? 1) !== 0, taux: Number(e.taux_horaire) || 0 });
   }
 
   // 3. BANQUE D'HEURES — traitement CHRONOLOGIQUE par employé.
@@ -2965,8 +3189,9 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
     const p = periodeBiHebdo(f.date);
     for (const [emp, liste] of parEmploye) {
       if ((liste as any[]).some((g) => g.debut === p.debut)) continue;   // déjà couverte
-      if (!(fiches.get(emp)?.actif ?? true)) continue;                    // plus à l'emploi
-      if (indemniteFerie(heuresParEmploye.get(emp) || [], f.date) <= 0) continue; // aucun droit acquis
+      if (!(fiches.get(cleEmploye(emp))?.actif ?? true)) continue;       // plus à l'emploi
+      // Férié reporté au lundi : la référence se calcule sur la date d'ORIGINE.
+      if (indemniteFerie(heuresParEmploye.get(emp) || [], f.date_origine || f.date) <= 0) continue; // aucun droit acquis
       (liste as any[]).push({ employe: emp, debut: p.debut, fin: p.fin, heures: [] });
     }
   }
@@ -3005,9 +3230,15 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
       // versée : la recalculer changerait le talon remis à l'employé, et le solde de banque
       // qui en découle. Sinon on recalcule (une feuille de temps saisie en retard change la
       // base, donc l'indemnité — tant que rien n'est versé, c'est le bon montant qui gagne).
+      // Un employé DÉSACTIVÉ (fin d'emploi) ne touche pas d'indemnité : la fiche n'a pas de
+      // date de fin, donc `actif = 0` vaut pour tout férié non encore versé. Avant, ce
+      // filtre ne s'appliquait qu'aux quinzaines injectées sans heure punchée.
+      const fiche = fiches.get(cleEmploye(g.employe));
       const feries = existant?.paye
         ? { heures: Number(existant.heures_ferie) || 0, detail: null as any }
-        : feriesDeLaPeriode(heuresParEmploye.get(g.employe) || [], g.debut, g.fin);
+        : (fiche?.actif ?? true)
+          ? feriesDeLaPeriode(heuresParEmploye.get(g.employe) || [], g.debut, g.fin)
+          : { heures: 0, detail: [] as any[] };
       const heuresFerie = feries.heures;
       const detailFerie = existant?.paye
         ? (existant.feries_detail ?? null)
@@ -3022,7 +3253,7 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
         // `tauxRepli` : une quinzaine qui ne porte QUE le férié (congé des Fêtes) n'a
         // aucune heure punchée, donc aucun taux moyen — on prend celui de la fiche.
         heuresFerie,
-        tauxRepli: fiches.get(g.employe)?.taux || 0,
+        tauxRepli: fiche?.taux || 0,
       });
       const { travaillees, taux, banque_dispo: dispoAvant, banque_appliquee: appliquee, payees, brut, das: dasMontant, net } = q;
       banque = q.banque_solde;                            // solde résultant → dispo de la suivante
@@ -3076,23 +3307,37 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
   // L'indemnité de férié est incluse dans `heures_normales` (heures payées) mais elle n'a
   // jamais été punchée : il faut la retirer avant de comparer, sinon une quinzaine avec un
   // congé masquerait autant d'heures réellement dues (8 h de férié = 8 h de travail oublié
-  // qui ne serait plus signalé).
+  // qui ne serait plus signalé). Et comme le férié compte dans les 80 h, le plafond des
+  // heures de travail payables baisse d'autant : 80 h punchées + 8 h de férié = 72 h de
+  // travail payées, 8 h en banque — pas 8 h dues (voir heuresDuesPeriodePayee).
   return list.map((p: any) => ({
     ...p,
     heures_non_payees: p.paye
-      ? heuresDuesPeriodePayee(p.heures_travaillees || 0, (p.heures_normales || 0) - (p.heures_ferie || 0))
+      ? heuresDuesPeriodePayee(p.heures_travaillees || 0, (p.heures_normales || 0) - (p.heures_ferie || 0), p.heures_ferie || 0)
       : 0,
     gains_par_taux: gainsParPeriode.get(`${p.employe}|${p.debut}|${p.fin}`),
   }));
 }
 
-export async function supprimerPayePeriode(id: number) {
+/** Supprime une période de paie. REFUSE une période VERSÉE : c'est la trace d'un salaire
+ *  payé (talon remis à l'employé, DAS), et la banque d'heures des quinzaines suivantes en
+ *  découle. Pour corriger, annuler d'abord le paiement (geste explicite et journalisé). */
+export async function supprimerPayePeriode(id: number): Promise<{ ok: boolean; raison?: string }> {
+  const p = await one<{ paye: number; employe: string; debut: string; fin: string; montant_brut: number | null }>(
+    "SELECT paye, employe, debut, fin, montant_brut FROM paies_periodes WHERE id = ?", [id]
+  );
+  if (!p) return { ok: false, raison: "Période introuvable." };
+  if (p.paye) {
+    return { ok: false, raison: `Cette période (${p.employe}, ${p.debut} → ${p.fin}${p.montant_brut != null ? ` · ${p.montant_brut} $ brut` : ""}) est marquée PAYÉE. Annule d'abord le paiement, puis supprime-la.` };
+  }
   await run("DELETE FROM paies_periodes WHERE id = ?", [id]);
+  return { ok: true };
 }
 /** Définit le nombre d'heures tirées de la banque pour combler une période (choix utilisateur).
  *  Le recalcul (montants, solde) se fait au prochain listerPaiePeriodes. */
-export async function definirBanqueAppliquee(id: number, heures: number) {
-  await run("UPDATE paies_periodes SET banque_appliquee = ? WHERE id = ? AND paye = 0", [Math.max(0, heures || 0), id]);
+export async function definirBanqueAppliquee(id: number, heures: number): Promise<boolean> {
+  const r = await run("UPDATE paies_periodes SET banque_appliquee = ? WHERE id = ? AND paye = 0", [Math.max(0, heures || 0), id]);
+  return r.rowsAffected > 0;
 }
 /** Supprime les périodes de paye qui ne correspondent plus à aucune heure saisie */
 export async function nettoyerPayePeriodesOrphelines(): Promise<number> {
@@ -3132,11 +3377,25 @@ export async function nettoyerPayePeriodesOrphelines(): Promise<number> {
   await runBatch(aSupprimer.map((id) => ({ sql: "DELETE FROM paies_periodes WHERE id = ?", args: [id] })));
   return aSupprimer.length;
 }
-export async function marquerPayePeriode(id: number, paye: boolean, date_paiement?: string, note?: string) {
-  await run(
-    `UPDATE paies_periodes SET paye = ?, date_paiement = ?, note = ? WHERE id = ?`,
-    [paye ? 1 : 0, paye ? (date_paiement || aujourdhuiMontreal()) : null, note || null, id]
-  );
+/** Marque une période payée (ou annule le paiement). IDEMPOTENT : marquer payée une
+ *  période déjà payée est REFUSÉ — avant, un second clic (ou un réessai réseau) écrasait
+ *  `date_paiement` avec la date du jour, et la vraie date de versement était perdue. */
+export async function marquerPayePeriode(id: number, paye: boolean, date_paiement?: string, note?: string): Promise<{ ok: boolean; raison?: string }> {
+  const p = await one<{ paye: number; date_paiement: string | null }>("SELECT paye, date_paiement FROM paies_periodes WHERE id = ?", [id]);
+  if (!p) return { ok: false, raison: "Période introuvable." };
+  if (paye && p.paye) {
+    return { ok: false, raison: `Cette période est déjà marquée payée${p.date_paiement ? ` le ${p.date_paiement}` : ""}.` };
+  }
+  if (paye) {
+    // COALESCE : une date déjà posée n'est jamais réécrite.
+    await run(
+      `UPDATE paies_periodes SET paye = 1, date_paiement = COALESCE(date_paiement, ?), note = ? WHERE id = ?`,
+      [date_paiement || aujourdhuiMontreal(), note || null, id]
+    );
+  } else {
+    await run(`UPDATE paies_periodes SET paye = 0, date_paiement = NULL, note = ? WHERE id = ?`, [note || null, id]);
+  }
+  return { ok: true };
 }
 
 // === OUTILS ===

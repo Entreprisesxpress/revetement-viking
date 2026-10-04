@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, initDb } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
+import { idEntier, lireCorps, bool01, texte } from "@/lib/requete";
 
 const c: any = () => db();
 
@@ -23,34 +24,48 @@ const TYPE_DOCUMENT_OK = /^data:(application\/pdf|image\/(jpeg|png|webp|heic|gif
 
 export async function POST(req: NextRequest) {
   await initDb();
-  const b = await req.json();
-  if (!b.nom || !b.data_b64) return NextResponse.json({ error: "nom + data_b64 requis" }, { status: 400 });
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  const nom = texte(b.nom, 200);
+  if (!nom || !b.data_b64) return NextResponse.json({ error: "nom + data_b64 requis" }, { status: 400 });
   const m = typeof b.data_b64 === "string" ? b.data_b64.match(TYPE_DOCUMENT_OK) : null;
   if (!m) return NextResponse.json({ error: "document refusé : seuls un PDF, une image (JPEG, PNG, WebP, HEIC), un CSV ou un classeur Excel sont acceptés" }, { status: 400 });
   const par = (await utilisateurActif(req)) || "?";
   const r = await c().execute({
     sql: "INSERT INTO documents_ia (nom, type_mime, taille, data_b64, contenu_texte, tags, actif, par, date_creation) VALUES (?,?,?,?,?,?,?,?,?)",
-    args: [String(b.nom).slice(0, 200), m[1].toLowerCase(), b.taille || 0, b.data_b64, b.contenu_texte || null, b.tags || null, 1, par, new Date().toISOString()],
+    args: [nom, m[1].toLowerCase(), b.taille || 0, b.data_b64, b.contenu_texte || null, texte(b.tags, 500) || null, 1, par, new Date().toISOString()],
   });
   return NextResponse.json({ ok: true, id: Number(r.lastInsertRowid) });
 }
 
 export async function PATCH(req: NextRequest) {
   await initDb();
-  const b = await req.json();
-  if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  const id = idEntier(b.id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  if (b.nom !== undefined) {
+    b.nom = texte(b.nom, 200);
+    if (!b.nom) return NextResponse.json({ error: "nom requis" }, { status: 400 });
+  }
+  if (b.tags !== undefined) b.tags = texte(b.tags, 500);
+  // `actif` coercé en 0/1 : l'IA ne consulte que les documents actifs, une valeur
+  // « abc » stockée telle quelle sortait le document du corpus sans le dire.
+  if (b.actif !== undefined) b.actif = bool01(b.actif);
   const sets: string[] = [], args: any[] = [];
   for (const k of ["nom", "tags", "actif", "contenu_texte"]) if (b[k] !== undefined) { sets.push(`${k} = ?`); args.push(b[k]); }
   if (!sets.length) return NextResponse.json({ error: "rien" }, { status: 400 });
-  args.push(b.id);
-  await c().execute({ sql: `UPDATE documents_ia SET ${sets.join(", ")} WHERE id = ?`, args });
+  args.push(id);
+  const r = await c().execute({ sql: `UPDATE documents_ia SET ${sets.join(", ")} WHERE id = ?`, args });
+  if (!r.rowsAffected) return NextResponse.json({ error: "document introuvable" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
   await initDb();
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
-  await c().execute({ sql: "DELETE FROM documents_ia WHERE id = ?", args: [+id] });
+  const id = idEntier(req.nextUrl.searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  const r = await c().execute({ sql: "DELETE FROM documents_ia WHERE id = ?", args: [id] });
+  if (!r.rowsAffected) return NextResponse.json({ error: "document introuvable" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

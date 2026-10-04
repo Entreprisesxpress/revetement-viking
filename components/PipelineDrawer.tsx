@@ -10,8 +10,10 @@ import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import MicVocal from "@/components/MicVocal";
 import ZoneDepot from "@/components/ZoneDepot";
 import { aujourdhuiMontreal } from "@/lib/date";
-import { ecrire, envoyer } from "@/lib/envoi";
+import { ecrire, envoyer, nombreSaisi } from "@/lib/envoi";
 import { fichierTropLourd } from "@/lib/limites-fichiers";
+import { estEmailNonConfigure, urlGmailContrat, urlMailtoContrat } from "@/lib/courriel-contrat";
+import { estAppareilTactile } from "@/lib/demande-avis";
 
 interface Props {
   client: any;
@@ -169,19 +171,27 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     try { await genererContratReel(); } finally { contratEnCours.current = false; }
   };
   const genererContratReel = async () => {
-    const prixStr = prompt(`Prix total du contrat pour « ${form.nom} » (incluant taxes ou non, comme tu veux) :`, "");
+    // Tout le système traite le prix du contrat TAXES INCLUSES (rentabilité, échéancier,
+    // facturation) : le dire ici, au lieu de « incluant taxes ou non, comme tu veux ».
+    const prixStr = prompt(`Prix total du contrat pour « ${form.nom} », TAXES INCLUSES (ex. : 12 500,00) :`, "");
     if (prixStr === null) return;
-    const prix = parseFloat(prixStr.replace(",", ".")) || 0;
+    // nombreSaisi (lib/calculs.ts) : « 12 500,00 » lu correctement. Avant,
+    // `parseFloat("12 500.00")` s'arrêtait à l'espace → contrat et projet créés à 12 $.
+    const prix = nombreSaisi(prixStr);
+    if (!Number.isFinite(prix) || prix <= 0) { toast(`Prix illisible ou nul : « ${prixStr} » — écris par exemple 12 500,00`, "warning"); return; }
     const dateStr = prompt("Date de début des travaux (ex: 15 juin 2026) :", "");
     if (dateStr === null) return;
     const depotStr = prompt("% de dépôt à la signature (défaut 25) :", "25");
     if (depotStr === null) return;
-    const depot = parseFloat(depotStr) || 25;
+    const depot = depotStr.trim() ? nombreSaisi(depotStr) : 25;
+    if (!Number.isFinite(depot) || depot < 0 || depot > 100) { toast(`Dépôt illisible : « ${depotStr} » — un pourcentage entre 0 et 100`, "warning"); return; }
     const soumNum = prompt("N° de devis/soumission lié (laisser vide si aucun) :", "") || "";
 
     try {
       const { genererContratBlob } = await import("@/lib/pdf-contrat");
-      // Numéro auto = numéro du projet lié, sinon généré
+      // Numéro = celui du projet lié s'il y en a un ; sinon on n'envoie RIEN et le
+      // serveur en génère un (genererNumeroContratPipeline). Le « C-AAAA-idClient »
+      // fabriqué ici entrait en collision au 2e contrat du même client.
       let numero = "";
       if (form.projet_lien_id) {
         try {
@@ -189,7 +199,6 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
           if (pr?.numero) numero = pr.numero;
         } catch {}
       }
-      if (!numero) numero = `C-${new Date().getFullYear()}-${String(client.id).padStart(3, "0")}`;
       const data = {
         numero,
         charge_projet: moiUtilisateur || "Francis Quinchon",
@@ -213,17 +222,16 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
         r.onerror = rej;
         r.readAsDataURL(blob);
       });
-      const res = await envoyer("/api/contrats-pipeline", { corps: { client_id: client.id, numero: data.numero, data_json: data, pdf_brouillon: pdf64 } });
+      const res = await envoyer("/api/contrats-pipeline", { corps: { client_id: client.id, ...(numero ? { numero } : {}), data_json: data, pdf_brouillon: pdf64 } });
       if (!res.ok) { toast(`Contrat NON sauvegardé : ${res.erreur}`, "error"); return; }
       const d: any = res.data || {};
       rechargerContrats();
-      // Téléchargement local du brouillon
-      const url = URL.createObjectURL(blob);
+      // Téléchargement du brouillon tel que le SERVEUR l'a régénéré : c'est lui qui porte
+      // le numéro de contrat quand on l'a laissé générer (le blob local n'en a pas).
       const a = document.createElement("a");
-      a.href = url;
+      a.href = `/api/contrats-pipeline/${d.token}/pdf`;
       a.download = `Contrat-${d.numero}-${form.nom.replace(/[^a-z0-9]/gi, "_")}.pdf`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
       // Copie le lien de signature
       const lien = `${window.location.origin}/contrat/${d.token}`;
       try { await navigator.clipboard.writeText(lien); } catch {}
@@ -242,25 +250,31 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     try { await navigator.clipboard.writeText(lien); toast("📋 Lien copié", "success"); } catch { toast("Copie impossible", "error"); }
   };
 
+  // Repli quand le serveur n'a pas de courriel configuré : un panneau avec de VRAIS liens
+  // (app courriel, Gmail) que l'utilisateur touche lui-même, et le contrat n'est marqué
+  // « envoyé » qu'une fois qu'il le confirme — pas avant d'avoir ouvert quoi que ce soit.
+  const [repliCourriel, setRepliCourriel] = useState<null | { contrat: any; lien: string }>(null);
+  const confirmerEnvoiManuel = async () => {
+    if (!repliCourriel) return;
+    if (!(await ecrire("/api/contrats-pipeline", "PATCH", { id: repliCourriel.contrat.id, action: "envoye" }, "Enregistrement"))) return;
+    toast(`📧 Contrat ${repliCourriel.contrat.numero} marqué envoyé`, "success");
+    setRepliCourriel(null);
+    rechargerContrats();
+  };
+
   const envoyerContratParMail = async (c: any) => {
     if (!form.courriel) { toast("Aucun courriel client pour cette fiche — ajoute-le dans les coordonnées", "warning"); return; }
     if (!confirm(`Envoyer le contrat ${c.numero} à ${form.courriel} pour signature ?`)) return;
     const res = await envoyer<any>(`/api/contrats-pipeline/${c.id}/envoyer`, { corps: { to: form.courriel } });
-    const d = res.ok ? res.data || {} : { error: res.erreur };
     if (res.ok) {
       toast(`📧 Contrat envoyé à ${form.courriel}`, "success");
       rechargerContrats();
-    } else if (d.raison === "email_non_configure") {
-      // Repli mailto si service mail pas configuré
-      const lien = `${window.location.origin}/contrat/${c.token}`;
-      const sujet = `Contrat à signer — Revêtement Viking Inc. (${c.numero})`;
-      const corps = `Bonjour ${form.nom},\n\nVoici le lien sécurisé pour signer votre contrat de rénovation :\n\n${lien}\n\nCordialement,\nRevêtement Viking Inc.`;
-      window.location.href = `mailto:${form.courriel}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
-      if (!(await ecrire("/api/contrats-pipeline", "PATCH", { id: c.id, action: "envoye" }, "Enregistrement"))) return;
-      toast("📧 Client mail ouvert (envoi serveur non configuré)", "info");
-      rechargerContrats();
+    } else if (estEmailNonConfigure(res.data)) {
+      // `{ ok:false, raison }` arrive en 200 : envoyer() le range dans `data`, pas dans
+      // `erreur` (V-29 : lu sur `{ error: res.erreur }`, ce repli n'était jamais atteint).
+      setRepliCourriel({ contrat: c, lien: `${window.location.origin}/contrat/${c.token}` });
     } else {
-      toast(`Échec envoi : ${d.error || "erreur inconnue"}`, "error");
+      toast(`Échec envoi : ${res.data?.error || res.erreur || "erreur inconnue"}`, "error");
     }
   };
 
@@ -272,14 +286,14 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     setBusy(true);
     try {
       const res = await envoyer<any>(`/api/contrats-pipeline/${co.token}/envoyer-signe`, { corps: { to: dest } });
-      const d = res.ok ? res.data || {} : { error: res.erreur };
       if (res.ok) {
+        const d = res.data || {};
         toast(`📧 Dossier signé envoyé à ${dest}${d.verdict === "CONFORME" ? " (intégrité vérifiée)" : ""}`, "success");
         rechargerContrats();
-      } else if (d.raison === "email_non_configure") {
+      } else if (estEmailNonConfigure(res.data)) {
         toast("Service courriel non configuré — télécharge le contrat et le certificat pour les envoyer manuellement", "warning");
       } else {
-        toast(`Échec envoi : ${d.error || "erreur inconnue"}`, "error");
+        toast(`Échec envoi : ${res.data?.error || res.erreur || "erreur inconnue"}`, "error");
       }
     } catch (e: any) {
       // Sans ce catch, une réponse non-JSON (401, page d'erreur, réseau coupé) rejetait la
@@ -710,6 +724,35 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
             )}
           </section>
         </div>
+
+        {repliCourriel && (() => {
+          const { contrat, lien } = repliCourriel;
+          const tactile = typeof navigator !== "undefined" && estAppareilTactile(navigator);
+          const lienApp = (
+            <a key="app" href={urlMailtoContrat(form.courriel, contrat.numero, form.nom, lien)} className="block w-full text-center px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold">
+              📱 Ouvrir mon app courriel
+            </a>
+          );
+          const lienGmail = (
+            <a key="gmail" href={urlGmailContrat(form.courriel, contrat.numero, form.nom, lien)} target="_blank" rel="noopener noreferrer" className="block w-full text-center px-4 py-3 bg-red-600 hover:bg-red-500 text-white rounded font-bold">
+              ✉️ Ouvrir dans Gmail (ordinateur)
+            </a>
+          );
+          return (
+            <div className="fixed inset-0 z-[90] bg-black/60 flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setRepliCourriel(null)}>
+              <div className="bg-white rounded-t-2xl md:rounded-lg max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Envoyer le contrat par courriel">
+                <h3 className="text-lg font-bold">📧 Envoyer le contrat {contrat.numero}</h3>
+                <p className="text-sm text-slate-700">
+                  L'envoi par l'app n'est pas configuré sur le serveur. Le message est prérempli pour <strong className="break-all">{form.courriel}</strong> : tu l'envoies depuis ton courriel, puis tu confirmes ici.
+                </p>
+                <div className="space-y-2">{tactile ? [lienApp, lienGmail] : [lienGmail, lienApp]}</div>
+                <button onClick={() => copierLienContrat(contrat.token)} className="w-full px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded text-sm font-semibold">🔗 Copier seulement le lien de signature</button>
+                <button onClick={confirmerEnvoiManuel} className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-sm">✓ J'ai envoyé le courriel — marquer « envoyé »</button>
+                <button onClick={() => setRepliCourriel(null)} className="w-full px-3 py-2 text-sm text-slate-600 hover:text-slate-900">Fermer sans marquer</button>
+              </div>
+            </div>
+          );
+        })()}
 
         <footer className="sticky bottom-0 bg-white border-t p-3 flex gap-2 justify-between items-center flex-wrap">
           <button onClick={supprimerFiche} className="px-3 py-2 text-red-700 hover:bg-red-50 rounded text-xs font-semibold">🗑 Supprimer la fiche</button>

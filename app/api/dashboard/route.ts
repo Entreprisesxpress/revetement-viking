@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db as getDbClient, listerProjets } from "@/lib/db";
+import { db as getDbClient, listerProjets, listerPaiePeriodes } from "@/lib/db";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { aujourdhuiMontreal, jourMontreal } from "@/lib/date";
+import { revenuAvantTaxes } from "@/lib/calculs";
 
 /** Dashboard enrichi : KPIs business agrégés pour la page d'accueil.
  *  IMPORTANT : revenu et marge utilisent la MÊME logique que la page Finances /
@@ -47,17 +48,23 @@ export async function GET(_req: NextRequest) {
       args: [],
     }).catch(() => ({ rows: [{ total: 0, n: 0 }] }));
 
-    // Banque d'heures (somme des banque_solde des dernières paies par employé)
-    const rBanque = await db.execute({
-      // La DERNIÈRE période, c'est la plus récente par DATE — pas par id : les périodes
-      // sont créées au fil de la découverte des heures, donc saisir une feuille de temps
-      // oubliée crée une période ancienne avec un id plus élevé. Le tableau de bord
-      // affichait alors un solde de banque périmé, différent de l'écran Paie.
-      sql: `SELECT COALESCE(SUM(pp.banque_solde),0) AS total FROM paies_periodes pp
-            JOIN (SELECT employe, MAX(debut) AS d FROM paies_periodes GROUP BY employe) m
-              ON m.employe = pp.employe AND m.d = pp.debut`,
-      args: [],
-    }).catch(() => ({ rows: [{ total: 0 }] }));
+    // Banque d'heures : somme des soldes de la DERNIÈRE période de chaque employé, lus par
+    // listerPaiePeriodes() — la même fonction que l'écran Paie, qui RECALCULE les périodes
+    // non payées à partir des heures (et borne ses requêtes). Lire `paies_periodes` tel quel
+    // montrait un solde périmé dès qu'une feuille de temps avait été saisie depuis la
+    // dernière ouverture de l'écran Paie. La liste est triée par début décroissant : la
+    // première ligne de chaque employé est sa période la plus récente.
+    let banque_heures = 0;
+    try {
+      const vus = new Set<string>();
+      for (const p of await listerPaiePeriodes()) {
+        if (vus.has(p.employe)) continue;
+        vus.add(p.employe);
+        banque_heures += Number((p as any).banque_solde) || 0;
+      }
+    } catch (e: any) {
+      console.error("[/api/dashboard] banque d'heures indisponible :", e?.message || e);
+    }
 
     // Soumissions en attente de réponse (statut envoyee, > 7 jours) — seuil en jour de Montréal.
     const il_y_a_7j = jourMontreal(new Date(Date.now() - 7 * 86400000).toISOString());
@@ -67,12 +74,16 @@ export async function GET(_req: NextRequest) {
     }).catch(() => ({ rows: [{ n: 0 }] }));
 
     return NextResponse.json({
+      // `revenu_mois` reste TAXES INCLUSES (prix de contrat + extras, tels que saisis) ;
+      // `revenu_mois_avant_taxes` est le même montant ramené hors taxes (÷ 1,14975), la
+      // même formule que finances() — c'est lui que l'écran affiche avec « av. taxes ».
       revenu_mois: Math.round(revenu_mois * 100) / 100,
+      revenu_mois_avant_taxes: Math.round(revenuAvantTaxes(revenu_mois) * 100) / 100,
       marge_moyenne_pct: Math.round(margeMoyennePct * 10) / 10,
       marge_moyenne_montant: Math.round(totalMarge),
       factures_impayees_montant: Math.round((+(rImpayees.rows[0] as any).total || 0) * 100) / 100,
       factures_impayees_nb: +(rImpayees.rows[0] as any).n || 0,
-      banque_heures: +(rBanque.rows[0] as any).total || 0,
+      banque_heures: Math.round(banque_heures * 100) / 100,
       projets_en_retard: nbEnRetard,
       soumissions_a_relancer: +(rRelances.rows[0] as any).n || 0,
       projets_actifs: actifs.length,

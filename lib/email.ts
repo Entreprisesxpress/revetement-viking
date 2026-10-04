@@ -17,13 +17,26 @@ export interface EmailOpts { to: string; subject: string; text: string; html?: s
 const NOM_EXPEDITEUR = "Revêtement Viking Inc.";
 const REPLY_TO_DEFAUT = "revetementviking@gmail.com";
 
-/** L'app peut-elle envoyer un courriel D'ELLE-MÊME ? Resend compte seulement si
- *  l'expéditeur est posé en production (sinon `sendEmail` refuse, voir `enProduction`) :
- *  les appelants retombent alors sur « non configuré » (mailto, Gmail) au lieu d'un 500. */
+export type FournisseurCourriel = "resend" | "gmail";
+
+/** UNE seule décision de fournisseur, partagée par `emailEstConfigure()` et `envoyer()`.
+ *
+ *  Avant, les deux fonctions jugeaient chacune de leur côté : `emailEstConfigure` disait
+ *  « oui » parce que Gmail était prêt, mais `envoyer` prenait Resend dès que la clé
+ *  existait — et échouait sans RESEND_FROM en production. L'écran promettait un envoi
+ *  que le serveur ne pouvait pas tenir. Ici : Resend s'il est UTILISABLE (clé, et
+ *  expéditeur posé en production), sinon bascule sur Gmail s'il est prêt, sinon rien. */
+export function fournisseurCourriel(env: NodeJS.ProcessEnv = process.env): FournisseurCourriel | null {
+  const resendUtilisable = !!env.RESEND_API_KEY && (!!env.RESEND_FROM || !enProduction(env));
+  if (resendUtilisable) return "resend";
+  if (env.GMAIL_USER && env.GMAIL_APP_PASSWORD) return "gmail";
+  return null;
+}
+
+/** L'app peut-elle envoyer un courriel D'ELLE-MÊME ? Même décision que `envoyer()` :
+ *  les appelants retombent sur « non configuré » (mailto, Gmail web) au lieu d'un 500. */
 export function emailEstConfigure(env: NodeJS.ProcessEnv = process.env): boolean {
-  const resendPret = !!env.RESEND_API_KEY && (!!env.RESEND_FROM || !enProduction(env));
-  const gmailPret = !!(env.GMAIL_USER && env.GMAIL_APP_PASSWORD);
-  return resendPret || gmailPret;
+  return fournisseurCourriel(env) !== null;
 }
 
 /** En production (Vercel ou NODE_ENV=production), l'expéditeur de test de Resend est
@@ -66,11 +79,9 @@ export async function sendEmail(opts: EmailOpts): Promise<EmailResult> {
 }
 
 async function envoyer(opts: EmailOpts): Promise<{ resultat: EmailResult; fournisseur: string }> {
+  const fournisseur = fournisseurCourriel(process.env);
   // === Resend (pas de 2FA) ===
-  if (process.env.RESEND_API_KEY) {
-    if (!process.env.RESEND_FROM && enProduction()) {
-      return { fournisseur: "resend", resultat: { ok: false, error: "RESEND_FROM non configuré" } };
-    }
+  if (fournisseur === "resend") {
     const from = process.env.RESEND_FROM || "onboarding@resend.dev"; // hors production seulement
     try {
       const body: any = {
@@ -104,10 +115,10 @@ async function envoyer(opts: EmailOpts): Promise<{ resultat: EmailResult; fourni
     }
   }
 
-  // === Gmail SMTP (legacy) ===
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return { fournisseur: "aucun", resultat: { ok: false, raison: "non_configure" } };
+  // === Gmail SMTP (legacy) — aussi la bascule quand Resend n'est pas utilisable ===
+  if (fournisseur !== "gmail") return { fournisseur: "aucun", resultat: { ok: false, raison: "non_configure" } };
+  const user = process.env.GMAIL_USER!;
+  const pass = process.env.GMAIL_APP_PASSWORD!;
   try {
     const transporter = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000 });
     const info = await transporter.sendMail({

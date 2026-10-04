@@ -15,7 +15,9 @@ export async function GET(req: NextRequest) {
   // (envoi d'emails abusif). On la désactive plutôt que de la laisser ouverte.
   const refus = verifierCron(req);
   if (refus) return refus;
-  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" });
+  // 503 et non 200 : Vercel ne regarde que le statut du cron, un `{ok:false}` en 200
+  // passait pour un succès.
+  if (!emailEstConfigure()) return NextResponse.json({ ok: false, raison: "email_non_configure" }, { status: 503 });
 
   // Garde d'idempotence par SEMAINE ISO, posée seulement après un envoi réussi : un
   // réessai de Vercel ou un appel manuel le même dimanche ne renvoie pas deux récaps.
@@ -103,7 +105,9 @@ Bonne semaine !
   // `ok: true` avec 0 envoi masquait deux pannes distinctes (aucun destinataire configuré,
   // ou Resend qui refuse) derrière un succès. Le cron doit échouer si rien n'est parti.
   if (envoyes === 0) {
-    return NextResponse.json({ ok: false, erreur: destinataires.length === 0 ? "aucun destinataire configuré (FRANCIS_EMAIL / GABRIEL_EMAIL)" : "envoi refusé par le fournisseur de courriel", destinataires: destinataires.length }, { status: 500 });
+    // Aucun destinataire = configuration manquante (503) ; envoi refusé = panne (500).
+    const nonConfigure = destinataires.length === 0;
+    return NextResponse.json({ ok: false, erreur: nonConfigure ? "aucun destinataire configuré (FRANCIS_EMAIL / GABRIEL_EMAIL)" : "envoi refusé par le fournisseur de courriel", destinataires: destinataires.length }, { status: nonConfigure ? 503 : 500 });
   }
   await setParametre(cleGuard, String(envoyes));
   return NextResponse.json({ ok: true, envoyes });

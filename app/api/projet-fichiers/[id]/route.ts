@@ -1,14 +1,16 @@
 import { reponseFichier, extensionDe } from "@/lib/fichier-http";
 import { NextRequest, NextResponse } from "next/server";
 import { getFichierProjet } from "@/lib/db";
+import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
 
 // Types qu'on laisse s'afficher dans l'onglet. Tout le reste est forcé en téléchargement :
 // on ne laisse pas le navigateur interpréter un fichier arbitraire dans le contexte du site.
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
-  const f = await getFichierProjet(+id);
+  const id = idEntier((await ctx.params).id);
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
+  const f = await getFichierProjet(id);
   if (!f || !f.data) return new NextResponse("Not found", { status: 404 });
   const m = /^data:([^;]+);base64,([\s\S]+)$/.exec(String(f.data));
   if (!m) return new NextResponse("Invalid data", { status: 500 });

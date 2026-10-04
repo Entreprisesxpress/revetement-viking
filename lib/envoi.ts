@@ -33,7 +33,8 @@ export async function envoyer<T = any>(
       const parDefaut = r.status === 401 ? "session expirée — reconnecte-toi"
         : r.status === 413 ? "fichier trop volumineux pour le serveur (max 3 Mo) — compresse le PDF ou réduis la photo"
         : `erreur ${r.status}`;
-      return { ok: false, erreur: data?.error || data?.message || parDefaut, statut: r.status, data };
+      // `message` = la phrase lisible (quoi faire) ; `error` = l'étiquette courte. On montre la phrase.
+      return { ok: false, erreur: data?.message || data?.error || parDefaut, statut: r.status, data };
     }
     if (data && data.ok === false) return { ok: false, erreur: data.error || "refusé par le serveur", statut: r.status, data };
     return { ok: true, data, statut: r.status };
@@ -86,7 +87,7 @@ export async function lireJson<T = any>(url: string, opts: RequestInit = {}): Pr
     try { data = txt ? JSON.parse(txt) : undefined; } catch { /* réponse non-JSON */ }
     if (!r.ok) {
       const parDefaut = r.status === 401 ? "session expirée — reconnecte-toi" : `erreur ${r.status}`;
-      return { ok: false, erreur: data?.error || data?.message || parDefaut, statut: r.status };
+      return { ok: false, erreur: data?.message || data?.error || parDefaut, statut: r.status };
     }
     if (data && typeof data === "object" && !Array.isArray(data) && data.ok === false) {
       return { ok: false, erreur: data.error || "refusé par le serveur", statut: r.status };

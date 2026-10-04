@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { listerPhotosChantier, getPhotoChantier, getPhotoChantierMeta, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync, marquerDriveEnAttente } from "@/lib/db";
+import { listerPhotosChantier, getPhotoChantierMeta, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync, marquerDriveEnAttente } from "@/lib/db";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier } from "@/lib/drive";
 import { donneesTropLourdes, LIMITE_ENCODEE_OCTETS, poidsLisible } from "@/lib/limites-fichiers";
 import { avecIdempotence } from "@/lib/idempotence";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
+import { idEntier, lireCorps, texte } from "@/lib/requete";
 
 // Seules des images ou des vidéos sont acceptées, et le type est DÉRIVÉ du data URL :
 // le `photo_type` déclaré par le client n'est jamais cru (il décidait de l'extension sur
@@ -14,14 +15,20 @@ const TYPE_PHOTO_RX = /^data:((?:image|video)\/[a-z0-9.+-]+);base64,/i;
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  const id = sp.get("id");
-  if (id) return NextResponse.json(await getPhotoChantier(+id));
-  const projet_id = sp.get("projet_id");
+  // (La branche `?id=` — une photo avec son blob en JSON — est retirée : aucun écran ne
+  // l'appelait ; le contenu d'une photo passe par /api/photos/[id].)
+  const pidBrut = sp.get("projet_id");
+  let projet_id: number | undefined;
+  if (pidBrut !== null && pidBrut !== "") {
+    const pid = idEntier(pidBrut);
+    if (!pid) return NextResponse.json({ error: "projet_id invalide" }, { status: 400 });
+    projet_id = pid;
+  }
   // Sans projet, la liste est TOUJOURS servie sans les blobs : 200 photos plein format en
   // base64 dans un seul JSON, c'était des dizaines de Mo par appel. Le contenu d'une photo
   // passe par /api/photos/[id].
   const sansData = sp.get("data") === "0" || !projet_id;
-  return NextResponse.json(await listerPhotosChantier(projet_id ? +projet_id : undefined, { sansData }));
+  return NextResponse.json(await listerPhotosChantier(projet_id, { sansData }));
 }
 
 // Idempotent : l'écran envoie X-Idempotence-Cle ; un réessai réseau ou un double clic ne
@@ -31,8 +38,10 @@ export async function POST(req: NextRequest) {
 }
 
 async function creerPhoto(req: NextRequest): Promise<NextResponse> {
-  const b = await req.json();
-  if (!b.projet_id || !b.date || !b.photo_data) {
+  const b = await lireCorps(req);
+  if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
+  const projetId = idEntier(b.projet_id);
+  if (!projetId || !b.date || !b.photo_data) {
     return NextResponse.json({ error: "projet_id, date et photo_data requis" }, { status: 400 });
   }
   if (donneesTropLourdes(b.photo_data) || donneesTropLourdes(b.thumb_data)) {
@@ -43,7 +52,10 @@ async function creerPhoto(req: NextRequest): Promise<NextResponse> {
   if (b.thumb_data != null && b.thumb_data !== "" && !(typeof b.thumb_data === "string" && TYPE_PHOTO_RX.test(b.thumb_data))) {
     return NextResponse.json({ error: "thumb_data doit être une image (data URL)" }, { status: 400 });
   }
+  b.projet_id = projetId;
   b.photo_type = mType[1].toLowerCase();
+  b.description = texte(b.description, 500) || undefined;
+  b.employes = texte(b.employes, 200) || undefined;
   const id = await ajouterPhotoChantier(b);
 
   // Push Drive si actif. Deux garde-fous, parce qu'une fonction serverless peut être
@@ -58,8 +70,8 @@ async function creerPhoto(req: NextRequest): Promise<NextResponse> {
     await marquerDriveEnAttente(id).catch(() => {});
     after(async () => {
       try {
-        const projet = await getProjet(+b.projet_id);
-        const sousDossier = `${projet?.nom || "Projet " + b.projet_id} - Photos`;
+        const projet = await getProjet(projetId);
+        const sousDossier = `${projet?.nom || "Projet " + projetId} - Photos`;
         const dossierId = await trouverOuCreerSousDossier(sousDossier);
         const ext = b.photo_type?.includes("png") ? "png" : b.photo_type?.includes("pdf") ? "pdf" : b.photo_type?.startsWith("video/") ? "mp4" : "jpg";
         const nom = `${b.date}_${b.description || "photo"}_${id}.${ext}`.replace(/[/\\]/g, "-");
@@ -76,17 +88,17 @@ async function creerPhoto(req: NextRequest): Promise<NextResponse> {
 }
 
 export async function DELETE(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
+  const id = idEntier(req.nextUrl.searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   const user = await utilisateurActif(req);
   // Métadonnées seulement (pas le blob) pour la trace : une photo effacée doit rester
   // retrouvable sur Drive par son projet, sa date et son drive_file_id.
-  const avant = await getPhotoChantierMeta(+id).catch(() => null);
-  await supprimerPhotoChantier(+id);
-  journaliser("photo.supprimee", {
+  const avant = await getPhotoChantierMeta(id).catch(() => null);
+  if (!(await supprimerPhotoChantier(id))) return NextResponse.json({ error: "photo introuvable" }, { status: 404 });
+  after(() => journaliser("photo.supprimee", {
     ref_type: "photo", ref_id: id, utilisateur: user || undefined,
     description: avant ? `projet ${avant.projet_id} · ${avant.date} · ${avant.description || "photo"}` : `Photo #${id}`,
     avant,
-  });
+  }));
   return NextResponse.json({ ok: true });
 }

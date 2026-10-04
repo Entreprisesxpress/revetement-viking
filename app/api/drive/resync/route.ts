@@ -3,13 +3,20 @@ import { listerPhotosErreursDrive, marquerDriveSync, nomsProjets } from "@/lib/d
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier } from "@/lib/drive";
 
 export const dynamic = "force-dynamic";
+// Un envoi Drive par photo (plusieurs Mo chacune) : bien au-delà des 60 s par défaut.
+export const maxDuration = 300;
+// Un LOT de photos par appel : avant, toutes les photos en échec partaient dans la même
+// fonction, qui mourait au plafond de temps sans réponse — l'écran restait « en cours ».
+// La réponse porte `reste` (photos encore à reprendre) : l'écran rappelle tant que > 0.
+const TAILLE_LOT = 10;
 
 // Réessaie d'uploader sur Drive les photos dont la synchro avait échoué.
 export async function POST(_req: NextRequest) {
   if (!(await driveEstActif())) {
     return NextResponse.json({ ok: false, error: "drive_inactif", message: "Connecte Google Drive d'abord." }, { status: 503 });
   }
-  const photos = await listerPhotosErreursDrive();
+  const toutes = await listerPhotosErreursDrive();
+  const photos = toutes.slice(0, TAILLE_LOT);
   // Noms de projets préchargés en UNE requête (avant : un getProjet() — PROJ_SQL et ses
   // sept sous-requêtes — par photo), et un seul appel Drive par dossier de projet.
   const noms = await nomsProjets(photos.map((p) => Number(p.projet_id)));
@@ -42,5 +49,8 @@ export async function POST(_req: NextRequest) {
       try { await marquerDriveSync(p.id, null, dernierErreur); } catch {}
     }
   }
-  return NextResponse.json({ ok: true, synced, ignores, restants, dernierErreur });
+  // `reste` : photos en échec qui n'ont PAS été tentées dans ce lot (à rappeler).
+  // `restants` : photos tentées dans ce lot et toujours en échec.
+  const reste = Math.max(0, toutes.length - photos.length);
+  return NextResponse.json({ ok: true, synced, ignores, restants, reste, dernierErreur });
 }

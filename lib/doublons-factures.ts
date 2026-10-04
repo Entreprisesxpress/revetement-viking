@@ -10,8 +10,13 @@
 //
 // Réglage choisi par Francis (2026-09-21) : PRUDENT. Mieux vaut manquer un doublon tordu
 // que crier au loup sur des achats répétitifs — une alerte à laquelle on ne croit plus ne
-// sert plus à rien. D'où : montant identique AU CENT, fenêtre de 30 jours, et le numéro de
-// facture répété traité à part (doublon franc, quelle que soit la date).
+// sert plus à rien. D'où : montant identique AU CENT, fenêtre STRICTE de 27 jours, et le
+// numéro de facture répété traité à part (doublon franc, quelle que soit la date).
+//
+// Pourquoi 27 et pas 30 : une facture mensuelle fixe (loyer, Bell, assurance) revient tous
+// les 28 à 31 jours. Avec 30 jours, elle était signalée cinq fois par an — exactement
+// l'alerte à laquelle on finit par ne plus croire. À 27 jours, deux mensualités ne se
+// touchent jamais ; une vraie double saisie, elle, arrive à quelques jours d'écart.
 
 import { dateISOLocale } from "./calculs";
 
@@ -43,8 +48,9 @@ export interface PaireSuspecte {
   ecart_jours: number;
 }
 
-/** Fenêtre de rapprochement, en jours (réglage prudent). */
-export const FENETRE_JOURS = 30;
+/** Fenêtre de rapprochement, en jours (réglage prudent) : deux pièces à PLUS de 27 jours
+ *  d'écart (28 et au-delà) ne sont jamais rapprochées — une mensualité ne l'est donc pas. */
+export const FENETRE_JOURS = 27;
 
 /** Normalise un nom de tiers pour comparer : « PATRICK MORIN  » ≡ « Patrick Morin ».
  *  Volontairement CONSERVATEUR : on retire les accents, la casse, la ponctuation et les
@@ -101,7 +107,7 @@ function parSeau<T>(pieces: T[], cle: (p: T) => string | null): Map<string, T[]>
   return m;
 }
 
-/** Factures de FOURNISSEURS (dépenses) : même fournisseur + même montant + ≤ 30 jours.
+/** Factures de FOURNISSEURS (dépenses) : même fournisseur + même montant + ≤ 27 jours.
  *  Les montants nuls ou négatifs sont écartés — une note de crédit de −100 $ et un
  *  remboursement de −100 $ sont deux gestes légitimes, pas un doublon. */
 export function detecterDoublonsDepenses(pieces: PieceDepense[], fenetreJours = FENETRE_JOURS): PaireSuspecte[] {
@@ -120,7 +126,7 @@ export function detecterDoublonsDepenses(pieces: PieceDepense[], fenetreJours = 
     for (let i = 0; i < tri.length; i++) {
       for (let j = i + 1; j < tri.length; j++) {
         const e = ecartJours(tri[i].date, tri[j].date);
-        if (e > fenetreJours) break; // trié par date : les suivantes sont encore plus loin
+        if (e > fenetreJours) break; // trié par date : les suivantes sont encore plus loin (28 j et plus : jamais)
         out.push({
           famille: "depense",
           cle: clePaire("depense", tri[i].id, tri[j].id),
@@ -143,7 +149,7 @@ export function detecterDoublonsDepenses(pieces: PieceDepense[], fenetreJours = 
 
 /** Factures CLIENT : deux signaux.
  *  1. Même NUMÉRO — doublon franc, peu importe la date : un numéro de facture est unique.
- *  2. Même projet + même montant + ≤ 30 jours — probable.
+ *  2. Même projet + même montant + ≤ 27 jours — probable.
  *  Une paire trouvée par le numéro n'est pas répétée par le second signal. */
 export function detecterDoublonsFacturesClient(pieces: PieceFacture[], fenetreJours = FENETRE_JOURS): PaireSuspecte[] {
   const out: PaireSuspecte[] = [];
