@@ -1,6 +1,15 @@
 import { Document, Page, Text, View, StyleSheet, pdf, Svg, Path } from "@react-pdf/renderer";
+import { semainesDeLaPeriode, bilanHeures, jourCourt, heuresLisibles, type EntreeHeureDetail } from "./paie-detail";
 
 const s = StyleSheet.create({
+  // Détail des heures : une ligne par jour de la quinzaine, même sans heure.
+  jour: { flexDirection: "row", paddingVertical: 2.5, paddingHorizontal: 5, borderBottom: "0.5pt solid #f1f5f9", fontSize: 9 },
+  jourVide: { color: "#94a3b8" },
+  jourDate: { width: 90 },
+  jourProjets: { flex: 1, color: "#475569" },
+  jourHeures: { width: 60, textAlign: "right", fontWeight: 700 },
+  semaine: { flexDirection: "row", justifyContent: "space-between", backgroundColor: "#f1f5f9", padding: 4, marginTop: 6, fontSize: 9, fontWeight: 700 },
+  bilan: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2, paddingHorizontal: 5, fontSize: 9 },
   page: { padding: 40, fontSize: 10, fontFamily: "Helvetica", color: "#1e293b" },
   header: { flexDirection: "row", alignItems: "center", gap: 10, borderBottom: "2pt solid #0f172a", paddingBottom: 12, marginBottom: 16 },
   h1: { fontSize: 18, fontWeight: 700 },
@@ -39,6 +48,14 @@ interface TalonProps {
    *  seulement si la quinzaine contient PLUSIEURS taux et que la somme retombe sur le
    *  brut versé — sinon une seule ligne, comme avant. */
   gains_par_taux?: { taux: number; heures: number; montant: number }[];
+  /** Heures réellement travaillées dans la quinzaine (avant seuil et banque). */
+  heures_travaillees?: number;
+  /** Heures tirées de la banque pour compléter la quinzaine. */
+  banque_appliquee?: number;
+  /** Entrées d'heures de la quinzaine (date, chantier, heures) : le talon les étale jour
+   *  par jour. Sans elles, l'employé ne voit qu'un total et ne peut pas repérer une
+   *  journée oubliée. */
+  heures_detail?: EntreeHeureDetail[];
 }
 
 /** Lignes de gains à imprimer : une par taux quand il y en a plusieurs et que leur somme
@@ -88,6 +105,19 @@ export function TalonPaiePDF({ talon }: { talon: TalonProps }) {
         gains_par_taux: talon.gains_par_taux,
       })
     : lignesGainsTalon(talon);
+  // Détail jour par jour : seulement si l'écran a fourni les entrées (un vieux talon, ou
+  // des heures effacées depuis, n'en a pas — on n'invente pas de calendrier vide).
+  const semaines = talon.heures_detail && talon.heures_detail.length > 0
+    ? semainesDeLaPeriode(talon.debut, talon.fin, talon.heures_detail)
+    : [];
+  const travaillees = talon.heures_travaillees ?? (semaines.length ? semaines.reduce((t, w) => t + w.total, 0) : heuresTravail);
+  const bilan = bilanHeures({
+    heures_travaillees: travaillees,
+    heures_ferie: heuresFerie,
+    heures_normales: talon.heures_normales,
+    banque_appliquee: talon.banque_appliquee,
+    banque_solde: talon.banque_solde,
+  });
   return (
     <Document>
       <Page size="LETTER" style={s.page}>
@@ -137,10 +167,50 @@ export function TalonPaiePDF({ talon }: { talon: TalonProps }) {
             la semaine du congé (Loi sur les normes du travail, art. 62).
           </Text>
         )}
+        {/* Où sont passées les heures : travaillées → férié → banque → payées. C'est la
+            réponse à « il me manque des heures » : rien ne s'évapore, tout est nommé. */}
+        <Text style={s.sectionTitre}>Heures de la période</Text>
+        {bilan.map((l, i) => (
+          <View style={s.bilan} key={i}>
+            <Text style={l.libelle === "Heures payées" ? s.val : undefined}>{l.libelle}</Text>
+            <Text style={l.libelle === "Heures payées" ? s.val : undefined}>{heuresLisibles(l.heures)}</Text>
+          </View>
+        ))}
         {(talon.banque_solde || 0) > 0 && (
           <Text style={[s.small, { marginTop: 2 }]}>
-            Banque d'heures au terme de la période : {(talon.banque_solde || 0).toFixed(2)} h, payables plus tard.
+            Les heures en banque sont payées plus tard, 1 h pour 1 h, sur une période sous 80 h.
           </Text>
+        )}
+
+        {/* Détail jour par jour, semaine par semaine : chaque jour de la quinzaine, même
+            sans heure, pour qu'une journée oubliée se voie. */}
+        {semaines.length > 0 && (
+          <>
+            <Text style={s.sectionTitre}>Détail des heures travaillées</Text>
+            {semaines.map((w) => (
+              <View key={w.numero} wrap={false}>
+                <View style={s.semaine}>
+                  <Text>Semaine {w.numero} — du {dateLisible(w.debut)} au {dateLisible(w.fin)}</Text>
+                  <Text>{heuresLisibles(w.total)}</Text>
+                </View>
+                {w.jours.map((j) => (
+                  <View style={[s.jour, j.total > 0 ? {} : s.jourVide]} key={j.date}>
+                    <Text style={s.jourDate}>{jourCourt(j.date)}</Text>
+                    <Text style={s.jourProjets}>
+                      {j.entrees.length === 0
+                        ? "—"
+                        : j.entrees.map((e) => `${e.projet_nom || "Sans chantier"}${j.entrees.length > 1 ? ` (${heuresLisibles(Number(e.heures) || 0)})` : ""}`).join(" · ")}
+                    </Text>
+                    <Text style={s.jourHeures}>{j.total > 0 ? heuresLisibles(j.total) : "—"}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+            <View style={[s.row, { marginTop: 4 }]}>
+              <Text style={s.val}>Total travaillé dans la période</Text>
+              <Text style={s.val}>{heuresLisibles(travaillees)}</Text>
+            </View>
+          </>
         )}
 
         {/* Net (DAS retiré de l'affichage — montant payé tel quel) */}

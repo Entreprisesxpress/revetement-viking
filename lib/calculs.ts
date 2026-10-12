@@ -154,7 +154,7 @@ export interface PaieQuinzaine {
  */
 export function calculerPaieQuinzaine(
   heures: EntreeHeureQuinzaine[],
-  opts: { banqueAvant?: number; banqueAppliqueeDemandee?: number; paye?: boolean; dasPct?: number; seuil?: number; heuresFerie?: number; tauxRepli?: number } = {},
+  opts: { banqueAvant?: number; banqueAppliqueeDemandee?: number; paye?: boolean; dasPct?: number; seuil?: number; heuresFerie?: number; tauxRepli?: number; payeesVersees?: number } = {},
 ): PaieQuinzaine {
   const SEUIL = opts.seuil ?? SEUIL_SUP_PERIODE;
   const dasPct = Number.isFinite(Number(opts.dasPct)) && opts.dasPct != null ? Number(opts.dasPct) : DAS_DEFAUT;
@@ -166,7 +166,7 @@ export function calculerPaieQuinzaine(
   // en banque sur une quinzaine déjà pleine.
   const creditees = travaillees + heuresFerie;
   const base = Math.min(creditees, SEUIL);
-  const surplus = Math.max(0, creditees - SEUIL);
+  let surplus = Math.max(0, creditees - SEUIL);
   const dispoAvant = opts.banqueAvant || 0;
   const demandee = opts.banqueAppliqueeDemandee || 0;
 
@@ -174,7 +174,25 @@ export function calculerPaieQuinzaine(
   if (opts.paye) appliquee = Math.min(demandee, dispoAvant);
   else if (creditees < SEUIL) appliquee = Math.min(demandee, SEUIL - creditees, dispoAvant);
 
-  const payees = base + appliquee;
+  let payees = base + appliquee;
+  // PÉRIODE DÉJÀ VERSÉE dont on connaît les heures payées (`payeesVersees`, la valeur gelée
+  // en base) : l'argent ne bouge plus, mais la BANQUE doit rester juste quand des heures
+  // sont saisies APRÈS le versement.
+  // - Si la quinzaine avait été complétée avec la banque (70 h + 10 h tirées = 80 h payées)
+  //   et qu'on retrouve ensuite 5 h oubliées, ces 5 h REMPLACENT 5 h de banque : le tirage
+  //   réel n'est plus que de 5 h. Avant, la banque restait débitée de 10 h et l'employé
+  //   perdait 5 h — invisibles, puisque « 75 h travaillées, 80 h payées » ne signale rien.
+  // - Ce qui dépasse à la fois le seuil ET ce qui a été payé part en banque, comme pour une
+  //   période ouverte. Ce qui est sous le seuil mais au-dessus du payé est de l'argent dû
+  //   (heuresDuesPeriodePayee) — jamais les deux à la fois.
+  if (opts.paye && Number.isFinite(Number(opts.payeesVersees)) && opts.payeesVersees != null) {
+    const versees = Number(opts.payeesVersees);
+    const travailPaye = Math.max(0, versees - appliquee);          // heures payées hors banque
+    const remplace = Math.min(appliquee, Math.max(0, creditees - travailPaye));
+    appliquee = Math.round((appliquee - remplace) * 100) / 100;
+    surplus = Math.max(0, Math.round((creditees - Math.max(SEUIL, versees)) * 100) / 100);
+    payees = versees;
+  }
   const banque = dispoAvant + surplus - appliquee;
   const brut = payees * taux;
   const das = brut * dasPct;

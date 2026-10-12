@@ -3254,6 +3254,10 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
         // aucune heure punchée, donc aucun taux moyen — on prend celui de la fiche.
         heuresFerie,
         tauxRepli: fiche?.taux || 0,
+        // Période versée : les heures payées sont GELÉES en base ; on les donne au calcul
+        // pour que la banque reste juste si des heures arrivent après le versement
+        // (des heures retrouvées remplacent la banque tirée, elles ne s'y ajoutent pas).
+        payeesVersees: existant?.paye ? Number(existant.heures_normales) || 0 : undefined,
       });
       const { travaillees, taux, banque_dispo: dispoAvant, banque_appliquee: appliquee, payees, brut, das: dasMontant, net } = q;
       banque = q.banque_solde;                            // solde résultant → dispo de la suivante

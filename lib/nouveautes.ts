@@ -24,6 +24,16 @@ export const MAX_BLOCS = 3;
 
 export const NOUVEAUTES: Nouveaute[] = [
   {
+    version: "2026-10-12",
+    titre: "Paie : les heures de chaque journée, et où va chaque heure",
+    points: [
+      "Sur chaque période de paie, un bouton « 📅 Heures par jour » montre les 14 jours de la quinzaine, semaine par semaine, avec le chantier et les heures de chaque journée. Une journée sans saisie apparaît à « — » : si vous avez travaillé ce jour-là, c'est qu'il manque une saisie (à faire dans l'onglet Horaire).",
+      "Le talon de paie porte maintenant le même détail : les deux semaines, chaque journée, puis un bilan qui dit où vont les heures — travaillées, férié, tirées de la banque, payées, reportées en banque. Rien ne disparaît : au-delà de 80 h par période, le surplus va à la banque d'heures et se paie plus tard, 1 h pour 1 h.",
+      "Correction : sur une période déjà payée qui avait été complétée avec la banque d'heures, des heures saisies après le versement débitaient la banque en trop. Elles remplacent maintenant les heures tirées de la banque.",
+      "Rappel : à la saisie, « Dîner retiré » enlève 30 minutes par journée (7 h à 15 h = 7,5 h). Si vous n'avez pas pris de pause, décochez-le avant d'enregistrer.",
+    ],
+  },
+  {
     version: "2026-10-03",
     titre: "Chasse aux bogues : paie, contrats, dépenses, carte, tableau de bord",
     points: [

@@ -263,6 +263,50 @@ describe("calculerPaieQuinzaine (régime banque d'heures, 1 h pour 1 h, sans ×1
     expect(r.payees).toBe(83);
   });
 
+  // Heures saisies APRÈS le versement sur une quinzaine complétée avec la banque : elles
+  // remplacent la banque tirée, elles ne s'y ajoutent pas. Avant : 70 h + 10 h de banque
+  // = 80 h payées ; 5 h retrouvées → la banque restait débitée de 10 h et l'écart
+  // « 75 h travaillées / 80 h payées » ne signalait rien : 5 h perdues pour l'employé.
+  it("période payée + heures retrouvées : elles rendent à la banque ce qui n'avait plus à en sortir", () => {
+    const r = calculerPaieQuinzaine([{ heures: 75, taux: 45 }], { banqueAvant: 12, banqueAppliqueeDemandee: 10, paye: true, payeesVersees: 80 });
+    expect(r.payees).toBe(80);             // l'argent versé ne bouge pas
+    expect(r.banque_appliquee).toBe(5);    // 5 h de banque suffisaient
+    expect(r.banque_solde).toBe(7);        // 12 − 5, pas 12 − 10
+    expect(r.surplus).toBe(0);
+  });
+
+  it("période payée + heures retrouvées au-delà du seuil : le surplus part en banque, une seule fois", () => {
+    // 80 h payées, puis 4 h retrouvées → 84 h créditées : 4 h en banque (et aucune dette).
+    const r = calculerPaieQuinzaine([{ heures: 84, taux: 45 }], { banqueAvant: 0, paye: true, payeesVersees: 80 });
+    expect(r.payees).toBe(80);
+    expect(r.surplus).toBe(4);
+    expect(r.banque_solde).toBe(4);
+    expect(heuresDuesPeriodePayee(84, 80)).toBe(0);
+  });
+
+  it("période payée sous le seuil + heures retrouvées : c'est une dette, pas de la banque", () => {
+    // 70 h payées, puis 5 h retrouvées → 75 h : rien en banque, 5 h dues.
+    const r = calculerPaieQuinzaine([{ heures: 75, taux: 45 }], { banqueAvant: 2, paye: true, payeesVersees: 70 });
+    expect(r.banque_solde).toBe(2);
+    expect(heuresDuesPeriodePayee(75, 70)).toBe(5);
+  });
+
+  it("période payée avec férié : 72 h + 8 h férié payées 80 ; 8 h oubliées → 88 créditées → 8 h en banque, 0 dû", () => {
+    const r = calculerPaieQuinzaine([{ heures: 80, taux: 45 }], { paye: true, heuresFerie: 8, payeesVersees: 80 });
+    expect(r.surplus).toBe(8);
+    expect(r.banque_solde).toBe(8);
+    expect(heuresDuesPeriodePayee(80 + 8, 80)).toBe(0);
+  });
+
+  it("période payée inchangée : payeesVersees ne change rien au cas normal (85 h, 3 h de banque)", () => {
+    const sans = calculerPaieQuinzaine([{ heures: 85, taux: 45 }], { banqueAvant: 3, banqueAppliqueeDemandee: 8, paye: true });
+    const avec = calculerPaieQuinzaine([{ heures: 85, taux: 45 }], { banqueAvant: 3, banqueAppliqueeDemandee: 8, paye: true, payeesVersees: 83 });
+    expect(avec.banque_solde).toBe(sans.banque_solde);
+    expect(avec.payees).toBe(83);
+    const plein = calculerPaieQuinzaine([{ heures: 84.5, taux: 45 }], { banqueAvant: 0, paye: true, payeesVersees: 80 });
+    expect(plein.banque_solde).toBe(4.5);
+  });
+
   it("DAS de la fiche employé (pas 15 % codé en dur)", () => {
     const r = calculerPaieQuinzaine([{ heures: 80, taux: 45 }], { dasPct: 0.2 });
     expect(r.das).toBeCloseTo(720, 6);

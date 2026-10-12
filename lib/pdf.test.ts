@@ -117,6 +117,45 @@ describe("PDF du talon de paie (rendu réel)", () => {
     expect(t).not.toMatch(/DAS|déduction|retenue/i);
   });
 
+  // Gabriel : « il manque peut-être des heures ». Le talon ne montrait qu'un total ; il
+  // étale maintenant chaque jour de la quinzaine et dit où vont les heures (banque).
+  it("détail jour par jour : chaque jour de la quinzaine, les semaines, et le bilan travaillées → banque → payées", async () => {
+    const { TalonPaiePDF } = await import("./pdf-talon-paie");
+    const talon = { employe: "Maxime", debut: "2026-06-01", fin: "2026-06-14", heures_normales: 80, heures_sup: 0,
+      taux_horaire: 30, das_pct: 0.15, montant_brut: 2400, das_montant: 360, montant_net: 2040, date_paiement: "2026-06-18",
+      heures_travaillees: 91.5, banque_solde: 11.5,
+      heures_detail: [
+        { date: "2026-06-01", heures: 10, projet_nom: "Dubois" }, { date: "2026-06-02", heures: 10, projet_nom: "Dubois" },
+        { date: "2026-06-03", heures: 10, projet_nom: "Dubois" }, { date: "2026-06-04", heures: 10, projet_nom: "Dubois" },
+        { date: "2026-06-05", heures: 6, projet_nom: "Dubois" }, { date: "2026-06-05", heures: 4, projet_nom: "Tremblay" },
+        { date: "2026-06-08", heures: 9.5, projet_nom: "Tremblay" }, { date: "2026-06-09", heures: 8, projet_nom: "Tremblay" },
+        { date: "2026-06-10", heures: 8, projet_nom: "Tremblay" }, { date: "2026-06-11", heures: 8, projet_nom: "Tremblay" },
+        { date: "2026-06-12", heures: 8, projet_nom: "Tremblay" },
+      ] };
+    const buf = await renderToBuffer(React.createElement(TalonPaiePDF, { talon }) as any);
+    const t = texteDuPdf(buf);
+    expect(t).toMatch(/Semaine\s+1/);   // l'extraction du texte double les espaces
+    expect(t).toMatch(/Semaine\s+2/);
+    expect(t).toContain("Tremblay");
+    expect(t).toContain("Heures travaillées");
+    expect(t).toContain("Reportées en banque");
+    const c = chiffres(t);
+    expect(c).toContain("9150");     // 91,50 h travaillées
+    expect(c).toContain("5000");     // semaine 1 : 50,00 h
+    expect(c).toContain("4150");     // semaine 2 : 41,50 h
+    expect(c).toContain("1150");     // 11,50 h en banque
+    expect(c).toContain("240000");   // brut inchangé
+  });
+
+  it("sans entrées fournies : talon comme avant, sans calendrier vide inventé", async () => {
+    const { TalonPaiePDF } = await import("./pdf-talon-paie");
+    const talon = { employe: "Maxime", debut: "2026-06-01", fin: "2026-06-14", heures_normales: 80, heures_sup: 0,
+      taux_horaire: 30, das_pct: 0.15, montant_brut: 2400, das_montant: 360, montant_net: 2040 };
+    const t = texteDuPdf(await renderToBuffer(React.createElement(TalonPaiePDF, { talon }) as any));
+    expect(t).not.toMatch(/Semaine\s+1/);
+    expect(t).toContain("Heures payées");
+  });
+
   it("deux taux dans la quinzaine : une ligne de gains PAR TAUX, dont la somme est le brut", async () => {
     const { TalonPaiePDF, lignesGainsTalon } = await import("./pdf-talon-paie");
     // 40 h @ 50 $ + 40 h @ 60 $ : taux moyen 55 $, brut 4 400 $ (voir calculerPaieQuinzaine).

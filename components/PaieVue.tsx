@@ -7,6 +7,15 @@ import { useToast } from "@/components/Toasts";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire, envoyer, lireListe } from "@/lib/envoi";
 import ErreurChargement from "@/components/ErreurChargement";
+import { semainesDeLaPeriode, bilanHeures, jourCourt, heuresLisibles, type EntreeHeureDetail } from "@/lib/paie-detail";
+
+/** Les entrées d'heures d'une période (date, chantier, heures), telles que /api/heures
+ *  les rend. C'est la matière du détail jour par jour, à l'écran comme sur le talon. */
+async function heuresDeLaPeriode(p: { employe: string; debut: string; fin: string }): Promise<{ ok: true; data: EntreeHeureDetail[] } | { ok: false; erreur: string }> {
+  const q = new URLSearchParams({ employe: p.employe, depuis: p.debut, jusqu_a: p.fin });
+  const r = await lireListe<EntreeHeureDetail>(`/api/heures?${q.toString()}`);
+  return r.ok ? { ok: true, data: r.data } : { ok: false, erreur: r.erreur };
+}
 
 // Parse « AAAA-MM-JJ » comme minuit LOCAL (pas UTC). new Date("2026-05-18") = minuit
 // UTC → affiché « 17 mai » à Montréal (UTC−4). Ici on garde le bon jour.
@@ -36,7 +45,19 @@ export default function PaieVue() {
   const [employes, setEmployes] = useState<any[]>([]);
   const [filtreEmp, setFiltreEmp] = useState("");
   const [filtreStatut, setFiltreStatut] = useState<"" | "paye" | "a_payer">("a_payer");
+  // Détail jour par jour, par période : fermé (absent), en chargement, ou les entrées.
+  const [detail, setDetail] = useState<Record<number, EntreeHeureDetail[] | "chargement" | { erreur: string }>>({});
   const { toast } = useToast();
+
+  const basculerDetail = async (p: any) => {
+    if (detail[p.id] !== undefined) {
+      setDetail((d) => { const n = { ...d }; delete n[p.id]; return n; });
+      return;
+    }
+    setDetail((d) => ({ ...d, [p.id]: "chargement" }));
+    const r = await heuresDeLaPeriode(p);
+    setDetail((d) => ({ ...d, [p.id]: r.ok ? r.data : { erreur: r.erreur } }));
+  };
 
   const [erreur, setErreur] = useState<string | null>(null);
   const charger = async () => {
@@ -86,7 +107,15 @@ export default function PaieVue() {
   const telechargerTalon = async (p: any) => {
     try {
       const { genererTalonPaieBlob } = await import("@/lib/pdf-talon-paie");
+      // Le talon étale les heures jour par jour : il lui faut les entrées de la période.
+      // Si elles ne peuvent pas être lues, le talon sort quand même, sans le détail —
+      // mais on le dit, plutôt que de remettre un talon muet sans explication.
+      const entrees = await heuresDeLaPeriode(p);
+      if (!entrees.ok) toast(`Détail des heures indisponible (${entrees.erreur}) : talon produit sans le jour par jour`, "warning");
       const blob = await genererTalonPaieBlob({
+        heures_detail: entrees.ok ? entrees.data : undefined,
+        heures_travaillees: p.heures_travaillees ?? undefined,
+        banque_appliquee: p.banque_appliquee || 0,
         employe: p.employe, debut: p.debut, fin: p.fin,
         heures_normales: p.heures_normales || 0, heures_sup: p.heures_sup || 0,
         taux_horaire: p.taux_horaire || 0, das_pct: p.das_pct || 0.15,
@@ -294,6 +323,12 @@ export default function PaieVue() {
                   <div className="flex gap-1">
                     {/* Talon réservé aux employés qui en reçoivent un (réglage sur la fiche
                         employé) — les propriétaires ne s'en produisent pas à eux-mêmes. */}
+                    <button
+                      onClick={() => basculerDetail(p)}
+                      aria-expanded={detail[p.id] !== undefined}
+                      className={`px-3 py-2 rounded text-sm font-semibold ${detail[p.id] !== undefined ? "bg-sky-600 text-white" : "bg-sky-100 hover:bg-sky-200 text-sky-900"}`}
+                      title="Voir les heures de chaque journée de la période"
+                    >📅 Heures par jour</button>
                     {aDroitAuTalon(p.employe) && (
                       <button onClick={() => telechargerTalon(p)} className="px-3 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded text-sm font-semibold" title="Talon de paie PDF">📄 Talon</button>
                     )}
@@ -350,6 +385,10 @@ export default function PaieVue() {
                   </div>
                 )}
 
+                {detail[p.id] !== undefined && (
+                  <DetailHeuresPeriode periode={p} etat={detail[p.id]} />
+                )}
+
                 <div className="mt-2 text-xs text-slate-500">
                   {(() => {
                     // L'indemnité de férié est créditée comme des heures : elle compte dans
@@ -393,6 +432,72 @@ export default function PaieVue() {
       </div>
       <FAB onSuccess={charger} />
     </>
+  );
+}
+
+/** Les heures d'une période, jour par jour et semaine par semaine, avec le bilan
+ *  (travaillées → férié → banque → payées). Chaque jour de la quinzaine est listé, même
+ *  à 0 h : une journée oubliée se voit tout de suite. */
+function DetailHeuresPeriode({ periode: p, etat }: { periode: any; etat: EntreeHeureDetail[] | "chargement" | { erreur: string } }) {
+  if (etat === "chargement") return <div className="mt-3 text-xs text-slate-500">Chargement des heures…</div>;
+  if (!Array.isArray(etat)) return <div className="mt-3 text-xs text-red-700">Heures illisibles : {etat.erreur}</div>;
+  const semaines = semainesDeLaPeriode(p.debut, p.fin, etat);
+  const totalEntrees = semaines.reduce((s, w) => s + w.total, 0);
+  const travaillees = Number(p.heures_travaillees ?? p.heures_normales ?? 0);
+  // La paie a été calculée sur `heures_travaillees` ; si les entrées lues aujourd'hui ne
+  // font pas le même total (saisie depuis, ou lecture partielle), on le dit.
+  const ecart = Math.abs(totalEntrees - travaillees) > 0.01;
+  const bilan = bilanHeures({
+    heures_travaillees: travaillees, heures_ferie: p.heures_ferie || 0, heures_normales: p.heures_normales || 0,
+    banque_appliquee: p.banque_appliquee || 0, banque_solde: p.banque_solde ?? undefined,
+  });
+  return (
+    <div className="mt-3 border border-sky-200 rounded-lg overflow-hidden" data-detail-heures={p.id}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-sky-100">
+        {semaines.map((w) => (
+          <div key={w.numero} className="bg-white">
+            <div className="flex justify-between items-center px-3 py-1.5 bg-sky-50 text-xs font-bold text-sky-900">
+              <span>Semaine {w.numero} — {dateLocale(w.debut).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })} au {dateLocale(w.fin).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })}</span>
+              <span>{heuresLisibles(w.total)}</span>
+            </div>
+            <table className="w-full text-xs">
+              <tbody>
+                {w.jours.map((j) => (
+                  <tr key={j.date} className={`border-t border-slate-100 ${j.total > 0 ? "" : "text-slate-400"}`}>
+                    <td className="px-3 py-1 whitespace-nowrap w-28">{jourCourt(j.date)}</td>
+                    <td className="px-2 py-1 text-slate-600">
+                      {j.entrees.length === 0
+                        ? "—"
+                        : j.entrees.map((e, i) => (
+                            <span key={i} className="mr-2" title={e.description || undefined}>
+                              {e.projet_nom || "Sans chantier"}{j.entrees.length > 1 ? ` (${heuresLisibles(Number(e.heures) || 0)})` : ""}
+                            </span>
+                          ))}
+                    </td>
+                    <td className={`px-3 py-1 text-right whitespace-nowrap font-bold ${j.total > 0 ? "text-slate-900" : ""}`}>{j.total > 0 ? heuresLisibles(j.total) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+      <div className="bg-slate-50 border-t border-sky-200 px-3 py-2 text-xs">
+        {bilan.map((l) => (
+          <div key={l.libelle} className={`flex justify-between py-0.5 ${l.libelle === "Heures payées" ? "font-bold text-slate-900" : "text-slate-700"}`}>
+            <span>{l.libelle}</span><span>{heuresLisibles(l.heures)}</span>
+          </div>
+        ))}
+        {ecart && (
+          <div className="mt-1 text-amber-800">
+            ⚠ Les entrées listées font {heuresLisibles(totalEntrees)}, la paie a été calculée sur {heuresLisibles(travaillees)}. Recharge la page : si l'écart reste, des heures ont été saisies ou retirées depuis.
+          </div>
+        )}
+        <div className="mt-1 text-slate-500">
+          Pour corriger une journée : onglet <a href="/heures" className="underline font-semibold">Horaire</a>. Une journée à « — » n'a aucune heure saisie.
+        </div>
+      </div>
+    </div>
   );
 }
 
