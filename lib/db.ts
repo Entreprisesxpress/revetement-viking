@@ -3283,8 +3283,11 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
           // travaille 53 h, la période reste à « 45 h · 1 800 $ payé », les 8 h
           // disparaissent. Maintenant l'écart travaillées − payées est visible et
           // remonté comme heures dues (voir heures_non_payees plus bas).
-          if (!(egal(existant.banque_dispo, dispoAvant) && egal(existant.banque_solde, banque) && egal(existant.heures_travaillees, travaillees))) {
-            ecritures.push({ sql: `UPDATE paies_periodes SET banque_dispo=?, banque_solde=?, heures_travaillees=? WHERE id=?`, args: [dispoAvant, banque, travaillees, existant.id] });
+          // `banque_appliquee` suit le tirage RÉEL : des heures retrouvées après le versement
+          // remplacent la banque tirée (calculerPaieQuinzaine, `payeesVersees`), et l'écran
+          // comme le talon doivent dire « 5 h tirées », pas les 10 h demandées à l'origine.
+          if (!(egal(existant.banque_dispo, dispoAvant) && egal(existant.banque_solde, banque) && egal(existant.heures_travaillees, travaillees) && egal(existant.banque_appliquee, appliquee))) {
+            ecritures.push({ sql: `UPDATE paies_periodes SET banque_dispo=?, banque_solde=?, heures_travaillees=?, banque_appliquee=? WHERE id=?`, args: [dispoAvant, banque, travaillees, appliquee, existant.id] });
           }
         }
       } else {
