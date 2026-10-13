@@ -28,8 +28,12 @@ export async function POST(req: NextRequest) {
     data.statut = "brouillon";
     data.date = aujourdhuiMontreal();
     delete data.signature_nom; delete data.signature_date; delete data.vue_client_le;
+    // Même client, même nom : la copie est la « version révisée » que l'app recommande.
+    // Avant, le nom devenait « Julie Tremblay (copie) » — imprimé tel quel sur le PDF et
+    // la page de signature si on ne l'effaçait pas à la main, et la révision disparaissait
+    // du tiroir du client (apparié par le nom).
     const client = { ...(data.client || {}) };
-    client.nom = ((source.client_nom || client.nom || "") + " (copie)").trim();
+    client.nom = String(source.client_nom || client.nom || "").trim();
     if (!client.adresse && source.client_adresse) client.adresse = source.client_adresse;
     if (!client.telephone && source.client_telephone) client.telephone = source.client_telephone;
     if (!client.courriel && source.client_courriel) client.courriel = source.client_courriel;

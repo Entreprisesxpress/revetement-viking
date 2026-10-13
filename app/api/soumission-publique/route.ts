@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { charger, marquerSoumissionVue, signerSoumission, refuserSoumission } from "@/lib/db";
 import { verifierTokenSoumission } from "@/lib/lien-public";
+import { calculerSoumission, auCent } from "@/lib/calculateur";
 import { journaliser } from "@/lib/audit";
 import { avertirSoumissionReponse, destinataireNotifications } from "@/lib/notif-projet";
 import { envoyerPushUtilisateur } from "@/lib/push";
@@ -66,6 +67,34 @@ export async function GET(req: NextRequest) {
       after(() => journaliser("soumission.statut_change", { ref_type: "soumission", ref_id: numero, description: `Lien public : données de la soumission illisibles (${String(e?.message || e).slice(0, 120)})`, ip: ipDe(req) }));
       return NextResponse.json({ error: "données de la soumission illisibles" }, { status: 500 });
     }
+    // Lignes et taxes RECALCULÉES par le même moteur que le PDF (lib/calculateur.ts) :
+    // le payload ne porte que des codes de matériaux, des quantités et des marges — la
+    // liste blanche d'avant cherchait `description/montant` et rendait `[{}, {}]`, donc
+    // deux rangées « Item » sans montant sur la page de signature. Et la page refaisait
+    // les taxes depuis le TTC, d'un cent à côté du PDF une fois sur cinq. Jamais de coût
+    // ni de marge ici.
+    let lignesClient: any[] = lignesPourClient(payload.lignes);
+    let detailTaxes: { sous_total: number; tps: number; tvq: number } | null = null;
+    try {
+      if (Array.isArray(payload.lignes) && payload.lignes.some((l: any) => l?.materiauCode)) {
+        const calc = calculerSoumission({
+          lignes: payload.lignes,
+          fraisActifs: Array.isArray(payload.fraisActifs) ? payload.fraisActifs : [],
+          fraisGestion: Number(payload.fraisGestion) || 0,
+          appliquerTaxes: !!payload.appliquerTaxes,
+        });
+        lignesClient = calc.lignes.map((l) => ({
+          nom: l.materiau?.nom || "Matériau",
+          couleur: (payload.lignes.find((x: any) => x?.materiauCode === l.materiau?.code) || {}).couleur || undefined,
+          quantite: l.quantiteAvecSurplus,
+          unite: (l.materiau as any)?.unite || undefined,
+          montant: auCent(l.sousTotal),
+        }));
+        detailTaxes = { sous_total: calc.sousTotalAvantTaxes, tps: calc.tps, tvq: calc.tvq };
+      }
+    } catch (e: any) {
+      console.error(`[/api/soumission-publique] recalcul des lignes impossible pour ${numero} :`, e?.message || e);
+    }
     return NextResponse.json({
       numero: s.numero,
       date_creation: s.date_creation,
@@ -76,7 +105,8 @@ export async function GET(req: NextRequest) {
       statut: s.statut,
       signature_nom: s.signature_nom,
       signature_date: s.signature_date,
-      lignes: lignesPourClient(payload.lignes),
+      lignes: lignesClient,
+      ...(detailTaxes || {}),
       // `fraisActifs` n'est PAS renvoyé : la page publique ne l'affiche pas, et il
       // contient les heures de main-d'œuvre estimées par poste — une information de
       // chiffrage interne.
@@ -100,6 +130,11 @@ export async function POST(req: NextRequest) {
     if (!s) return NextResponse.json({ error: "introuvable" }, { status: 404 });
     if (s.statut === "acceptee" || s.statut === "facturee") {
       return NextResponse.json({ error: "déjà acceptée", deja: true }, { status: 409 });
+    }
+    // Refusée en ligne, puis acceptée avec le même lien : la base portait les deux dates.
+    // Un client qui change d'idée passe par Viking (nouvelle version envoyée).
+    if (s.statut === "refusee") {
+      return NextResponse.json({ error: "déjà refusée", deja: true, message: "Cette soumission a déjà été refusée. Pour revenir sur votre décision, contactez Revêtement Viking." }, { status: 409 });
     }
     const ip = ipDe(req);
     // Avis INTERNE (push + courriel à la boîte Viking) : avant, un client acceptait ou

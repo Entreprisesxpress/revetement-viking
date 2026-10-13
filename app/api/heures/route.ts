@@ -104,14 +104,17 @@ async function creerHeure(req: NextRequest): Promise<NextResponse> {
   // C'est la MODIFICATION et la SUPPRESSION d'heures déjà payées qui sont refusées.
   // Cohérence du jour (une requête) : plus de 24 h pour un employé le même jour, ou la
   // même entrée exacte créée il y a moins de deux minutes (double clic, réessai réseau).
-  // Le doublon est toléré si l'écran a fourni une clé d'idempotence : c'est alors elle
-  // qui tranche, et deux saisies volontaires portent deux clés différentes.
+  // Une clé d'idempotence ne désarme PAS ce contrôle : la MÊME clé rejouée est déjà
+  // servie par avecIdempotence() sans réécrire, et une clé NEUVE (l'écran en génère une
+  // par envoi) accompagnait un doublon bien réel — mesuré : la modale « Saisir mes
+  // heures » échoue sur un employé, l'utilisateur réessaie, et les autres employés
+  // reçoivent leur journée EN DOUBLE (paie et coût du chantier ×2).
   const heures = Number(body.heures);
   const ctrl = await controlesSaisieHeures({ employe: emp.nom, date: body.date, projet_id: +body.projet_id, heures });
   if (ctrl.total_jour + heures > 24) {
     return NextResponse.json({ error: "plus de 24 h dans la journée", message: `${emp.nom} a déjà ${ctrl.total_jour} h le ${body.date} : ${heures} h de plus dépasseraient 24 h.` }, { status: 409 });
   }
-  if (ctrl.doublons_recents > 0 && !cleIdempotence(req)) {
+  if (ctrl.doublons_recents > 0) {
     return NextResponse.json({ error: "doublon probable", message: `Une entrée identique (${emp.nom}, ${heures} h, ce projet, le ${body.date}) vient d'être enregistrée il y a moins de deux minutes. Recharge la liste avant de ressaisir.` }, { status: 409 });
   }
   const user = await utilisateurActif(req);
@@ -145,10 +148,19 @@ export async function PATCH(req: NextRequest) {
   // Une paie VERSÉE ne bouge plus — ni l'entrée qu'on en sort (AVANT), ni celle qu'on y
   // ferait entrer (APRÈS : nouvelle date ou nouvel employé). DELETE le refusait déjà ;
   // PATCH laissait passer.
+  // Nouvel employé : il doit EXISTER et être actif, comme à la création — sinon un nom
+  // fantôme (« Inconnu », « maxime ») créait sa propre chaîne de paie, férié compris ; et
+  // la ligne prend le taux de sa fiche si l'écran n'en impose pas un.
+  if (body.employe !== undefined) {
+    const emp = await employeParNom(body.employe);
+    if (!emp) return NextResponse.json({ error: `employé inconnu ou inactif : ${body.employe || "(vide)"}` }, { status: 400 });
+    body.employe = emp.nom;
+    if (body.taux_horaire === undefined && emp.nom !== avant.employe) body.taux_horaire = Number(emp.taux_horaire);
+  }
   const employeApres = body.employe !== undefined ? String(body.employe || "") : avant.employe;
   const dateApres = body.date !== undefined ? String(body.date || "") : avant.date;
   if (await heureDansPaiePayee(avant.employe, avant.date) || await heureDansPaiePayee(employeApres, dateApres)) {
-    return NextResponse.json({ error: "paie déjà versée", message: `Ces heures (${avant.employe}, ${String(avant.date).slice(0, 10)}) font partie d'une paie DÉJÀ VERSÉE, ou y entreraient : les modifier fausserait le talon remis à l'employé et la banque d'heures.` }, { status: 409 });
+    return NextResponse.json({ error: "paie déjà versée", message: `Ces heures (${avant.employe}, ${String(avant.date).slice(0, 10)}) font partie d'une paie DÉJÀ VERSÉE (ou alimentent la banque d'heures qu'une paie versée a utilisée), ou y entreraient : les modifier fausserait le talon remis à l'employé et la banque d'heures.` }, { status: 409 });
   }
   // Le chantier visé (nouveau ou inchangé) doit encore accepter une saisie.
   const projetVise = body.projet_id !== undefined ? body.projet_id : avant.projet_id;

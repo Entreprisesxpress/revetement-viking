@@ -2,7 +2,7 @@
 // Distinct des photos de chantier, du contrat signé et de la facture finale, qui ont
 // chacun leur emplacement dédié.
 import { NextRequest, NextResponse, after } from "next/server";
-import { listerFichiersProjet, ajouterFichierProjet, modifierFichierProjet, supprimerFichierProjet, projetReferenceValide } from "@/lib/db";
+import { listerFichiersProjet, ajouterFichierProjet, modifierFichierProjet, supprimerFichierProjet, projetReferenceValide, getFichierProjetMeta } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 import { LIMITE_ENCODEE_OCTETS, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
@@ -44,9 +44,9 @@ export async function POST(req: NextRequest) {
     const id = await ajouterFichierProjet({
       projet_id: projetId,
       nom,
-      type: body.type || m[1] || "application/octet-stream",
+      type: (typeof body.type === "string" && body.type.trim()) ? body.type.trim().slice(0, 100) : (m[1] || "application/octet-stream"),
       data: String(body.data),
-      taille: body.taille,
+      taille: Number.isFinite(Number(body.taille)) ? Number(body.taille) : null,
       categorie: texte(body.categorie, 100) || null,
       description: texte(body.description, 1000) || null,
       ajoute_par: user || undefined,
@@ -81,7 +81,14 @@ export async function DELETE(req: NextRequest) {
   const id = idEntier(req.nextUrl.searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   const user = await utilisateurActif(req);
+  // Trace lue AVANT l'effacement, rattachée au PROJET (pas à l'id du document, qui
+  // affichait la ligne sur le mauvais chantier), avec le nom de ce qui a disparu.
+  const meta = await getFichierProjetMeta(id);
   if (!(await supprimerFichierProjet(id))) return NextResponse.json({ error: "document introuvable" }, { status: 404 });
-  after(() => journaliser("projet.document_supprime", { ref_type: "projet", ref_id: id, utilisateur: user || undefined, description: `Suppression document #${id}` }));
+  after(() => journaliser("projet.document_supprime", {
+    ref_type: "projet", ref_id: meta?.projet_id ?? id, utilisateur: user || undefined,
+    description: `Suppression du document « ${meta?.nom || `#${id}`} »${meta?.categorie ? ` [${meta.categorie}]` : ""}`,
+    avant: meta ? { id, nom: meta.nom, type: meta.type, taille: meta.taille, categorie: meta.categorie } : undefined,
+  }));
   return NextResponse.json({ ok: true });
 }

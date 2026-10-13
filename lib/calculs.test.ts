@@ -92,11 +92,16 @@ describe("depensesAvantTaxes — factures détaxées", () => {
     expect(depensesAvantTaxes(1000, 1000)).toBeGreaterThan(depensesAvantTaxes(1000, 0));
   });
 
-  it("détaxé supérieur au total (donnée incohérente) ne fabrique pas de montant négatif", () => {
-    // Peut arriver si un montant est modifié après coup sans décocher « détaxé ».
-    // La part taxable est bornée à 0, donc on retombe sur le détaxé seul.
-    expect(depensesAvantTaxes(500, 800)).toBeCloseTo(800, 6);
-    expect(depensesAvantTaxes(500, 800)).toBeGreaterThan(0);
+  it("détaxé supérieur au total : la part taxable négative est traitée comme un crédit, sans borne", () => {
+    // 500 $ au total dont 800 $ détaxés = une part taxable de −300 $ (un crédit) :
+    // −300 ÷ 1,14975 + 800 = 539,10 $. Toujours positif ici, mais plus jamais borné.
+    expect(depensesAvantTaxes(500, 800)).toBeCloseTo(-300 / 1.14975 + 800, 6);
+  });
+  it("note de crédit à côté d'une dépense détaxée : le crédit allège bien le coût (fiche projet = finances)", () => {
+    // 250 $ détaxés + crédit de −200 $ taxable : 250 + (−200 ÷ 1,14975) = 76,05 $. Avant : 250 $.
+    expect(depensesAvantTaxes(50, 250)).toBeCloseTo(76.05, 2);
+    // 500 taxable + 250 détaxé − 600 crédit : (500 − 600) ÷ 1,14975 + 250 = 163,03 $.
+    expect(depensesAvantTaxes(150, 250)).toBeCloseTo(-100 / 1.14975 + 250, 6); // 163,02 $
   });
 
   it("note de crédit (montant négatif) reste négative — sinon un remboursement gonflerait les coûts", () => {
@@ -143,6 +148,12 @@ describe("avancerDateRecurrence", () => {
     expect(avancerDateRecurrence("2028-01-31", "mensuel")).toBe("2028-02-29"); // bissextile
     expect(avancerDateRecurrence("2026-03-31", "mensuel")).toBe("2026-04-30");
     expect(avancerDateRecurrence("2026-08-31", "mensuel")).toBe("2026-09-30");
+  });
+  it("mensuel depuis une fin de mois : reste en fin de mois (31 janv → 28 fév → 31 mars → 30 avril)", () => {
+    let d = "2026-01-31";
+    const suite: string[] = [];
+    for (let i = 0; i < 4; i++) { d = avancerDateRecurrence(d, "mensuel"); suite.push(d); }
+    expect(suite).toEqual(["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"]);
   });
   it("mensuel jour normal : même jour le mois suivant", () => {
     expect(avancerDateRecurrence("2026-12-15", "mensuel")).toBe("2027-01-15"); // passage d'année

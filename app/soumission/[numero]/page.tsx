@@ -49,10 +49,13 @@ export default function SoumissionPublique() {
   // sousTotalAvantTaxes + TPS + TVQ). Il faut donc DÉCOMPOSER ce montant, pas y rajouter
   // les taxes une 2e fois — sinon le client signait un montant gonflé de 14,975 %
   // (11 497,50 $ affichés 13 219,25 $).
+  // Sous-total et taxes : ceux du serveur quand il les fournit (même moteur que le PDF,
+  // arrondis au cent à chaque étape) — recalculés depuis le TTC, ils différaient du PDF
+  // d'un cent une fois sur cinq. Le repli reste pour une vieille réponse sans détail.
   const totalTTC = data.total || 0;
-  const sousTotal = data.appliquerTaxes ? totalTTC / (1 + TPS + TVQ) : totalTTC;
-  const tps = data.appliquerTaxes ? sousTotal * TPS : 0;
-  const tvq = data.appliquerTaxes ? sousTotal * TVQ : 0;
+  const sousTotal = data.sous_total != null ? data.sous_total : (data.appliquerTaxes ? totalTTC / (1 + TPS + TVQ) : totalTTC);
+  const tps = data.tps != null ? data.tps : (data.appliquerTaxes ? sousTotal * TPS : 0);
+  const tvq = data.tvq != null ? data.tvq : (data.appliquerTaxes ? sousTotal * TVQ : 0);
 
   return (
     <div className="min-h-screen bg-slate-100 py-6 px-4">
@@ -85,7 +88,11 @@ export default function SoumissionPublique() {
                 <tbody>
                   {data.lignes.map((l: any, i: number) => (
                     <tr key={i} className="border-t">
-                      <td className="p-2">{l.description || l.nom || l.code || "Item"}</td>
+                      <td className="p-2">
+                        {l.description || l.nom || l.code || "Item"}
+                        {l.couleur ? <span className="text-slate-500"> · {l.couleur}</span> : null}
+                        {l.quantite != null ? <span className="text-slate-500 text-xs"> ({l.quantite}{l.unite ? ` ${l.unite}` : ""})</span> : null}
+                      </td>
                       <td className="p-2 text-right">{l.montant != null ? cad(l.montant) : l.total != null ? cad(l.total) : ""}</td>
                     </tr>
                   ))}

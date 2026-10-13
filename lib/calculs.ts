@@ -23,14 +23,13 @@ export function revenuAvantTaxes(montantTaxesIncluses: number): number {
 export function depensesAvantTaxes(total: number, detaxe: number = 0): number {
   const t = total || 0;
   const d = detaxe || 0;
-  let taxable = t - d;
-  // `Math.max(0, …)` couvrait bien l'anomalie « plus de détaxé que de total », mais il
-  // écrasait aussi les NOTES DE CRÉDIT. /api/depenses accepte volontairement un montant
-  // négatif (remboursement fournisseur) ; il comptait dans le total taxes incluses mais
-  // ressortait à 0 avant taxes — donc le remboursement ne réduisait JAMAIS les coûts
-  // dans la marge, la rentabilité et /finances. On ne borne que le cas anormal, sur une
-  // dépense positive ; le signe d'un crédit est conservé.
-  if (t >= 0 && taxable < 0) taxable = 0;
+  const taxable = t - d;
+  // AUCUNE borne. `detaxe` est une sous-somme de `total` : la part taxable ne devient
+  // négative QUE par une note de crédit (remboursement fournisseur), et un crédit doit
+  // réduire le coût. L'ancienne borne `if (t >= 0 && taxable < 0) taxable = 0` visait une
+  // donnée incohérente, mais elle avalait le crédit dès qu'une dépense détaxée rendait le
+  // total positif : 250 $ détaxés − 200 $ de crédit → 250 $ au lieu de 76,05 $ sur la fiche,
+  // alors que /api/finances (agrégat du mois) le comptait — deux écrans, deux marges.
   return revenuAvantTaxes(taxable) + d;
 }
 
@@ -46,10 +45,15 @@ export function avancerDateRecurrence(iso: string | null, rec: string): string {
     // Fin de mois : setMonth() seul déborde (31 janv + 1 mois = 3 MARS, février
     // sauté !). On borne au dernier jour du mois cible : 31 janv → 28/29 fév,
     // 31 mars → 30 avril, 15 déc → 15 janv.
+    // Et une date qui EST le dernier jour de son mois reste « fin de mois » : 31 janv →
+    // 28 fév → 31 mars. Avant, le jour repris de l'occurrence précédente (déjà bornée)
+    // dérivait pour toujours au 28.
     const jour = dt.getDate();
+    const finDeMois = jour === new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
     dt.setDate(1);
     dt.setMonth(dt.getMonth() + 1);
-    dt.setDate(Math.min(jour, new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()));
+    const dernier = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    dt.setDate(finDeMois ? dernier : Math.min(jour, dernier));
   }
   else return base;
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
-import { listerPhotosChantier, getPhotoChantierMeta, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync, marquerDriveEnAttente } from "@/lib/db";
+import { listerPhotosChantier, getPhotoChantierMeta, ajouterPhotoChantier, supprimerPhotoChantier, getProjet, marquerDriveSync, marquerDriveEnAttente, projetReferenceValide } from "@/lib/db";
+import { validerDate } from "@/lib/validation-argent";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier } from "@/lib/drive";
 import { donneesTropLourdes, LIMITE_ENCODEE_OCTETS, poidsLisible } from "@/lib/limites-fichiers";
 import { avecIdempotence } from "@/lib/idempotence";
@@ -44,6 +45,11 @@ async function creerPhoto(req: NextRequest): Promise<NextResponse> {
   if (!projetId || !b.date || !b.photo_data) {
     return NextResponse.json({ error: "projet_id, date et photo_data requis" }, { status: 400 });
   }
+  // Date réelle et chantier existant : « hier » était accepté comme date, et une photo sur
+  // un projet inexistant entrait en base, invisible pour toujours.
+  const dateInvalide = validerDate(b.date, "date");
+  if (dateInvalide) return NextResponse.json({ error: dateInvalide }, { status: 400 });
+  if (!(await projetReferenceValide(projetId))) return NextResponse.json({ error: "projet introuvable" }, { status: 400 });
   if (donneesTropLourdes(b.photo_data) || donneesTropLourdes(b.thumb_data)) {
     return NextResponse.json({ error: `photo trop lourde (max ${poidsLisible(LIMITE_ENCODEE_OCTETS)} encodée) — compresse-la avant l'envoi` }, { status: 413 });
   }

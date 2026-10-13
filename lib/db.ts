@@ -34,9 +34,11 @@ let _initPromise: Promise<void> | null = null;
 // 27 (2026-09-22) : paies_periodes.heures_ferie + feries_detail (indemnité de jour férié),
 //   projets.facturation_confirmee_le/_par + migration gardée de l'historique,
 //   table doublons_ignores (paires de factures écartées à la main).
+// 28 (2026-10-12) : index UNIQUE partiel pipeline_contrats.numero (numéros séquentiels à
+//   10 caractères ; les anciens « C-année-idClient » restent libres).
 // Le test lib/schema-version.test.ts fige un hachage du bloc de migrations : toute
 // modification du bloc sans incrément de cette constante fait échouer la suite.
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -437,6 +439,9 @@ async function migrer() {
   )`);
   await tryExec("CREATE INDEX IF NOT EXISTS idx_pipe_contrats_cli ON pipeline_contrats(client_id, date_creation DESC)");
   await tryExec("CREATE INDEX IF NOT EXISTS idx_pipe_contrats_token ON pipeline_contrats(token)");
+  // Numéro de contrat en ligne UNIQUE (C-AAAA-NNN, 10 caractères). Partiel : les anciens
+  // numéros « C-année-idClient » (8-9 caractères) pouvaient se répéter et doivent rester.
+  await tryExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pipe_contrats_numero ON pipeline_contrats(numero) WHERE length(numero) = 10");
   // Preuve de transmission style DocuSign : vue + envoi mail
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN date_vue TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN ip_vue TEXT");
@@ -863,6 +868,16 @@ export async function sauvegarder(payload: {
       { code: "SOUMISSION_SIGNEE" }
     );
   }
+  // Même règle pour une soumission ACCEPTÉE ou FACTURÉE sans signature en ligne : son
+  // montant alimente le CA accepté et une facture. La suppression le refusait déjà en
+  // promettant que la modification l'était aussi — elle ne l'était pas (total réécrit
+  // après facturation, mesuré : 1 249 $ → 14 481 $ sans trace).
+  if (existing && (existing.statut === "acceptee" || existing.statut === "facturee")) {
+    throw Object.assign(
+      new Error(`La soumission ${numero} est au statut « ${existing.statut === "facturee" ? "facturée" : "acceptée"} » : elle ne se modifie plus. Duplique-la pour créer une version révisée.`),
+      { code: "SOUMISSION_SIGNEE" }
+    );
+  }
   const json = JSON.stringify(payload.data ?? {});
   const heures = payload.heuresEstimees ?? 0;
   const c = payload.client || {};
@@ -1170,10 +1185,13 @@ export async function rattacherOuCreerClient(
     existant = cands.find((c) => chiffresTel(c.telephone).slice(-10) === tel10) || null;
   }
   if (!existant && nomPropre && !courriel && !telephone) {
-    existant = await one<Fiche>(
-      `SELECT ${COLS} FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?) AND (courriel IS NULL OR courriel = '') AND (telephone IS NULL OR telephone = '')`,
-      [nomPropre],
-    );
+    // Candidat SANS coordonnées (Francis tape juste le nom, le cas le plus fréquent) :
+    // on retombe sur la fiche de ce nom, qu'elle ait ou non un courriel/téléphone —
+    // à condition qu'elle soit la seule. Avant, seule une fiche elle-même sans
+    // coordonnées comptait : « Julie Tremblay » créait une deuxième Julie, vide, en
+    // silence, à côté de la vraie. Deux homonymes → on crée (on ne devine pas).
+    const homonymes = await all<Fiche>(`SELECT ${COLS} FROM clients WHERE LOWER(TRIM(nom)) = LOWER(?) LIMIT 2`, [nomPropre]);
+    if (homonymes.length === 1) existant = homonymes[0];
   }
   if (existant) {
     // Compléter ce qui manque sur la fiche, sans rien écraser.
@@ -1260,27 +1278,35 @@ export async function supprimerTache(id: number): Promise<boolean> {
   return r.rowsAffected > 0;
 }
 /** Marque une tâche complétée. Si elle est récurrente, recrée la prochaine occurrence. */
-export async function terminerTache(id: number, dateCompletion: string): Promise<{ prochaine?: number }> {
+export async function terminerTache(id: number, dateCompletion: string): Promise<{ prochaine?: number; deja_complete?: boolean }> {
   const t = await one<any>("SELECT * FROM taches_client WHERE id = ?", [id]);
   if (!t) return {};
-  const cloture: Enonce = { sql: "UPDATE taches_client SET statut = 'complete', date_completion = ? WHERE id = ?", args: [dateCompletion, id] };
+  // Déjà complète : AUCUNE écriture. Avant, chaque « compléter » rejoué (double clic,
+  // réessai réseau de ecrire()) recréait une occurrence suivante — mesuré : trois appels,
+  // trois tâches « Inspection hebdo » à venir.
+  if (t.statut === "complete") return { deja_complete: true };
+  const cloture: Enonce = { sql: "UPDATE taches_client SET statut = 'complete', date_completion = ? WHERE id = ? AND statut != 'complete'", args: [dateCompletion, id] };
   if (!t.recurrence) {
     await runBatch([cloture]);
     return {};
   }
   // Clôture + prochaine occurrence dans la MÊME transaction : avant, un échec de l'INSERT
   // laissait la tâche récurrente fermée sans suite, et la récurrence s'éteignait en silence.
+  // `WHERE changes() = 1` : l'occurrence suivante n'est créée que si la clôture a bien
+  // écrit UNE ligne (deux clôtures simultanées = une seule suite).
   const prochaineDate = avancerDateRecurrence(t.date_due, t.recurrence);
   const client = getLibsqlClient();
   await initDb();
   const res = await client.batch([
     cloture,
     {
-      sql: `INSERT INTO taches_client (client_id, projet_id, titre, description, date_due, priorite, statut, assigne_a, recurrence, date_creation) VALUES (?, ?, ?, ?, ?, ?, 'a_faire', ?, ?, ?)`,
+      sql: `INSERT INTO taches_client (client_id, projet_id, titre, description, date_due, priorite, statut, assigne_a, recurrence, date_creation)
+            SELECT ?, ?, ?, ?, ?, ?, 'a_faire', ?, ?, ? WHERE changes() = 1`,
       args: [t.client_id || null, t.projet_id || null, t.titre, t.description || null, prochaineDate, t.priorite ?? 3, t.assigne_a || null, t.recurrence, new Date().toISOString()],
     },
   ], "write");
-  return { prochaine: Number(res[1]?.lastInsertRowid || 0) };
+  if (Number(res[0]?.rowsAffected || 0) === 0) return { deja_complete: true };
+  return { prochaine: Number(res[1]?.lastInsertRowid || 0) || undefined };
 }
 
 // === CONTRATS ===
@@ -1607,6 +1633,15 @@ export async function creerProjetDepuisContrat(token: string): Promise<{ ok: boo
     await run("UPDATE clients SET pipeline_stage = 'accepte', statut = ?, projet_lien_id = ? WHERE id = ?",
       [statut, projetId, c.client_id]);
   }
+  // La soumission liée suit aussi : signée au contrat, elle est ACCEPTÉE. Avant, elle
+  // restait « envoyée » — relancée par le cron 7 jours plus tard alors que le client avait
+  // signé, comptée dans le pipeline et non dans le CA accepté, encore signable en ligne.
+  if (d.soumission_numero) {
+    await run(
+      "UPDATE soumissions SET statut = 'acceptee', date_acceptation = COALESCE(date_acceptation, ?) WHERE numero = ? AND statut IN ('brouillon', 'envoyee', 'refusee')",
+      [new Date().toISOString(), String(d.soumission_numero).trim()]
+    ).catch(() => {});
+  }
   // Le PDF signé est aussi rattaché à la fiche projet : c'est là que Francis le cherche.
   if (c.pdf_signe) {
     await modifierProjet(projetId, { contrat_signe_data: c.pdf_signe, contrat_signe_type: "application/pdf" } as any);
@@ -1616,10 +1651,18 @@ export async function creerProjetDepuisContrat(token: string): Promise<{ ok: boo
 
 /** « 2026-08-15 » ou « 15 août 2026 » → ISO, ou null si illisible. Le contrat stocke la
  *  date telle qu'affichée au client ; le projet, lui, exige un AAAA-MM-JJ. */
-function isoDepuisDateFr(v: any): string | null {
+export function isoDepuisDateFr(v: any): string | null {
   const s = String(v || "").trim();
   if (!s) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // « 15 juin 2026 », « 1er août 2026 » : Date.parse() ne lit pas le français — le projet
+  // naissait SANS date de début alors que le contrat signé en affichait une.
+  const MOIS: Record<string, number> = { janvier: 1, février: 2, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, août: 8, aout: 8, septembre: 9, octobre: 10, novembre: 11, décembre: 12, decembre: 12 };
+  const fr = /^(\d{1,2})(?:er)?\s+([a-zéû]+)\s+(\d{4})$/i.exec(s.toLowerCase());
+  if (fr && MOIS[fr[2]]) {
+    const j = Number(fr[1]), m = MOIS[fr[2]], a = Number(fr[3]);
+    if (j >= 1 && j <= 31) return `${a}-${String(m).padStart(2, "0")}-${String(j).padStart(2, "0")}`;
+  }
   const t = Date.parse(s);
   if (Number.isNaN(t)) return null;
   const d = new Date(t);
@@ -1675,8 +1718,8 @@ export async function listerFichiersClient(client_id: number): Promise<any[]> {
     [client_id]
   );
 }
-export async function getFichierClient(id: number): Promise<{ data: string; type: string; nom: string } | null> {
-  return await one<any>("SELECT data, type, nom FROM client_fichiers WHERE id = ?", [id]);
+export async function getFichierClient(id: number): Promise<{ data: string; type: string; nom: string; client_id: number; taille: number | null } | null> {
+  return await one<any>("SELECT data, type, nom, client_id, taille FROM client_fichiers WHERE id = ?", [id]);
 }
 export async function ajouterFichierClient(f: { client_id: number; nom: string; type: string; data: string; taille?: number; ajoute_par?: string }): Promise<number> {
   const r = await run(
@@ -1699,6 +1742,10 @@ export async function listerFichiersProjet(projet_id: number): Promise<any[]> {
     "SELECT id, projet_id, nom, type, taille, categorie, description, ajoute_par, date_ajout FROM projet_fichiers WHERE projet_id = ? ORDER BY date_ajout DESC",
     [projet_id]
   );
+}
+/** Métadonnées d'un document de chantier, SANS les octets (trace du journal). */
+export async function getFichierProjetMeta(id: number): Promise<{ id: number; projet_id: number; nom: string; type: string | null; taille: number | null; categorie: string | null } | null> {
+  return await one<any>("SELECT id, projet_id, nom, type, taille, categorie FROM projet_fichiers WHERE id = ?", [id]);
 }
 export async function getFichierProjet(id: number): Promise<{ data: string; type: string; nom: string } | null> {
   return await one<any>("SELECT data, type, nom FROM projet_fichiers WHERE id = ?", [id]);
@@ -2112,9 +2159,15 @@ export async function supprimerProjet(id: number): Promise<{ ok: boolean; raison
             (SELECT COUNT(*) FROM factures_projet f WHERE f.projet_id = projets.id AND f.payee = 1) AS factures_payees,
             (SELECT COUNT(*) FROM heures_projet h
                WHERE h.projet_id = projets.id
-                 AND EXISTS (SELECT 1 FROM paies_periodes pp WHERE pp.employe = h.employe AND pp.paye = 1 AND h.date BETWEEN pp.debut AND pp.fin)) AS heures_payees
+                 AND EXISTS (SELECT 1 FROM paies_periodes pp WHERE pp.employe = h.employe AND pp.paye = 1 AND h.date BETWEEN pp.debut AND pp.fin)) AS heures_payees,
+            (SELECT COUNT(*) FROM extras e WHERE e.projet_id = projets.id AND e.statut = 'charge') AS extras_factures
      FROM projets WHERE id = ?`, [id]
   );
+  // Un extra FACTURÉ au client ne se supprime pas à l'unité (409) ; la cascade ne doit pas
+  // l'emporter non plus (1 000 $ facturés effacés d'un coup, mesuré).
+  if (p && Number(p.extras_factures) > 0) {
+    return { ok: false, raison: `Ce projet a ${Number(p.extras_factures)} extra(s) FACTURÉ(S) au client : les supprimer effacerait du revenu. Rouvre-les d'abord (« annuler la facturation ») si la suppression est vraiment voulue.` };
+  }
   if (p && Number(p.a_contrat)) {
     return { ok: false, raison: "Ce projet porte un contrat signé joint. Retire-le d'abord si la suppression est vraiment voulue." };
   }
@@ -2169,14 +2222,41 @@ export async function ajouterHeureProjet(h: HeureProjet & { ajoute_par?: string 
   );
   return r.lastInsertRowid;
 }
-/** Vrai si la date/employé d'une entrée d'heures tombe dans une paie DÉJÀ VERSÉE. */
+/** Vrai si une entrée d'heures (employé, date) est GELÉE par une paie déjà versée :
+ *  - elle tombe dans une quinzaine payée ; ou
+ *  - une quinzaine payée POSTÉRIEURE a tiré de la banque d'heures que ces heures ont
+ *    alimentée. Avant, effacer deux journées d'une quinzaine non payée vidait la banque
+ *    d'une paie versée qui l'avait consommée : 10 h payées « sorties de nulle part », et la
+ *    période payée se réécrivait à « 0 h tirées » sans que rien ne le dise. */
 export async function heureDansPaiePayee(employe: string | null, date: string): Promise<boolean> {
   if (!employe || !date) return false;
+  const jour = String(date).slice(0, 10);
   const r = await one<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM paies_periodes WHERE employe = ? AND paye = 1 AND ? BETWEEN debut AND fin",
-    [employe, String(date).slice(0, 10)]
+    `SELECT COUNT(*) AS n FROM paies_periodes
+     WHERE employe = ? AND paye = 1
+       AND (? BETWEEN debut AND fin OR (debut > ? AND COALESCE(banque_appliquee, 0) > 0))`,
+    [employe, jour, jour]
   ).catch(() => ({ n: 0 }));
   return Number(r?.n || 0) > 0;
+}
+
+/** Renomme un employé PARTOUT : fiche, heures saisies, périodes de paie — en un seul lot.
+ *  Avant, seule la fiche changeait : les heures et la banque restaient groupées sous
+ *  l'ancien nom (banque gelée, férié payé à 0 $ faute de fiche, deux « employés » dans
+ *  les sommaires) et l'ancien nom refusait toute saisie. */
+export async function renommerEmploye(id: number, ancien: string, nouveau: string): Promise<void> {
+  await runBatch([
+    { sql: "UPDATE employes SET nom = ? WHERE id = ?", args: [nouveau, id] },
+    { sql: "UPDATE heures_projet SET employe = ? WHERE employe = ?", args: [nouveau, ancien] },
+    { sql: "UPDATE paies_periodes SET employe = ? WHERE employe = ?", args: [nouveau, ancien] },
+  ]);
+}
+
+/** Fiche employé portant ce nom, active ou non (pour réembaucher sans créer un doublon). */
+export async function employeParNomMemeInactif(nom: string | null | undefined): Promise<Employe | null> {
+  const n = String(nom || "").trim();
+  if (!n) return null;
+  return await one<Employe>("SELECT * FROM employes WHERE LOWER(TRIM(nom)) = LOWER(?)", [n]);
 }
 
 /** Contrôles de cohérence d'une saisie d'heures, en UNE requête :
@@ -2202,7 +2282,7 @@ export async function supprimerHeureProjet(id: number): Promise<{ ok: boolean; r
   // périodes suivantes sur des chiffres qui n'ont plus rien à voir avec ce qui a été payé.
   const h = await one<any>("SELECT employe, date FROM heures_projet WHERE id = ?", [id]);
   if (h && await heureDansPaiePayee(h.employe, h.date)) {
-    return { ok: false, raison: `Ces heures (${h.employe}, ${String(h.date).slice(0, 10)}) font partie d'une paie DÉJÀ VERSÉE. Les modifier fausserait le talon remis à l'employé et la banque d'heures.` };
+    return { ok: false, raison: `Ces heures (${h.employe}, ${String(h.date).slice(0, 10)}) font partie d'une paie DÉJÀ VERSÉE, ou alimentent la banque d'heures qu'une paie versée a utilisée. Les modifier fausserait le talon remis à l'employé et la banque d'heures.` };
   }
   await run("DELETE FROM heures_projet WHERE id = ?", [id]);
   return { ok: true };
@@ -2508,6 +2588,10 @@ export async function modifierExtra(
 /** Supprime un extra. REFUSE un extra déjà FACTURÉ — la modification l'était déjà
  *  (modifierExtra) mais la suppression restait libre : le montant chargé au client
  *  disparaissait du dossier sans trace. Même chemin : rouvrir, puis supprimer. */
+/** Un extra sans ses photos (trace avant/après du journal d'audit). */
+export async function getExtraMeta(id: number): Promise<{ id: number; projet_id: number | null; date: string; nature: string | null; description: string | null; montant: number | null; heures: number | null; statut: string } | null> {
+  return await one<any>("SELECT id, projet_id, date, nature, description, montant, heures, statut FROM extras WHERE id = ?", [id]);
+}
 export async function supprimerExtra(id: number): Promise<{ ok: boolean; raison?: string }> {
   const e = await one<{ statut: string; description: string }>("SELECT statut, description FROM extras WHERE id = ?", [id]);
   if (!e) return { ok: false, raison: "Extra introuvable." };
@@ -2535,8 +2619,14 @@ export async function genererNumeroFacture(): Promise<string> {
   const rows = await all<{ numero: string }>("SELECT numero FROM factures_projet WHERE numero LIKE 'F-%'");
   return `F-${String(maxSuffixe(rows) + 1).padStart(3, "0")}`;
 }
+/** Une facture telle qu'en base (pour la trace avant/après du journal d'audit). */
+export async function getFactureProjet(id: number): Promise<{ id: number; projet_id: number; numero: string | null; montant: number; date: string; description: string | null; payee: number; date_paiement: string | null } | null> {
+  return await one<any>("SELECT id, projet_id, numero, montant, date, description, payee, date_paiement FROM factures_projet WHERE id = ?", [id]);
+}
 export async function numeroFactureExiste(numero: string): Promise<boolean> {
-  const r = await one<{ id: number }>("SELECT id FROM factures_projet WHERE numero = ?", [numero]);
+  // Insensible à la casse et aux espaces : « f-100 » passait alors que « F-100 » existait,
+  // et le détecteur de doublons criait « franc » juste après l'enregistrement.
+  const r = await one<{ id: number }>("SELECT id FROM factures_projet WHERE LOWER(TRIM(numero)) = LOWER(TRIM(?))", [numero]);
   return !!r;
 }
 export async function ajouterFactureProjet(f: FactureProjet): Promise<number> {
@@ -2758,8 +2848,8 @@ export async function supprimerDepenseProjet(id: number): Promise<boolean> {
   return r.rowsAffected > 0;
 }
 /** Rattachement d'une dépense (sans le blob du reçu) — pour juger d'une modification. */
-export async function getDepenseProjet(id: number): Promise<{ id: number; projet_id: number | null; date: string; montant: number } | null> {
-  return await one("SELECT id, projet_id, date, montant FROM depenses_projet WHERE id = ?", [id]);
+export async function getDepenseProjet(id: number): Promise<{ id: number; projet_id: number | null; date: string; montant: number; fournisseur: string | null; categorie: string | null; detaxe: number | null; description: string | null } | null> {
+  return await one("SELECT id, projet_id, date, montant, fournisseur, categorie, detaxe, description FROM depenses_projet WHERE id = ?", [id]);
 }
 export async function modifierDepenseProjet(id: number, d: Partial<DepenseProjet>, versionAttendue?: number): Promise<ResultatMaj> {
   // `valeur || null` était appliqué à TOUS les champs. Le commentaire plus bas notait
@@ -3153,6 +3243,12 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
     if (!heuresParEmploye.has(h.employe)) heuresParEmploye.set(h.employe, []);
     heuresParEmploye.get(h.employe)!.push({ date: String(h.date).slice(0, 10), heures: h.heures || 0 });
   }
+  // Dernière journée punchée d'un employé : la « date de fin » d'une fiche désactivée.
+  const derniereJournee = (emp: string): string => {
+    let max = "";
+    for (const h of heuresParEmploye.get(emp) || []) if (h.date > max) max = h.date;
+    return max;
+  };
 
   // 2b. Fiches employés : qui a droit à l'indemnité de férié (actif), et à quel taux quand
   //     la quinzaine du congé n'a AUCUNE heure punchée (congé des Fêtes, semaine de pluie).
@@ -3189,7 +3285,8 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
     const p = periodeBiHebdo(f.date);
     for (const [emp, liste] of parEmploye) {
       if ((liste as any[]).some((g) => g.debut === p.debut)) continue;   // déjà couverte
-      if (!(fiches.get(cleEmploye(emp))?.actif ?? true)) continue;       // plus à l'emploi
+      // Plus à l'emploi : seul un férié POSTÉRIEUR à sa dernière journée punchée lui échappe.
+      if (!(fiches.get(cleEmploye(emp))?.actif ?? true) && f.date > derniereJournee(emp)) continue;
       // Férié reporté au lundi : la référence se calcule sur la date d'ORIGINE.
       if (indemniteFerie(heuresParEmploye.get(emp) || [], f.date_origine || f.date) <= 0) continue; // aucun droit acquis
       (liste as any[]).push({ employe: emp, debut: p.debut, fin: p.fin, heures: [] });
@@ -3230,15 +3327,15 @@ export async function listerPaiePeriodes(employe?: string, limit = 12): Promise<
       // versée : la recalculer changerait le talon remis à l'employé, et le solde de banque
       // qui en découle. Sinon on recalcule (une feuille de temps saisie en retard change la
       // base, donc l'indemnité — tant que rien n'est versé, c'est le bon montant qui gagne).
-      // Un employé DÉSACTIVÉ (fin d'emploi) ne touche pas d'indemnité : la fiche n'a pas de
-      // date de fin, donc `actif = 0` vaut pour tout férié non encore versé. Avant, ce
-      // filtre ne s'appliquait qu'aux quinzaines injectées sans heure punchée.
+      // Un employé DÉSACTIVÉ (fin d'emploi) garde l'indemnité des fériés tombés PENDANT
+      // son emploi (au plus tard sa dernière journée punchée) et perd ceux d'après. Avant,
+      // `actif = 0` effaçait TOUT férié non encore versé : désactiver la fiche puis payer
+      // la dernière paie — l'ordre le plus naturel — gelait l'indemnité à 0 $ (5,78 h × 30 $
+      // perdus, mesuré), sans aucun signal.
       const fiche = fiches.get(cleEmploye(g.employe));
       const feries = existant?.paye
         ? { heures: Number(existant.heures_ferie) || 0, detail: null as any }
-        : (fiche?.actif ?? true)
-          ? feriesDeLaPeriode(heuresParEmploye.get(g.employe) || [], g.debut, g.fin)
-          : { heures: 0, detail: [] as any[] };
+        : feriesDeLaPeriode(heuresParEmploye.get(g.employe) || [], g.debut, g.fin, FERIES_PAYES_DEPUIS, (fiche?.actif ?? true) ? null : derniereJournee(g.employe));
       const heuresFerie = feries.heures;
       const detailFerie = existant?.paye
         ? (existant.feries_detail ?? null)
@@ -3517,7 +3614,14 @@ export const TABLES_SAUVEGARDE: { champ: string; table: string; tri?: string; sa
   { champ: "cameras", table: "cameras", tri: "id ASC" },
   { champ: "parametres", table: "parametres_app" },
   { champ: "parametres_ia", table: "parametres_ia" },
-  { champ: "profils", table: "utilisateur_profil", tri: "id ASC" },
+  // Clé primaire = username, PAS id : trié sur « id », l'export levait « no such column »
+  // et, comme une table qui ne s'exporte pas fait échouer TOUTE la sauvegarde (voulu),
+  // chaque sauvegarde Drive répondait 500 — le cron quotidien ne déposait plus rien.
+  { champ: "profils", table: "utilisateur_profil", tri: "username ASC" },
+  // Paires de factures écartées à la main (« ce n'est pas un doublon ») : décision
+  // d'argent, elle doit revenir après une restauration, sinon toutes les alertes
+  // réapparaissent.
+  { champ: "doublons_ignores", table: "doublons_ignores", tri: "cle ASC" },
   // Documents de chantier : on garde l'INVENTAIRE (nom, type, taille, catégorie, qui et
   // quand) mais pas les octets — même arbitrage que les reçus de dépense, sinon quelques
   // PDF de 3 Mo suffisent à faire exploser le fichier de sauvegarde. Après une restauration
@@ -3548,6 +3652,7 @@ export const TABLES_EXCLUES_SAUVEGARDE: Record<string, string> = {
   push_subscriptions: "propre à chaque appareil, se recrée à la reconnexion",
   ia_couts: "journal de dépense IA, propre à l'instance et reconstituable par la facturation Anthropic",
   erreurs_client: "journal d'erreurs du navigateur, purgé automatiquement",
+  idempotence: "réponses mémorisées 7 jours pour rejouer une requête hors-ligne sans doublon — purgées, sans valeur après coup",
   // Les photos de chantier, fichiers de client, photos de bibliothèque et documents IA ne
   // sont PLUS exclus : leur INVENTAIRE est sauvegardé (voir TABLES_SAUVEGARDE), seules
   // les colonnes d'octets sont écartées. Le journal d'activité et les retours IA sont
@@ -3631,6 +3736,43 @@ export async function memoriserCountsSauvegarde(counts: Record<string, number>):
 // présents dans certains exports (client_nom, total_heures, projet_nom…).
 
 export interface ResultatRestaurationTable { inseres: number; ignores: number; total: number; erreur?: string }
+
+/** Lignes de la sauvegarde dont l'id EXISTE DÉJÀ en base avec un contenu DIFFÉRENT.
+ *  INSERT OR IGNORE les jetait comme « déjà existantes » tandis que leurs lignes-enfants
+ *  (documents, photos, tâches) se greffaient sur le parent étranger qui porte cet id —
+ *  mesuré : restaurer la base A dans une base B non vide rattachait les plans du
+ *  « Chantier D » au projet « Retard B », avec un « ✓ Restauration terminée ». À appeler
+ *  AVANT restaurerBackup : un seul conflit doit refuser la restauration. */
+export async function detecterConflitsRestauration(dump: any): Promise<{ table: string; id: number }[]> {
+  await initDb();
+  const conflits: { table: string; id: number }[] = [];
+  const norme = (v: any) => (v === null || v === undefined ? "" : typeof v === "number" ? String(v) : String(v));
+  for (const { champ, table, sansColonnes } of TABLES_SAUVEGARDE) {
+    const lignes: any[] = Array.isArray(dump?.[champ]) ? dump[champ] : [];
+    if (!lignes.length) continue;
+    const info = await exec(`PRAGMA table_info(${table})`);
+    const cols = (info.rows as any[]).map((r) => String(r.name));
+    if (!cols.includes("id")) continue;
+    const comparables = cols.filter((c) => c !== "id" && !(sansColonnes || []).includes(c));
+    const parId = new Map<number, any>();
+    for (const l of lignes) {
+      const id = Number(l?.id);
+      if (l && typeof l === "object" && Number.isFinite(id)) parId.set(id, l);
+    }
+    const ids = [...parId.keys()];
+    for (let i = 0; i < ids.length; i += 400) {
+      const tranche = ids.slice(i, i + 400);
+      const rows = await all<any>(`SELECT ${["id", ...comparables].join(", ")} FROM ${table} WHERE id IN (${tranche.map(() => "?").join(",")})`, tranche);
+      for (const r of rows) {
+        const l = parId.get(Number(r.id));
+        if (!l) continue;
+        const differe = comparables.some((c) => l[c] !== undefined && norme(l[c]) !== norme(r[c]));
+        if (differe) conflits.push({ table: champ, id: Number(r.id) });
+      }
+    }
+  }
+  return conflits;
+}
 
 export async function restaurerBackup(dump: any): Promise<Record<string, ResultatRestaurationTable>> {
   await initDb();

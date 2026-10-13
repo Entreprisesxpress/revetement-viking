@@ -137,10 +137,13 @@ export function feriesDeLaPeriode(
   heures: { date: string; heures: number }[],
   debutISO: string,
   finISO: string,
-  depuis = FERIES_PAYES_DEPUIS
+  depuis = FERIES_PAYES_DEPUIS,
+  /** Fin d'emploi : seuls les fériés jusqu'à cette date (incluse) sont dus. `null` = tous. */
+  jusquA: string | null = null
 ): { heures: number; detail: FeriePeriode[] } {
   const detail: FeriePeriode[] = [];
   for (const f of feriesPayesEntre(debutISO, finISO, depuis)) {
+    if (jusquA && f.date > jusquA) continue;
     // Crédité sur la date reportée, calculé sur la date d'origine.
     const h = indemniteFerie(heures, f.date_origine || f.date);
     if (h > 0) detail.push({ ...f, heures: h });

@@ -112,7 +112,11 @@ export async function GET(req: NextRequest) {
       url: dbl.total > 0 ? "/finances/doublons" : "/",
       tag: "rappel-quotidien",
     }).catch(() => ({ envoyes: 0, erreurs: 1 }));
-    if (!r.envoyes) echecs++;
+    // Un échec = un push REFUSÉ par le service. Un usager sans appareil abonné (0 envoyé,
+    // 0 erreur) n'est pas une panne : compté comme tel, le garde du jour ne se posait
+    // jamais et l'autre usager recevait le rappel à CHAQUE relance du cron (réessai
+    // Vercel, appel manuel) — mesuré : 3 appels, 3 push — avec un 500 chaque matin.
+    if (!r.envoyes && (r as any).erreurs > 0) echecs++;
 
     resultats.push({ user, push: true, envoyes: r.envoyes, contenu: parts });
   }

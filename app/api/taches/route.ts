@@ -77,8 +77,16 @@ export async function PATCH(req: NextRequest) {
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
     // Complétion : passe par terminerTache (recrée la prochaine occurrence si récurrente).
     if (b.statut === "complete") {
-      const { prochaine } = await terminerTache(id, b.date_completion || aujourdhuiMontreal());
-      return NextResponse.json({ ok: true, prochaine });
+      // Date de complétion RÉELLE (« n'importe quoi » entrait tel quel), et les autres
+      // champs du même PATCH (titre, description…) sont appliqués avant la clôture au
+      // lieu d'être ignorés.
+      if (b.date_completion !== undefined && b.date_completion !== null && b.date_completion !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.date_completion))) {
+        return NextResponse.json({ error: "date_completion doit être AAAA-MM-JJ" }, { status: 400 });
+      }
+      const { statut: _s, date_completion: _d, id: _i, ...autres } = b;
+      if (Object.keys(autres).length) await modifierTache(id, autres);
+      const r = await terminerTache(id, b.date_completion || aujourdhuiMontreal());
+      return NextResponse.json({ ok: true, ...r });
     }
     if (!(await modifierTache(id, b))) return NextResponse.json({ error: "tâche introuvable" }, { status: 404 });
     return NextResponse.json({ ok: true });

@@ -100,7 +100,10 @@ describe("contrats en ligne : numéro séquentiel unique et rattachement du proj
 
   it("deux contrats signés du MÊME client avec le MÊME numéro donnent DEUX projets (plus d'écrasement)", async () => {
     const clientId = await db.ajouterClient({ nom: "Client Deux Contrats" } as any);
-    const numero = "C-2025-003"; // ancien format non unique, tel qu'il existe en base
+    // Ancien format « C-année-idClient » (8-9 caractères), non unique, tel qu'il existe en
+    // base. Les numéros séquentiels à 10 caractères, eux, sont UNIQUES depuis l'index
+    // partiel idx_pipe_contrats_numero (SCHEMA 28).
+    const numero = "C-2025-3";
     const idA = await db.creerContratPipeline({ client_id: clientId, numero, token: "tok-A", data_json: { nom_projet: "Chantier A", prix_total: 1000 }, pdf_brouillon: "" });
     const idB = await db.creerContratPipeline({ client_id: clientId, numero, token: "tok-B", data_json: { nom_projet: "Chantier B", prix_total: 2000 }, pdf_brouillon: "" });
     for (const t of ["tok-A", "tok-B"]) {
@@ -492,21 +495,26 @@ describe("clients : rattachement par courriel, téléphone, puis nom sans coordo
     expect((await db.getClient(b))?.nom).toBe("Marc Côté"); // le nom n'est jamais réécrit
   });
 
-  it("nom seul : seulement si ni le candidat ni la fiche n'ont de coordonnées", async () => {
+  it("nom seul : un candidat SANS coordonnées retombe sur l'unique fiche de ce nom ; avec coordonnées, jamais par le nom", async () => {
     const c = await db.ajouterClient({ nom: "Paul Roy" } as any);
     expect((await db.rattacherOuCreerClient("paul roy", {})).id).toBe(c);
-    // Candidat AVEC courriel : pas de rattachement par le nom → nouvelle fiche.
+    // trouverOuCreerClient reste l'enveloppe qui rend l'id (tant qu'il n'y a qu'un Paul Roy).
+    expect(await db.trouverOuCreerClient("paul roy")).toBe(c);
+    // Fiche AVEC coordonnées, candidat sans (Francis tape juste le nom) : rattachée à
+    // la fiche existante. Avant, une deuxième « Anne Lavoie » vide naissait en silence.
+    const d = await db.ajouterClient({ nom: "Anne Lavoie", telephone: "438 555-9999" } as any);
+    const r2 = await db.rattacherOuCreerClient("Anne Lavoie", {});
+    expect(r2.id).toBe(d);
+    expect(r2.cree).toBe(false);
+    // Candidat AVEC courriel : pas de rattachement par le nom → nouvelle fiche (2e Paul Roy).
     const r = await db.rattacherOuCreerClient("Paul Roy", { courriel: "paul@exemple.ca" });
     expect(r.cree).toBe(true);
     expect(r.id).not.toBe(c);
-    // Fiche AVEC coordonnées, candidat sans : pas de rattachement non plus.
-    const d = await db.ajouterClient({ nom: "Anne Lavoie", telephone: "438 555-9999" } as any);
-    const r2 = await db.rattacherOuCreerClient("Anne Lavoie", {});
-    expect(r2.id).not.toBe(d);
+    // Deux homonymes (Paul Roy existe maintenant deux fois) : on ne devine pas → création.
+    const r3 = await db.rattacherOuCreerClient("Paul Roy", {});
+    expect(r3.cree).toBe(true);
     // Rien du tout : aucune fiche.
     expect((await db.rattacherOuCreerClient("", {})).id).toBe(0);
-    // trouverOuCreerClient reste l'enveloppe qui rend l'id.
-    expect(await db.trouverOuCreerClient("paul roy")).toBe(c);
   });
 });
 

@@ -186,6 +186,11 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     const depot = depotStr.trim() ? nombreSaisi(depotStr) : 25;
     if (!Number.isFinite(depot) || depot < 0 || depot > 100) { toast(`Dépôt illisible : « ${depotStr} » — un pourcentage entre 0 et 100`, "warning"); return; }
     const soumNum = prompt("N° de devis/soumission lié (laisser vide si aucun) :", "") || "";
+    // Description des travaux TELLE QU'ELLE APPARAÎTRA AU CONTRAT. Avant, les notes de la
+    // fiche CRM partaient telles quelles (« FOURCHETTE BUDGÉTAIRE DU CLIENT… ») : imprimées
+    // sur le PDF signé, scellées par l'empreinte, et lisibles par le client.
+    const travaux = prompt("Description des travaux, telle qu'elle apparaîtra au contrat (laisser vide si le devis joint suffit) :", "");
+    if (travaux === null) return;
 
     try {
       const { genererContratBlob } = await import("@/lib/pdf-contrat");
@@ -212,7 +217,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
         date_debut_travaux: dateStr,
         prix_total: prix,
         depot_pct: depot,
-        notes_travaux: form.notes,
+        notes_travaux: travaux.trim(),
       };
       const blob = await genererContratBlob(data);
       // Convertit en data URL et sauvegarde côté serveur

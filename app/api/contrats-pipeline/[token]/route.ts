@@ -39,10 +39,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   }
   // Le jeton n'est PAS renvoyé : le visiteur l'a déjà (il est dans l'URL), et un JSON
   // public qui le répète n'a aucune raison d'exister (demande de l'agent sécurité).
+  // Liste BLANCHE des champs du contrat renvoyés au visiteur : la page publique n'affiche
+  // que le prix, le dépôt et la date de début. Avant, `data` partait en entier — dont
+  // `notes_travaux`, c'est-à-dire les notes CRM de la fiche client (« FOURCHETTE
+  // BUDGÉTAIRE DU CLIENT : entre 10 000 et 15 000 ») lisibles par le client.
+  const PUBLIC = ["prix_total", "depot_pct", "date_debut_travaux", "soumission_numero", "client_nom", "nom_projet", "adresse_chantier"];
+  const dataPublique = Object.fromEntries(PUBLIC.filter((k) => data?.[k] !== undefined).map((k) => [k, data[k]]));
   return NextResponse.json({
     numero: c.numero,
     statut: c.statut,
-    data,
+    data: dataPublique,
     signature_nom: c.signature_nom,
     signature_date: c.signature_date,
     client_nom: cl?.nom,

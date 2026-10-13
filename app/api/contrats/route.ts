@@ -52,8 +52,16 @@ export async function POST(req: NextRequest) {
   const invalide = validerEtNormaliser(b);
   if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
   if (!b.titre || !b.date_emission) return NextResponse.json({ error: "titre + date_emission requis" }, { status: 400 });
-  const r = await ajouterContrat(b);
-  return NextResponse.json({ ok: true, ...r });
+  try {
+    const r = await ajouterContrat(b);
+    return NextResponse.json({ ok: true, ...r });
+  } catch (e: any) {
+    // Numéro déjà porté par un contrat : un refus (409), pas une panne (500 brut).
+    if (/UNIQUE/i.test(String(e?.message || e))) {
+      return NextResponse.json({ error: "numéro déjà pris", message: `Le numéro de contrat ${b.numero || ""} existe déjà. Laisse-le vide pour un numéro automatique.` }, { status: 409 });
+    }
+    throw e;
+  }
 }
 
 export async function PATCH(req: NextRequest) {

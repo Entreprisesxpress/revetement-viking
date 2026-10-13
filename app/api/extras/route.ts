@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compterExtrasACharger, getProjet, projetReferenceValide, modifierExtra } from "@/lib/db";
+import { ajouterExtra, listerExtras, marquerExtraCharge, supprimerExtra, compterExtrasACharger, getProjet, projetReferenceValide, projetPourSaisie, modifierExtra, getExtraMeta } from "@/lib/db";
 import { idEntier, lireCorps, texte } from "@/lib/requete";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
@@ -60,6 +60,12 @@ async function creerExtra(req: NextRequest): Promise<NextResponse> {
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
     if (!(await projetReferenceValide(body.projet_id))) {
       return NextResponse.json({ error: "projet introuvable — laisse le projet vide si l'extra n'est rattaché à aucun chantier" }, { status: 400 });
+    }
+    // Un chantier ANNULÉ n'a pas d'extra : il gonflait le revenu de la fiche tout en
+    // étant exclu du tableau de bord. (Dépenses et heures le refusent déjà.)
+    const refProjet = await projetPourSaisie(body.projet_id);
+    if (refProjet && refProjet.existe && refProjet.projet.statut === "annule") {
+      return NextResponse.json({ error: "saisie refusée", message: "ce chantier est ANNULÉ : aucun extra ne peut y être rattaché" }, { status: 409 });
     }
     const user = await utilisateurActif(req);
     const id = await ajouterExtra({
@@ -155,10 +161,17 @@ export async function DELETE(req: NextRequest) {
   const id = idEntier(req.nextUrl.searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   const user = await utilisateurActif(req);
+  const avant = await getExtraMeta(id);
   // Un extra FACTURÉ ne se supprime pas (sa modification était déjà refusée) : 409.
   const supp = await supprimerExtra(id);
   if (!supp.ok) return NextResponse.json({ error: "suppression refusée", message: supp.raison }, { status: supp.raison?.includes("introuvable") ? 404 : 409 });
   const ip = ipDe(req);
-  after(() => journaliser("extra.supprime", { ref_type: "extra", ref_id: id, utilisateur: user || undefined, description: `Suppression extra #${id}`, ip }));
+  // La trace porte l'extra tel qu'il était (montant, chantier) : « Suppression extra #3 »
+  // ne permettait pas de savoir ce qui avait disparu.
+  after(() => journaliser("extra.supprime", {
+    ref_type: "extra", ref_id: id, utilisateur: user || undefined,
+    description: `Suppression · ${avant?.description || "?"} · ${avant?.montant ?? avant?.heures ?? "?"} ${avant?.montant != null ? "$" : "h"} · projet ${avant?.projet_id ?? "—"}`,
+    avant: avant || undefined, ip,
+  }));
   return NextResponse.json({ ok: true });
 }

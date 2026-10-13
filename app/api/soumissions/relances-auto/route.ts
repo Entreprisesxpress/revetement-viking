@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
 
   const c: any = db();
   const r = await c.execute({
-    sql: `SELECT numero, client_nom, client_courriel, total, date_envoi FROM soumissions WHERE statut = 'envoyee' AND date_envoi IS NOT NULL AND date_envoi < ? ORDER BY date_envoi ASC LIMIT 50`,
+    // Jour d'envoi ≤ seuil : `date_envoi` est un horodatage (« 2026-10-05T14:00Z »), plus
+    // grand que le jour « 2026-10-05 » — comparé entier, le seuil glissait à 8 jours révolus.
+    sql: `SELECT numero, client_nom, client_courriel, total, date_envoi FROM soumissions WHERE statut = 'envoyee' AND date_envoi IS NOT NULL AND substr(date_envoi, 1, 10) <= ? ORDER BY date_envoi ASC LIMIT 50`,
     args: [seuil],
   }).catch(() => ({ rows: [] }));
   const liste = r.rows as any[];

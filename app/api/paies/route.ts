@@ -52,6 +52,11 @@ export async function PATCH(req: NextRequest) {
   const note = texte(b.note, 500) || undefined;
   // Idempotent : une période déjà payée ne se remarque pas payée (sinon la date de
   // versement était écrasée par la date du jour). 409 avec le motif.
+  // Recalcul AVANT de geler : « marquer payé » fige ce qui est en base, et la base peut
+  // être en retard sur les heures (saisie dans un autre onglet, banque appliquée sans
+  // relecture) — la demande de banque s'évaporait, ou des heures devenaient « dues »
+  // au lieu d'être payées.
+  if (b.paye && avant.employe) await listerPaiePeriodes(avant.employe, 1).catch(() => {});
   const marque = await marquerPayePeriode(id, !!b.paye, b.date_paiement || undefined, note);
   if (!marque.ok) return NextResponse.json({ error: "déjà payée", message: marque.raison }, { status: 409 });
   const apres = await lirePeriode(id);

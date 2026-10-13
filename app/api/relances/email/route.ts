@@ -38,9 +38,13 @@ export async function GET(req: NextRequest) {
   let envoyes = 0;
   let tentes = 0;
   const erreurs: string[] = [];
+  const sansDestinataire: string[] = [];
   for (const [user, liste] of parUser) {
     const dest = COURRIELS[user];
-    if (!dest) continue;
+    // Relances dues mais aucun courriel configuré pour la personne (FRANCIS_EMAIL /
+    // GABRIEL_EMAIL absents) : avant, `continue` muet → « ok:true, envoyés 0 » en 200,
+    // alors que relances-auto et rapport-hebdo répondent 503 dans la même situation.
+    if (!dest) { sansDestinataire.push(user); continue; }
     // Dédup par jour et par destinataire : un retrigger du cron (retry Vercel, appel manuel)
     // le même jour ne renvoie pas le même récap une 2e fois.
     const cleGuard = `relance_pipeline_envoi_${user}_${today}`;
@@ -70,6 +74,9 @@ https://app.revetementviking.com/clients
   // RESEND_FROM absent…), pas un succès. Le cron doit le dire — comme rapport-hebdo.
   if (tentes > 0 && envoyes === 0) {
     return NextResponse.json({ ok: false, envoyes: 0, relances: dus.length, erreurs }, { status: 500 });
+  }
+  if (sansDestinataire.length > 0 && envoyes === 0) {
+    return NextResponse.json({ ok: false, raison: "aucun_dest", sans_destinataire: sansDestinataire, relances: dus.length, message: `Relances dues pour ${sansDestinataire.join(", ")} mais aucun courriel configuré (FRANCIS_EMAIL / GABRIEL_EMAIL).` }, { status: 503 });
   }
   return NextResponse.json({ ok: true, envoyes, relances: dus.length, ...(erreurs.length ? { erreurs } : {}) });
 }

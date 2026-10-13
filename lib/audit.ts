@@ -86,7 +86,11 @@ export type ActiviteType =
   | "drive.connecte"
   | "drive.deconnecte"
   | "auth.login_ok"
-  | "auth.login_echec";
+  | "auth.login_echec"
+  // Essai bloqué par la limite : type à part, pour ne pas être recompté par la limite.
+  | "auth.login_bloque"
+  | "client.fichier_ajoute"
+  | "client.fichier_supprime";
 
 export interface ActiviteOpts {
   ref_type?: string;

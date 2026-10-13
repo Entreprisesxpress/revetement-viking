@@ -1,4 +1,23 @@
 import { describe, it, expect } from "vitest";
+
+// Fin d'emploi : seuls les fériés tombés au plus tard à la dernière journée punchée sont
+// dus. Désactiver la fiche puis payer la dernière paie effaçait TOUTE l'indemnité (5,78 h
+// perdues, mesuré) ; un férié postérieur au départ, lui, n'est pas dû.
+describe("feriesDeLaPeriode — borne « jusquA » (fin d'emploi)", () => {
+  const heures = Array.from({ length: 20 }, (_, i) => {
+    const d = new Date(2026, 8, 14 + i); // 14 sept → 3 oct, 8 h par jour (jours ouvrables compris)
+    return { date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, heures: 8 };
+  });
+  it("sans borne : l'Action de grâce 2026-10-12 est due", async () => {
+    const { feriesDeLaPeriode } = await import("./paie-feries");
+    expect(feriesDeLaPeriode(heures, "2026-10-05", "2026-10-18").heures).toBeGreaterThan(0);
+  });
+  it("borne au 2026-10-12 ou après : toujours due ; borne au 2026-10-03 (parti avant) : rien", async () => {
+    const { feriesDeLaPeriode } = await import("./paie-feries");
+    expect(feriesDeLaPeriode(heures, "2026-10-05", "2026-10-18", "2026-10-12", "2026-10-12").heures).toBeGreaterThan(0);
+    expect(feriesDeLaPeriode(heures, "2026-10-05", "2026-10-18", "2026-10-12", "2026-10-03").heures).toBe(0);
+  });
+});
 import {
   FERIES_PAYES_DEPUIS, feriesPayesQC, feriesPayesEntre, fenetreReference,
   baseReferenceFerie, indemniteFerie, feriesDeLaPeriode, lundiDeLaSemaine, resumeFeries,

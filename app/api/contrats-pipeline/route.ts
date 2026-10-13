@@ -4,6 +4,7 @@ import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 import { donneesTropLourdes, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
 import { idEntier, lireCorps } from "@/lib/requete";
+import { nombreSaisi } from "@/lib/calculs";
 
 // Le contenu du contrat (data_json) est un objet de quelques Ko ; au-delà de 200 000
 // caractères sérialisés, c'est un payload aberrant (413), pas un contrat.
@@ -33,6 +34,13 @@ export async function POST(req: NextRequest) {
   if (typeof b.data_json !== "object" || JSON.stringify(b.data_json).length > DATA_JSON_MAX) {
     return NextResponse.json({ error: "data_json trop volumineux ou invalide", message: `Le contenu du contrat dépasse ${DATA_JSON_MAX.toLocaleString("fr-CA")} caractères : les fichiers (devis, photos) ne vont pas dans data_json — joins le devis par annexe_data.` }, { status: 413 });
   }
+  // Le prix est un NOMBRE > 0 (virgule québécoise acceptée) : « 12 500,00 » en chaîne
+  // donnait « Total du contrat NaN $ » sur le PDF signé et un projet sans prix.
+  const prix = nombreSaisi(b.data_json.prix_total);
+  if (!Number.isFinite(prix) || prix <= 0) {
+    return NextResponse.json({ error: "prix_total invalide", message: `Prix du contrat illisible ou nul : « ${b.data_json.prix_total ?? ""} » — écris par exemple 12 500,00` }, { status: 400 });
+  }
+  b.data_json.prix_total = prix;
   // Devis joint (facultatif). 4 Mo de fichier ≈ 5,5 Mo encodés : au-delà, la requête est
   // refusée par la plateforme et l'envoi échouerait sans message clair.
   let annexe: { data: string; nom: string; type: string } | null = null;
@@ -64,28 +72,45 @@ export async function POST(req: NextRequest) {
       numero = projet.numero;
     }
   }
-  if (!numero) numero = await genererNumeroContratPipeline();
+  const numeroImpose = numero;
 
   // Le brouillon est régénéré ICI, côté serveur, avec le numéro — que le navigateur ne
   // connaît pas encore au moment où il compose son PDF. Sans ça, le contrat envoyé au
   // client portait « CONTRAT N° — » sur la couverture et un en-tête vide sur chaque page
   // (constaté en extrayant le texte du PDF). C'est aussi la même règle que pour le PDF
   // signé : la pièce vient du data_json autoritaire, jamais du payload du navigateur.
-  let pdfBrouillon: string = b.pdf_brouillon;
-  try {
-    const { genererContratBlob } = await import("@/lib/pdf-contrat");
-    const blob = await genererContratBlob({ ...(b.data_json || {}), numero });
-    pdfBrouillon = `data:application/pdf;base64,${Buffer.from(await blob.arrayBuffer()).toString("base64")}`;
-  } catch (e) {
-    // Repli sur le PDF du navigateur : mieux vaut un contrat sans numéro que pas de contrat.
-    console.error("[contrats-pipeline] régénération du brouillon échouée, repli navigateur", e);
+  const brouillonAvecNumero = async (num: string): Promise<string> => {
+    try {
+      const { genererContratBlob } = await import("@/lib/pdf-contrat");
+      const blob = await genererContratBlob({ ...(b.data_json || {}), numero: num });
+      return `data:application/pdf;base64,${Buffer.from(await blob.arrayBuffer()).toString("base64")}`;
+    } catch (e) {
+      // Repli sur le PDF du navigateur : mieux vaut un contrat sans numéro que pas de contrat.
+      console.error("[contrats-pipeline] régénération du brouillon échouée, repli navigateur", e);
+      return b.pdf_brouillon;
+    }
+  };
+  // Numéro séquentiel (MAX+1) puis INSERT : six contrats préparés en même temps
+  // recevaient tous C-2026-001 (la régénération du PDF, ≈ 0,5 s, élargissait la
+  // fenêtre). L'index UNIQUE sur le numéro refuse maintenant le doublon, et on
+  // recommence avec le numéro suivant — comme ajouterProjet.
+  let id = 0;
+  for (let essai = 0; essai < 5; essai++) {
+    if (!numeroImpose) numero = await genererNumeroContratPipeline();
+    const pdfBrouillon = await brouillonAvecNumero(numero);
+    try {
+      id = await creerContratPipeline({
+        client_id: clientId, numero, token,
+        data_json: b.data_json, pdf_brouillon: pdfBrouillon,
+        cree_par: user || undefined,
+        annexe_data: annexe?.data || null, annexe_nom: annexe?.nom || null, annexe_type: annexe?.type || null,
+      });
+      break;
+    } catch (e: any) {
+      const unique = /UNIQUE/i.test(String(e?.message || e));
+      if (!unique || numeroImpose || essai === 4) throw e;
+    }
   }
-  const id = await creerContratPipeline({
-    client_id: clientId, numero, token,
-    data_json: b.data_json, pdf_brouillon: pdfBrouillon,
-    cree_par: user || undefined,
-    annexe_data: annexe?.data || null, annexe_nom: annexe?.nom || null, annexe_type: annexe?.type || null,
-  });
   after(() => journaliser("contrat_pipeline.cree", { ref_type: "contrat_pipeline", ref_id: id, utilisateur: user || undefined, description: `${numero} · client ${clientId}`, apres: { numero, client_id: clientId, annexe: !!annexe } }));
   return NextResponse.json({ ok: true, id, token, numero });
 }

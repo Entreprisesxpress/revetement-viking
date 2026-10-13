@@ -96,8 +96,10 @@ async function creerDepense(req: NextRequest): Promise<NextResponse> {
     // Montant : NOMBRE fini exigé (« abc » passait et corrompait les totaux).
     // Négatif toléré : note de crédit / remboursement fournisseur.
     const montant = parseMontant(body.montant);
-    if (!body.montant || !isFinite(montant) || !body.date) {
-      return NextResponse.json({ error: "montant (nombre) et date requis" }, { status: 400 });
+    // `!body.montant` laissait passer la chaîne « 0 » : une dépense à 0 $ entrait en base
+    // alors que l'écran et la modification la refusent.
+    if (body.montant === undefined || body.montant === null || body.montant === "" || !isFinite(montant) || montant === 0 || !body.date) {
+      return NextResponse.json({ error: "montant (nombre, différent de 0) et date requis" }, { status: 400 });
     }
     const invalide = validerDepense(body);
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
@@ -157,16 +159,18 @@ export async function PATCH(req: NextRequest) {
     if (montant === 0) return NextResponse.json({ error: "montant à 0 refusé — vide le champ puis ressaisis le vrai montant, ou supprime la dépense" }, { status: 400 });
     body.montant = montant;
   }
-  // Le chantier visé — celui qu'on rattache, sinon celui de la dépense — doit encore
-  // accepter une saisie (même règle qu'à la création).
-  let projetVise: any = body.projet_id;
-  if (projetVise === undefined) {
-    const actuelle = await getDepenseProjet(id);
-    if (!actuelle) return NextResponse.json({ error: "dépense introuvable" }, { status: 404 });
-    projetVise = actuelle.projet_id;
+  // Le chantier D'ORIGINE et le chantier VISÉ doivent tous deux accepter encore une
+  // saisie. Avant, seule la cible était vérifiée : déplacer une dépense HORS d'un chantier
+  // fermé depuis des mois (vers « général » ou vers un chantier actif) passait, et le coût
+  // de revient d'un dossier déjà facturé changeait en silence.
+  const actuelle = await getDepenseProjet(id);
+  if (!actuelle) return NextResponse.json({ error: "dépense introuvable" }, { status: 404 });
+  const refusOrigine = await refusProjet(actuelle.projet_id);
+  if (refusOrigine) return refusOrigine;
+  if (body.projet_id !== undefined && String(body.projet_id ?? "") !== String(actuelle.projet_id ?? "")) {
+    const refusCible = await refusProjet(body.projet_id);
+    if (refusCible) return refusCible;
   }
-  const refus = await refusProjet(projetVise);
-  if (refus) return refus;
   if (body.projet_id) body.projet_id = idEntier(body.projet_id);
   const user = await utilisateurActif(req);
   // Verrouillage optimiste (B7) : 409 si la dépense a changé depuis son chargement.
@@ -176,9 +180,12 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "dépense introuvable" }, { status: 404 });
   }
   const ip = ipDe(req);
+  const champsTrace = ["date", "montant", "fournisseur", "categorie", "projet_id", "detaxe", "description"];
   after(() => journaliser("depense.modifiee", {
     ref_type: "depense", ref_id: id, utilisateur: user || undefined,
-    description: `${body.fournisseur || "?"} · ${body.montant || "?"}$`,
+    description: `${body.fournisseur || actuelle.fournisseur || "?"} · ${body.montant ?? actuelle.montant}$`,
+    avant: Object.fromEntries(champsTrace.filter((k) => body[k] !== undefined).map((k) => [k, (actuelle as any)[k] ?? null])),
+    apres: Object.fromEntries(champsTrace.filter((k) => body[k] !== undefined).map((k) => [k, body[k]])),
     ip,
   }));
   return NextResponse.json({ ok: true });
@@ -197,6 +204,13 @@ export async function DELETE(req: NextRequest) {
   if (refus) return refus;
   if (!(await supprimerDepenseProjet(id))) return NextResponse.json({ error: "dépense introuvable" }, { status: 404 });
   const ip = ipDe(req);
-  after(() => journaliser("depense.supprimee", { ref_type: "depense", ref_id: id, utilisateur: user || undefined, description: `Suppression #${id}`, ip }));
+  // La trace porte la dépense telle qu'elle était : « Suppression #12 » ne disait ni le
+  // montant, ni le fournisseur, ni le chantier — introuvable six mois plus tard.
+  after(() => journaliser("depense.supprimee", {
+    ref_type: "depense", ref_id: id, utilisateur: user || undefined,
+    description: `Suppression · ${actuelle.fournisseur || "?"} · ${actuelle.montant} $ · ${actuelle.date} · projet ${actuelle.projet_id ?? "—"}`,
+    avant: { date: actuelle.date, montant: actuelle.montant, fournisseur: actuelle.fournisseur, categorie: actuelle.categorie, projet_id: actuelle.projet_id, detaxe: actuelle.detaxe },
+    ip,
+  }));
   return NextResponse.json({ ok: true });
 }

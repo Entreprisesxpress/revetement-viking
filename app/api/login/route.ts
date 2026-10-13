@@ -23,8 +23,13 @@ export async function POST(req: NextRequest) {
 
   // Rate-limit EN TÊTE : couvre tous les essais, y compris « utilisateur inconnu »
   // (qui renvoyaient 400 avant le throttle → endpoint abusable sans limite).
-  if (await rateLimitDepasse("auth.login_echec", ip, 5, 15)) {
-    await journaliser("auth.login_echec", { description: `Bloqué (rate limit) — ${user}`, ip, user_agent: ua });
+  // Les essais BLOQUÉS sont journalisés sous un type à part (`auth.login_bloque`) : écrits
+  // sous `auth.login_echec`, ils étaient recomptés par la limite elle-même, et chaque essai
+  // pendant le blocage repoussait la fin du blocage de 15 min — au bureau (une seule IP),
+  // une personne qui se trompe enfermait l'autre pour de bon. Limite par IP à 10 : le
+  // compteur par UTILISATEUR (20/h, toutes IP) couvre déjà la rotation d'adresses.
+  if (await rateLimitDepasse("auth.login_echec", ip, 10, 15)) {
+    await journaliser("auth.login_bloque", { description: `Bloqué (rate limit) — ${user}`, ip, user_agent: ua });
     return NextResponse.json({ error: "Trop d'essais. Réessaie dans 15 minutes." }, { status: 429, headers: { "Retry-After": String(15 * 60) } });
   }
 
@@ -36,7 +41,7 @@ export async function POST(req: NextRequest) {
   // Second compteur, par utilisateur : le compteur par IP seul se contourne en changeant
   // d'adresse à chaque essai (chaque IP repart à zéro sur le même compte).
   if (await rateLimitDepasseParDescription("auth.login_echec", descMauvaisMdp(user), MAX_ECHECS_UTILISATEUR, FENETRE_UTILISATEUR_MIN)) {
-    await journaliser("auth.login_echec", { description: `Bloqué (limite par utilisateur) — ${user}`, ip, user_agent: ua });
+    await journaliser("auth.login_bloque", { description: `Bloqué (limite par utilisateur) — ${user}`, ip, user_agent: ua });
     return NextResponse.json({ error: "Trop d'essais pour cet utilisateur. Réessaie dans une heure." }, { status: 429, headers: { "Retry-After": String(FENETRE_UTILISATEUR_MIN * 60) } });
   }
 

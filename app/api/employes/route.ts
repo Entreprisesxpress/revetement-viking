@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { listerEmployesLite, ajouterEmploye, modifierEmploye, supprimerEmploye, getEmploye } from "@/lib/db";
+import { listerEmployesLite, ajouterEmploye, modifierEmploye, supprimerEmploye, getEmploye, renommerEmploye, employeParNomMemeInactif } from "@/lib/db";
 import { nombreSaisi } from "@/lib/calculs";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
@@ -42,6 +42,23 @@ export async function POST(req: NextRequest) {
   if (!Number.isFinite(taux) || taux <= 0 || taux > 500) {
     return NextResponse.json({ error: "taux_horaire invalide (ex. : 30,50)" }, { status: 400 });
   }
+  // Nom déjà porté par une fiche : active → 409 (pas de doublon) ; désactivée (fin
+  // d'emploi) → on RÉEMBAUCHE la même fiche, pour que ses heures, sa banque et son
+  // historique de paie restent les siens. Avant : HTTP 500 brut (UNIQUE sur le nom).
+  const homonyme = await employeParNomMemeInactif(b.nom);
+  if (homonyme && (homonyme.actif ?? 1) !== 0) {
+    return NextResponse.json({ error: "employé déjà existant", message: `${homonyme.nom} est déjà dans la liste.` }, { status: 409 });
+  }
+  if (homonyme) {
+    await modifierEmploye(homonyme.id!, { actif: 1, taux_horaire: taux, das_pct: b.das_pct ?? homonyme.das_pct ?? 0.15 });
+    const u = await utilisateurActif(req);
+    after(() => journaliser("employe.modifie", {
+      ref_type: "employe", ref_id: homonyme.id, utilisateur: u || undefined,
+      description: `${homonyme.nom} · réembauché (actif 0 → 1, taux ${homonyme.taux_horaire} → ${taux})`,
+      avant: { actif: 0, taux_horaire: homonyme.taux_horaire }, apres: { actif: 1, taux_horaire: taux },
+    }));
+    return NextResponse.json({ ok: true, id: homonyme.id, reactive: true });
+  }
   const id = await ajouterEmploye({ nom: b.nom, taux_horaire: taux, das_pct: b.das_pct ?? 0.15 });
   // ajouterEmploye n'insère que les colonnes de base : sans ce complément, une case
   // « Reçoit un talon » décochée à la création était ignorée (défaut SQL = 1).
@@ -82,6 +99,22 @@ export async function PATCH(req: NextRequest) {
   }
   const avant = await getEmploye(id);
   if (!avant) return NextResponse.json({ error: "employé introuvable" }, { status: 404 });
+  // Renommage : suit les heures et les périodes de paie (voir renommerEmploye). Un autre
+  // employé actif ne peut pas déjà porter le nouveau nom.
+  if (b.nom !== undefined && b.nom !== avant.nom) {
+    const autre = await employeParNomMemeInactif(b.nom);
+    if (autre && autre.id !== id) {
+      return NextResponse.json({ error: "nom déjà pris", message: `« ${b.nom} » est déjà le nom d'une autre fiche (${autre.actif ? "active" : "désactivée"}).` }, { status: 409 });
+    }
+    await renommerEmploye(id, avant.nom, b.nom);
+    const u = await utilisateurActif(req);
+    after(() => journaliser("employe.modifie", {
+      ref_type: "employe", ref_id: id, utilisateur: u || undefined,
+      description: `${avant.nom} · renommé « ${b.nom} » (heures et paies suivent)`,
+      avant: { nom: avant.nom }, apres: { nom: b.nom },
+    }));
+    delete b.nom;
+  }
   await modifierEmploye(id, b);
   const changes = CHAMPS_AUDITES.filter((k) => b[k] !== undefined && String(b[k]) !== String((avant as any)[k]));
   if (changes.length) {

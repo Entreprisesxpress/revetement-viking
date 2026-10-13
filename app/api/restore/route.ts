@@ -4,7 +4,7 @@
 // idempotente (INSERT OR IGNORE conservant les id d'origine) — ne modifie ni ne supprime
 // jamais une ligne déjà présente. Rejouable sans risque.
 import { NextRequest, NextResponse } from "next/server";
-import { restaurerBackup, TABLES_SAUVEGARDE } from "@/lib/db";
+import { restaurerBackup, detecterConflitsRestauration, TABLES_SAUVEGARDE } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 
@@ -65,8 +65,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const resultat = await restaurerBackup(b);
     const utilisateur = (await utilisateurActif(req)) || "?";
+    // Un id déjà pris par une ligne DIFFÉRENTE = la base n'est pas celle de cette
+    // sauvegarde : on refuse tout, plutôt que de greffer des documents, photos et tâches
+    // sur de mauvais chantiers avec un « ✓ » (voir detecterConflitsRestauration).
+    const conflits = await detecterConflitsRestauration(b);
+    if (conflits.length) {
+      const parTable: Record<string, number> = {};
+      for (const c of conflits) parTable[c.table] = (parTable[c.table] || 0) + 1;
+      journaliser("backup.restaure", { utilisateur, description: `Restauration du ${meta.date_backup} REFUSÉE : ${conflits.length} conflit(s) d'identifiant (${Object.entries(parTable).map(([t, n]) => `${t} ${n}`).join(", ")})` }).catch(() => {});
+      return NextResponse.json({
+        ok: false, mode: "restauration-refusee", meta, conflits: parTable, exemples: conflits.slice(0, 50),
+        message: `⚠ Restauration refusée — ${conflits.length} ligne(s) de la sauvegarde portent un identifiant déjà pris par une ligne DIFFÉRENTE dans cette base (${Object.entries(parTable).map(([t, n]) => `${t} : ${n}`).join(", ")}). Rien n'a été écrit. Restaure dans une base vide, ou dans la base d'origine de cette sauvegarde.`,
+      }, { status: 409 });
+    }
+    const resultat = await restaurerBackup(b);
     const insereTotal = Object.values(resultat).reduce((s, r) => s + r.inseres, 0);
     const tablesEnErreur = Object.entries(resultat).filter(([, r]) => r.erreur).map(([k]) => k);
 
