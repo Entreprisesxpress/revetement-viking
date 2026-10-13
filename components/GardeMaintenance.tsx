@@ -18,6 +18,7 @@ export default function GardeMaintenance() {
     if (
       p.startsWith("/maintenance") ||
       p.startsWith("/login") ||
+      p === "/reinitialiser" ||          // lien « mot de passe oublié » (public, sans session)
       // Exacts : « /parametres » couvrait aussi /parametres-ia, et « /soumission » tout le
       // module interne /soumissions — ouverts à l'autre usager pendant la maintenance.
       p === "/parametres" ||

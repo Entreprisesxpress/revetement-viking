@@ -13,6 +13,15 @@ import { useEffect } from "react";
  * Sans danger sur la page /login elle-même (un mauvais mot de passe y renvoie 401
  * mais on n'y redirige pas → pas de boucle).
  */
+/** Pages qui se visitent SANS session : un 401 d'un composant du gabarit (cloche,
+ *  nouveautés, profil) ne doit pas les renvoyer vers /login. Mesuré en prod le
+ *  2026-10-13 : /reinitialiser?jeton=… (lien « mot de passe oublié ») repartait vers
+ *  /login avant même d'afficher le formulaire — le lien était inutilisable. */
+const PAGES_SANS_SESSION = ["/login", "/reinitialiser", "/soumission/", "/contrat/"];
+export function pageSansSession(pathname: string): boolean {
+  return PAGES_SANS_SESSION.some((p) => pathname === p || pathname.startsWith(p));
+}
+
 export default function Garde401() {
   useEffect(() => {
     const originalFetch = window.fetch;
@@ -31,7 +40,7 @@ export default function Garde401() {
         res.status === 401 &&
         memeOrigine &&
         !redirige &&
-        !window.location.pathname.startsWith("/login")
+        !pageSansSession(window.location.pathname)
       ) {
         redirige = true; // évite plusieurs redirections sur fetchs parallèles
         const dest = window.location.pathname + window.location.search;

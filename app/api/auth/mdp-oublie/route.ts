@@ -49,7 +49,10 @@ Si ce n'est pas toi, ignore ce courriel : ton mot de passe reste inchangé.
 — Revêtement Viking Inc.`,
   });
   if (!r.ok) {
-    return NextResponse.json({ ok: false, raison: "envoi_echoue", message: `Le courriel n'est pas parti (${r.error || r.raison || "erreur"}). Demande à Francis de t'envoyer un lien.` });
+    // Détail du fournisseur dans le journal seulement : cette route est PUBLIQUE, et le
+    // message brut de Resend révélait l'adresse d'envoi et l'état du compte à n'importe qui.
+    await journaliser("auth.mdp_oublie", { description: `Courriel de réinitialisation NON parti pour ${user} : ${r.error || r.raison || "erreur"}`, ip });
+    return NextResponse.json({ ok: false, raison: "envoi_echoue", message: "Le courriel n'est pas parti (problème d'envoi côté serveur). Demande à Francis de t'envoyer un lien." });
   }
   return NextResponse.json({ ok: true, message: `Un lien de réinitialisation a été envoyé à ${masquerCourriel(courriel)}. Il est valide 2 heures.` });
 }

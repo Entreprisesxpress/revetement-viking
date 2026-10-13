@@ -33,7 +33,7 @@ export default function MicroFlottant() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const path = window.location.pathname;
-    if (path.startsWith("/login") || path.startsWith("/projet/") || path.startsWith("/contrat/") || path.startsWith("/soumission/")) {
+    if (path.startsWith("/login") || path.startsWith("/reinitialiser") || path.startsWith("/projet/") || path.startsWith("/contrat/") || path.startsWith("/soumission/")) {
       setVisible(false);
     } else setVisible(true);
   }, []);
