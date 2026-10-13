@@ -20,15 +20,19 @@ export function motDePasse(user: string): string | undefined {
 
 /** Vrai dès qu'UN mot de passe est configuré (n'importe lequel des trois). */
 export function authConfiguree(): boolean {
-  return !!(process.env.APP_PASSWORD || process.env.FRANCIS_PASSWORD || process.env.GABRIEL_PASSWORD);
+  return !!(process.env.APP_PASSWORD || process.env.FRANCIS_PASSWORD || process.env.GABRIEL_PASSWORD || process.env.SESSION_SECRET);
 }
 
 // Matériel de signature : lie la session au mot de passe de l'utilisateur ET, si présent,
 // à SESSION_SECRET. Changer l'un OU l'autre révoque toutes les sessions (rotation).
 function materielSignature(user: string): string | undefined {
   const pwd = motDePasse(user);
-  if (!pwd) return undefined;
-  return `${process.env.SESSION_SECRET || ""}::${pwd}`;
+  if (pwd) return `${process.env.SESSION_SECRET || ""}::${pwd}`;
+  // Mot de passe géré dans l'app (table comptes) sans variable d'environnement : la
+  // session se signe avec SESSION_SECRET seul (le proxy ne lit pas la base). Sans aucun
+  // secret → undefined (fail-closed en production, comme avant).
+  if (process.env.SESSION_SECRET) return `${process.env.SESSION_SECRET}::compte-app`;
+  return undefined;
 }
 
 async function hmacHex(secret: string, message: string): Promise<string> {

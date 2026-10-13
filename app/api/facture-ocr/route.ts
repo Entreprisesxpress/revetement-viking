@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
-import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { journaliserCoutReponse, refusSiPlafondIA } from "@/lib/ia-couts";
 import { lireCorps } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,9 @@ Réponds UNIQUEMENT par un JSON, sans markdown :
 - Si aucun total clair n'est lisible, mets "total": null.`;
 
 export async function POST(req: NextRequest) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ ok: false, error: "ANTHROPIC_API_KEY manquante" });

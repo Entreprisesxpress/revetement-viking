@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { heuresParProjetDate, listerProjets } from "@/lib/db";
-import { celluleCSV } from "@/lib/csv";
+import { celluleCSV, SEPARATEUR_CSV, PREFIXE_CSV } from "@/lib/csv";
 import { idEntier } from "@/lib/requete";
 
 // Chaque cellule passe par celluleCSV : formule neutralisée (=, +, -, @…) et guillemets
 // doublés. Avant, une description « =HYPERLINK(...) » partait telle quelle et s'exécutait
 // dans le tableur de celui qui ouvrait l'export.
-const ligne = (cellules: any[]) => cellules.map(celluleCSV).join(",");
+const ligne = (cellules: any[]) => cellules.map(celluleCSV).join(SEPARATEUR_CSV);
 
 export async function GET(req: NextRequest) {
   const pidBrut = req.nextUrl.searchParams.get("projet_id");
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     const lignes = await heuresParProjetDate(projet_id);
     if (format === "csv") {
       // BOM + CRLF : sans le BOM, Excel Windows ouvre « CoÃ»t » et « EmployÃ© ».
-      const csv = "﻿" + [ligne(["Employé", "Date", "Heures", "Taux $/h", "Coût", "Description"])]
+      const csv = PREFIXE_CSV + [ligne(["Employé", "Date", "Heures", "Taux $/h", "Coût", "Description"])]
         .concat(lignes.map((l) => ligne([l.employe, l.date, l.heures, l.taux_horaire, +(l.heures * l.taux_horaire).toFixed(2), l.description || ""])))
         .join("\r\n");
       return new NextResponse(csv, {
@@ -31,10 +31,13 @@ export async function GET(req: NextRequest) {
   // Sinon : tous les projets résumés
   const projets = await listerProjets();
   if (format === "csv") {
-    const csv = "﻿" + [ligne(["Projet", "Client", "Statut", "Budget", "Coût total", "Marge", "Marge %", "Heures", "Facturé", "Payé"])]
+    const csv = PREFIXE_CSV + [ligne(["Projet", "Client", "Statut", "Prix contrat / budget", "Coût total", "Marge", "Marge %", "Heures", "Facturé", "Payé"])]
       .concat(projets.map((p) => ligne([
-        p.nom, p.client_nom || "", p.statut, p.budget_estime || 0, +p.cout_total.toFixed(2), +p.marge.toFixed(2),
-        +p.marge_pct.toFixed(1), +p.total_heures.toFixed(1), p.total_facture, p.total_paye,
+        // Revenu de référence = prix du contrat, sinon budget (comme partout) : un chantier
+        // à prix de contrat sortait avec « Budget 0 » et une marge de 5 638 $ sur 0 $.
+        // Chantier annulé : pas de marge (le prix ne sera jamais facturé) — cellule vide.
+        p.nom, p.client_nom || "", p.statut, p.prix_contrat || p.budget_estime || 0, +p.cout_total.toFixed(2), p.statut === "annule" ? "" : +p.marge.toFixed(2),
+        p.statut === "annule" ? "" : +p.marge_pct.toFixed(1), +p.total_heures.toFixed(1), p.total_facture, p.total_paye,
       ])))
       .join("\r\n");
     return new NextResponse(csv, {

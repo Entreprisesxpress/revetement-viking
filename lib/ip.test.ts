@@ -10,9 +10,20 @@ describe("ipClient — l'appelant ne choisit pas son IP", () => {
     expect(ipClient(req({ "x-forwarded-for": "6.6.6.6,203.0.113.9" }))).toBe("203.0.113.9");
   });
 
-  it("préfère l'en-tête posé par la plateforme", () => {
-    expect(ipClient(req({ "x-real-ip": "198.51.100.4", "x-forwarded-for": "6.6.6.6, 9.9.9.9" }))).toBe("198.51.100.4");
-    expect(ipClient(req({ "x-vercel-forwarded-for": "6.6.6.6, 198.51.100.7" }))).toBe("198.51.100.7");
+  it("sur Vercel seulement, préfère l'en-tête posé par la plateforme ; ailleurs, un x-real-ip forgé est ignoré", () => {
+    const avant = process.env.VERCEL;
+    try {
+      process.env.VERCEL = "1";
+      expect(ipClient(req({ "x-real-ip": "198.51.100.4", "x-forwarded-for": "6.6.6.6, 9.9.9.9" }))).toBe("198.51.100.4");
+      expect(ipClient(req({ "x-vercel-forwarded-for": "6.6.6.6, 198.51.100.7" }))).toBe("198.51.100.7");
+      delete process.env.VERCEL;
+      // Hors Vercel : `x-real-ip` est forgeable par le client (12 essais, 12 adresses, jamais
+      // de 429 — mesuré) → dernier x-forwarded-for.
+      expect(ipClient(req({ "x-real-ip": "10.0.0.1", "x-forwarded-for": "6.6.6.6, 9.9.9.9" }))).toBe("9.9.9.9");
+      expect(ipClient(req({ "x-real-ip": "10.0.0.1" }))).toBe("inconnue");
+    } finally {
+      if (avant === undefined) delete process.env.VERCEL; else process.env.VERCEL = avant;
+    }
   });
 
   it("n'est jamais vide : sans en-tête, « inconnue » (la limite s'applique quand même)", () => {

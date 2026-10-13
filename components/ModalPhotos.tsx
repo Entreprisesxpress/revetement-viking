@@ -38,6 +38,7 @@ export default function ModalPhotos({ ouvert, onClose, onSuccess, projetIdInitia
       setProjets(dispo);
       if (!projet_id && dispo.length > 0) setProjetId(projetIdInitial || dispo[0].id);
     });
+    setDate(aujourdhuiMontreal());   // date du jour à chaque ouverture (PWA restée ouverte la veille)
   }, [ouvert]);
 
   const ajouterFichiers = (fl: FileList | null) => {

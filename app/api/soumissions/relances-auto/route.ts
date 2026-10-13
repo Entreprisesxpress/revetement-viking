@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
   const lignes = liste.map((s) => {
     const jours = Math.round((Date.now() - new Date(s.date_envoi).getTime()) / 86400000);
-    const total = s.total ? `${s.total.toFixed(2)} $` : "?";
+    const total = s.total ? Number(s.total).toLocaleString("fr-CA", { style: "currency", currency: "CAD" }) : "?";
     return `• ${s.client_nom || "?"} — ${s.numero} — ${total} — envoyée il y a ${jours} jours${s.client_courriel ? ` (${s.client_courriel})` : ""}`;
   }).join("\n");
 

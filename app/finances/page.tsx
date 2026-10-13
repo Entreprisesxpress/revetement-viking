@@ -57,7 +57,9 @@ export default function FinancesPage() {
   }, [annee, onglet]);
 
   const Tabs = (
-    <div className="flex gap-2 border-b">
+    // Six onglets : sur un téléphone ils débordaient à droite (Paie et Doublons hors écran,
+    // page entière qui défile de côté). Défilement horizontal de la barre seule.
+    <div className="flex gap-2 border-b overflow-x-auto whitespace-nowrap -mx-4 px-4 md:mx-0 md:px-0">
       <button onClick={() => setOnglet("apercu")} className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${onglet === "apercu" ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>💰 Vue d'ensemble</button>
       <button onClick={() => setOnglet("rentabilite")} className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${onglet === "rentabilite" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>🧮 Rentabilité</button>
       <button onClick={() => setOnglet("depenses")} className={`px-4 py-2 text-sm font-semibold border-b-2 transition ${onglet === "depenses" ? "border-emerald-600 text-emerald-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>💸 Dépenses</button>

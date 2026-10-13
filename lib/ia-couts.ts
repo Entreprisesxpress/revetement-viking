@@ -1,6 +1,7 @@
 // Journal des coûts IA — tokens et coût estimé de CHAQUE appel au modèle.
 import { db, initDb } from "@/lib/db";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { NextResponse } from "next/server";
 
 // Tarifs USD par 1M de tokens, PAR MODÈLE. L'app en utilise trois niveaux (Haiku, Sonnet,
 // Opus) : appliquer le tarif Opus à un appel Haiku surestimait la dépense de 5×, et
@@ -79,6 +80,43 @@ export async function enregistrerCoutIA(p: { outil: string; model: string; usage
     });
   } catch { /* best-effort */ }
   return cout;
+}
+
+/** Plafonds de dépense IA (USD), partagés par TOUTES les routes IA. Avant, seul
+ *  `prix-web force` était borné : une session volée ou une boucle cliente pouvait faire
+ *  tourner Jarvis (Opus, 8 tours, 5 min) toute une nuit sans rien pour l'arrêter.
+ *  Surchargeables par IA_PLAFOND_JOUR_USD / IA_PLAFOND_MOIS_USD. */
+export const IA_PLAFOND_JOUR_USD = Number(process.env.IA_PLAFOND_JOUR_USD) > 0 ? Number(process.env.IA_PLAFOND_JOUR_USD) : 15;
+export const IA_PLAFOND_MOIS_USD = Number(process.env.IA_PLAFOND_MOIS_USD) > 0 ? Number(process.env.IA_PLAFOND_MOIS_USD) : 150;
+
+/** Dépense IA du jour (Montréal) en USD. */
+export async function coutJourCourantIA(): Promise<number> {
+  const jour = aujourdhuiMontreal();
+  try {
+    await assurerTable();
+    // `date` est un horodatage UTC ; le jour de Montréal couvre 04:00Z → 04:00Z le lendemain
+    // (ou 05:00Z en heure normale). Approximation : on prend la fenêtre UTC [jour 04:00, jour+1 05:00[.
+    const r = await db().execute({
+      sql: "SELECT COALESCE(SUM(cout_usd),0) t FROM ia_couts WHERE date >= ? AND date < ?",
+      args: [`${jour}T04:00:00`, `${plusUnJour(jour)}T05:00:00`],
+    });
+    return Number((r.rows[0] as any)?.t) || 0;
+  } catch { return 0; }
+}
+function plusUnJour(iso: string): string {
+  const [a, m, j] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1, j + 1));
+  return d.toISOString().slice(0, 10);
+}
+
+/** `null` si l'appel IA peut partir ; sinon une réponse 429 prête à renvoyer. */
+export async function refusSiPlafondIA(): Promise<NextResponse | null> {
+  const [jour, mois] = await Promise.all([coutJourCourantIA(), coutMoisCourantIA()]);
+  if (jour >= IA_PLAFOND_JOUR_USD || mois.total_usd >= IA_PLAFOND_MOIS_USD) {
+    const quoi = jour >= IA_PLAFOND_JOUR_USD ? `du jour (${jour.toFixed(2)} $ US sur ${IA_PLAFOND_JOUR_USD})` : `du mois (${mois.total_usd.toFixed(2)} $ US sur ${IA_PLAFOND_MOIS_USD})`;
+    return NextResponse.json({ error: "plafond IA atteint", message: `Plafond de dépense IA ${quoi} atteint : les appels à l'IA sont suspendus. Francis peut relever IA_PLAFOND_JOUR_USD / IA_PLAFOND_MOIS_USD sur Vercel.` }, { status: 429 });
+  }
+  return null;
 }
 
 /** Total du mois courant (USD) + nombre d'appels. */

@@ -10,13 +10,25 @@ function LoginForm() {
   // sans ce filtre, un lien /login?redirect=https://faux-viking.example renvoyait
   // l'utilisateur sur un site tiers juste après avoir saisi son mot de passe.
   // On refuse aussi « //ailleurs.com » (URL protocole-relative).
+  // Résolution RÉELLE de l'URL puis comparaison de l'origine : « /\evil.com » passait le
+  // filtre textuel (le navigateur lit « \ » comme « / ») et menait sur un site tiers
+  // juste après la saisie du mot de passe.
   const brut = params.get("redirect") || "/";
-  const redirect = brut.startsWith("/") && !brut.startsWith("//") ? brut : "/";
+  const redirect = (() => {
+    try {
+      if (typeof window === "undefined") return "/";
+      const u = new URL(brut, window.location.origin);
+      return u.origin === window.location.origin && u.pathname.startsWith("/") ? u.pathname + u.search + u.hash : "/";
+    } catch { return "/"; }
+  })();
   // Gabriel est le président et l'usager principal : c'est lui qui doit être pré-choisi.
   const [user, setUser] = useState<"Gabriel" | "Francis">("Gabriel");
   const [password, setPassword] = useState("");
   const [erreur, setErreur] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oubliOuvert, setOubliOuvert] = useState(false);
+  const [oubliBusy, setOubliBusy] = useState(false);
+  const [oubliMsg, setOubliMsg] = useState<{ ok: boolean; texte: string } | null>(null);
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +86,32 @@ function LoginForm() {
             {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
+
+        {/* Mot de passe oublié : un lien de réinitialisation au courriel de l'usager choisi
+            ci-dessus ; sinon, la voie de secours est Francis (Paramètres → Comptes). */}
+        <div className="border-t pt-3 text-center">
+          {!oubliOuvert ? (
+            <button type="button" onClick={() => { setOubliOuvert(true); setOubliMsg(null); }} className="text-sm text-slate-600 hover:text-emerald-700 underline">Mot de passe oublié ?</button>
+          ) : (
+            <div className="space-y-2 text-left">
+              <p className="text-sm text-slate-700">Un lien pour choisir un nouveau mot de passe sera envoyé au courriel de <strong>{user}</strong>.</p>
+              <button
+                type="button"
+                disabled={oubliBusy}
+                onClick={async () => {
+                  setOubliBusy(true); setOubliMsg(null);
+                  const r = await envoyer<{ ok?: boolean; message?: string; error?: string }>("/api/auth/mdp-oublie", { corps: { user } });
+                  setOubliBusy(false);
+                  const d = r.data || {};
+                  setOubliMsg({ ok: !!(r.ok && d.ok), texte: d.message || d.error || r.erreur || "Échec de la demande." });
+                }}
+                className="w-full px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold disabled:opacity-50"
+              >{oubliBusy ? "Envoi…" : `Recevoir un lien (${user})`}</button>
+              {oubliMsg && <div className={`text-sm p-2 rounded ${oubliMsg.ok ? "text-emerald-800 bg-emerald-50" : "text-amber-800 bg-amber-50"}`}>{oubliMsg.texte}</div>}
+              <p className="text-[11px] text-slate-500">Pas de courriel ? Francis peut te remettre un lien ou changer ton mot de passe depuis ses Paramètres.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

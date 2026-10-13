@@ -118,7 +118,9 @@ export function calculerSoumission(p: ParametresSoumission): SoumissionCalculee 
     totalHeuresInstall += heuresMO;
   }
 
-  const totalHeuresForfait = p.fraisActifs.reduce((s, f) => s + f.heures, 0);
+  // Un frais reçu par l'API sans `heures` (ou avec « 2,5 » en chaîne) rendait NaN, et le
+  // total d'heures estimées de toute la soumission avec lui.
+  const totalHeuresForfait = p.fraisActifs.reduce((s, f) => s + (Number(f.heures) || 0), 0);
   const totalHeures = totalHeuresInstall + totalHeuresForfait;
   const totalCoutMO = totalHeures * TAUX_HORAIRE_VENTE;
 

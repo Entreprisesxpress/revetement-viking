@@ -111,15 +111,11 @@ export default function ParametresPage() {
           </button>
         </section>
 
-        {/* Mot de passe */}
-        <section className="bg-white rounded-lg shadow p-5 space-y-2">
-          <h2 className="font-bold text-lg">🔐 Mot de passe</h2>
-          <p className="text-sm text-slate-600">
-            Le mot de passe est stocké comme variable d'environnement Vercel pour des raisons de sécurité (pas modifiable directement depuis l'app).
-            Pour le changer, va dans Vercel → <strong>revetement-viking-app</strong> → Settings → Environment Variables, et édite <code className="bg-slate-100 px-1 rounded">{profil.username === "Francis" ? "FRANCIS_PASSWORD" : "GABRIEL_PASSWORD"}</code> (ou <code className="bg-slate-100 px-1 rounded">APP_PASSWORD</code> si pas défini), puis redéploie.
-          </p>
-          <a href="https://vercel.com/revetementviking-specs-projects/revetement-viking-app/settings/environment-variables" target="_blank" rel="noreferrer" className="inline-block text-sm text-emerald-700 hover:underline">→ Ouvrir Vercel</a>
-        </section>
+        {/* Mot de passe (géré dans l'app depuis le 2026-10-13) */}
+        <MotDePasseSection />
+
+        {/* Comptes des autres usagers : réservé à Francis */}
+        {profil.username === "Francis" && <ComptesSection />}
 
         {/* Communications */}
         <section className="bg-white rounded-lg shadow p-5 space-y-1">
@@ -141,6 +137,122 @@ export default function ParametresPage() {
         </section>
       </main>
     </div>
+  );
+}
+
+/** Changer SON mot de passe : actuel + nouveau + confirmation. */
+function MotDePasseSection() {
+  const { toast } = useToast();
+  const [actuel, setActuel] = useState("");
+  const [nouveau, setNouveau] = useState("");
+  const [confirme, setConfirme] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const changer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    if (nouveau !== confirme) { setMsg("Les deux nouveaux mots de passe ne sont pas identiques."); return; }
+    setBusy(true);
+    const r = await envoyer("/api/auth/mdp", { corps: { actuel, nouveau } });
+    setBusy(false);
+    if (!r.ok) { setMsg(r.data?.error || r.erreur || "Échec"); return; }
+    setActuel(""); setNouveau(""); setConfirme("");
+    toast("✓ Mot de passe changé", "success");
+    setMsg("✓ Mot de passe changé. Tes autres appareils restent connectés ; pour les déconnecter tous, Francis change SESSION_SECRET sur Vercel.");
+  };
+  return (
+    <section className="bg-white rounded-lg shadow p-5 space-y-3">
+      <h2 className="font-bold text-lg">🔐 Mot de passe</h2>
+      <form onSubmit={changer} className="space-y-2">
+        <Field label="Mot de passe actuel" value={actuel} onChange={setActuel} type="password" autoComplete="current-password" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <Field label="Nouveau (8 caractères min.)" value={nouveau} onChange={setNouveau} type="password" autoComplete="new-password" />
+          <Field label="Confirme le nouveau" value={confirme} onChange={setConfirme} type="password" autoComplete="new-password" />
+        </div>
+        {msg && <div className={`text-sm p-2 rounded ${msg.startsWith("✓") ? "text-emerald-800 bg-emerald-50" : "text-red-700 bg-red-50"}`}>{msg}</div>}
+        <button type="submit" disabled={busy || !actuel || !nouveau} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg font-semibold">{busy ? "Enregistrement…" : "Changer mon mot de passe"}</button>
+      </form>
+      <p className="text-[11px] text-slate-500">Mot de passe oublié ? Sur la page de connexion, « Mot de passe oublié ? » envoie un lien au courriel de ton profil (ci-dessus). Sans courriel, Francis peut te remettre un lien.</p>
+    </section>
+  );
+}
+
+/** Francis seulement : état des comptes, lien de réinitialisation, nouveau mot de passe. */
+function ComptesSection() {
+  const { toast } = useToast();
+  const [data, setData] = useState<{ comptes: any[]; courriel_configure: boolean } | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [lien, setLien] = useState<{ user: string; url: string; detail: string } | null>(null);
+  const [mdpPour, setMdpPour] = useState<string | null>(null);
+  const [nouveau, setNouveau] = useState("");
+  const [busy, setBusy] = useState(false);
+  const charger = () => lireJson<any>("/api/auth/comptes").then((r) => { if (r.ok) { setData(r.data); setErreur(null); } else setErreur(r.erreur); });
+  useEffect(() => { charger(); }, []);
+  const envoyerLien = async (user: string) => {
+    setBusy(true); setLien(null);
+    const r = await envoyer<any>("/api/auth/comptes", { corps: { user, action: "lien" } });
+    setBusy(false);
+    if (!r.ok) { toast(`Lien non émis : ${r.data?.error || r.erreur}`, "error"); return; }
+    setLien({ user, url: r.data.url, detail: r.data.detail });
+    toast(r.data.envoye ? `✓ Lien envoyé à ${user}` : `Lien prêt pour ${user} — copie-le`, r.data.envoye ? "success" : "info");
+    charger();
+  };
+  const poserMdp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mdpPour) return;
+    setBusy(true);
+    const r = await envoyer("/api/auth/comptes", { corps: { user: mdpPour, action: "mdp", nouveau } });
+    setBusy(false);
+    if (!r.ok) { toast(r.data?.error || r.erreur || "Échec", "error"); return; }
+    toast(`✓ Mot de passe de ${mdpPour} changé`, "success");
+    setMdpPour(null); setNouveau("");
+    charger();
+  };
+  return (
+    <section className="bg-white rounded-lg shadow p-5 space-y-3">
+      <h2 className="font-bold text-lg">👥 Comptes <span className="text-xs font-normal text-slate-500">— réservé à Francis</span></h2>
+      {erreur && <ErreurChargement erreur={erreur} onReessayer={charger} />}
+      {data && !data.courriel_configure && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">L'envoi de courriel n'est pas configuré sur le serveur : les liens ne partent pas tout seuls, mais tu peux les copier et les envoyer par texto.</p>
+      )}
+      <div className="space-y-2">
+        {(data?.comptes || []).map((c) => (
+          <div key={c.username} className="border rounded-lg p-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-bold">{c.username}</div>
+                <div className="text-xs text-slate-500">
+                  {c.mdp_app ? `Mot de passe de l'app${c.mdp_modifie_le ? ` (changé le ${String(c.mdp_modifie_le).slice(0, 10)}${c.mdp_modifie_par ? ` par ${c.mdp_modifie_par}` : ""})` : ""}` : c.mdp_env ? "Mot de passe d'amorçage (variable Vercel)" : "⚠ Aucun mot de passe"}
+                  {c.courriel ? ` · ${c.courriel}` : " · aucun courriel"}
+                  {c.lien_en_cours ? " · lien de réinitialisation actif" : ""}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" disabled={busy} onClick={() => envoyerLien(c.username)} className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded text-xs font-semibold disabled:opacity-50">🔗 Envoyer un lien</button>
+                <button type="button" disabled={busy} onClick={() => { setMdpPour(mdpPour === c.username ? null : c.username); setNouveau(""); }} className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 rounded text-xs font-semibold disabled:opacity-50">🔐 Nouveau mot de passe</button>
+              </div>
+            </div>
+            {lien && lien.user === c.username && (
+              <div className="bg-slate-50 border rounded p-2 text-xs space-y-1">
+                <div className="text-slate-700">{lien.detail} Le lien vaut 2 heures :</div>
+                <div className="flex gap-2 items-center">
+                  <input readOnly value={lien.url} onFocus={(e) => e.currentTarget.select()} className="flex-1 px-2 py-1.5 border rounded bg-white font-mono text-[11px]" />
+                  <button type="button" onClick={() => { navigator.clipboard?.writeText(lien.url).then(() => toast("Lien copié", "success")).catch(() => toast("Copie impossible : sélectionne le texte", "warning")); }} className="px-2 py-1.5 bg-slate-200 hover:bg-slate-300 rounded font-semibold">Copier</button>
+                </div>
+              </div>
+            )}
+            {mdpPour === c.username && (
+              <form onSubmit={poserMdp} className="flex flex-wrap gap-2 items-end bg-emerald-50 border border-emerald-200 rounded p-2">
+                <div className="flex-1 min-w-[200px]">
+                  <Field label={`Nouveau mot de passe pour ${c.username} (8 min.)`} value={nouveau} onChange={setNouveau} type="password" autoComplete="new-password" />
+                </div>
+                <button type="submit" disabled={busy || nouveau.length < 8} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold disabled:opacity-50">Enregistrer</button>
+              </form>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -292,12 +404,13 @@ function PushSection() {
   );
 }
 
-function Field({ label, value, onChange, placeholder, readOnly }: { label: string; value: string; onChange?: (v: string) => void; placeholder?: string; readOnly?: boolean }) {
+function Field({ label, value, onChange, placeholder, readOnly, type = "text", autoComplete }: { label: string; value: string; onChange?: (v: string) => void; placeholder?: string; readOnly?: boolean; type?: string; autoComplete?: string }) {
   return (
     <div>
       <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
       <input
-        type="text"
+        type={type}
+        autoComplete={autoComplete}
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
         placeholder={placeholder}

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { contenuSauvegarde, memoriserCountsSauvegarde, TABLES_EXCLUES_SAUVEGARDE, toutesHeuresPourExport } from "@/lib/db";
 import { driveEstActif, trouverOuCreerSousDossier, uploaderFichier, sauvegarderClasseurCSV } from "@/lib/drive";
-import { celluleCSV } from "@/lib/csv";
+import { celluleCSVPoint as celluleCSV } from "@/lib/csv";   // classeur Google : virgule + point décimal
 import { timingSafeEqual } from "@/lib/rateLimit";
 import { enregistrerErreurClient } from "@/lib/erreurs-client";
 import { journaliser } from "@/lib/audit";

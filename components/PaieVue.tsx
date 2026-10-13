@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
 import { useToast } from "@/components/Toasts";
@@ -60,13 +60,19 @@ export default function PaieVue() {
   };
 
   const [erreur, setErreur] = useState<string | null>(null);
+  // Garde de course : changer deux fois d'employé lançait deux lectures ; la première
+  // (plus lente) pouvait écraser la seconde — les périodes de Gabriel sous le filtre
+  // « Mathieu ». Seule la dernière demande a le droit d'écrire.
+  const derniereDemande = useRef(0);
   const charger = async () => {
+    const demande = ++derniereDemande.current;
     // Lectures avec filet : un 500 rejetait la promesse et laissait la liste vide,
     // comme s'il n'y avait « aucune période ».
     const [p, e] = await Promise.all([
       lireListe(filtreEmp ? `/api/paies?employe=${encodeURIComponent(filtreEmp)}` : "/api/paies"),
       lireListe("/api/employes"),
     ]);
+    if (demande !== derniereDemande.current) return;
     if (!p.ok) { setErreur(p.erreur); return; }
     setErreur(null);
     setPeriodes(p.data);

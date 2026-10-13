@@ -212,9 +212,13 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                 className={`px-2.5 py-1 rounded text-sm transition whitespace-nowrap ${
                   pathname === l.href ? "bg-emerald-600 text-white" : "text-slate-200 hover:bg-slate-700"
                 }`}
+                title={l.label}
               >
-                <span className="mr-1">{l.icon}</span>
-                <span>{l.label}</span>
+                {/* Libellés à partir de 1280 px seulement : mesuré à 1024 px (tablette en
+                    paysage), les huit liens + la recherche poussaient la cloche, la roue
+                    dentée et l'avatar HORS de l'écran (page qui défile de côté). */}
+                <span className="xl:mr-1">{l.icon}</span>
+                <span className="hidden xl:inline">{l.label}</span>
               </Link>
             ))}
           </nav>
@@ -239,7 +243,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
               onChange={(e) => { setRechercheQ(e.target.value); setRechercheOuvert(true); }}
               onFocus={() => setRechercheOuvert(true)}
               onBlur={() => setTimeout(() => setRechercheOuvert(false), 200)}
-              className="px-3 py-1.5 rounded bg-slate-800 text-white placeholder-slate-400 text-sm w-48 lg:w-64 border border-slate-700 focus:border-emerald-500 outline-none"
+              className="px-3 py-1.5 rounded bg-slate-800 text-white placeholder-slate-400 text-sm w-36 lg:w-48 xl:w-52 2xl:w-64 border border-slate-700 focus:border-emerald-500 outline-none"
             />
             {rechercheOuvert && rechercheRes.length > 0 && (
               <div className="absolute top-full right-0 mt-1 bg-white text-slate-900 rounded-lg shadow-xl border w-72 max-h-80 overflow-y-auto z-50">
@@ -290,7 +294,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                   <div className="p-2">
                     <div className="text-[10px] font-bold uppercase text-emerald-700 px-2 py-1">💬 Mentions reçues ({notifs.mentions})</div>
                     {notifs.mentions_items.map((m: any) => (
-                      <a key={m.id} href={`/clients`} className="block px-3 py-2 hover:bg-emerald-50 rounded text-sm border-l-2 border-emerald-400 mb-1">
+                      <a key={m.id} href={m.client_id ? `/clients/${m.client_id}` : "/clients"} className="block px-3 py-2 hover:bg-emerald-50 rounded text-sm border-l-2 border-emerald-400 mb-1">
                         <div className="flex justify-between"><strong className="truncate">@{m.auteur || "—"} → {m.client_nom || "?"}</strong><span className="text-[10px] text-slate-500">{new Date(m.date_creation).toLocaleDateString("fr-CA", { day: "numeric", month: "short" })}</span></div>
                         <div className="text-xs text-slate-600 line-clamp-2">{m.texte}</div>
                       </a>
@@ -304,7 +308,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
                     {notifs.relances_items.map((c: any) => {
                       const retard = c.date_relance < aujourdhuiMontreal();
                       return (
-                        <a key={c.id} href={`/clients`} className={`block px-3 py-2 hover:bg-amber-50 rounded text-sm border-l-2 mb-1 ${retard ? "border-red-500" : "border-amber-400"}`}>
+                        <a key={c.id} href={c.id ? `/clients/${c.id}` : "/clients"} className={`block px-3 py-2 hover:bg-amber-50 rounded text-sm border-l-2 mb-1 ${retard ? "border-red-500" : "border-amber-400"}`}>
                           <div className="flex justify-between"><strong className="truncate">{c.nom}</strong><span className={`text-[10px] ${retard ? "text-red-700 font-bold" : "text-amber-700"}`}>{c.date_relance.slice(5)}</span></div>
                           <div className="text-xs text-slate-500 truncate">{c.adresse || ""}{c.telephone ? ` · ${c.telephone}` : ""}</div>
                         </a>
@@ -379,6 +383,8 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
             )}
           </div>
 
+          {/* ⚙️ Réglages (mot de passe, nom, téléphone…) — toujours visible en haut à droite */}
+          <Link href="/parametres" className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-slate-700 transition flex-shrink-0 text-xl" title="Réglages : mot de passe, nom, téléphone…" aria-label="Réglages">⚙️</Link>
           {/* Menu profil (avatar + dropdown) */}
           <div className="relative">
             <button onClick={() => setProfilOuvert(!profilOuvert)} className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-700 transition flex-shrink-0" title="Profil & paramètres" aria-label="Profil">

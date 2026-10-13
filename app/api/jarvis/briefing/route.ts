@@ -11,8 +11,11 @@ const cad = (n: number) => `${Math.round(n).toLocaleString("fr-CA")} $`;
 
 /** Valeur d'une source du briefing, ou `repli` si elle a échoué (l'échec est journalisé). */
 function ou<T>(r: PromiseSettledResult<T>, nom: string, repli: T, manquantes: string[]): T {
-  if (r.status === "fulfilled") return r.value;
-  console.error(`[/api/jarvis/briefing] source « ${nom} » indisponible :`, (r.reason as any)?.message || r.reason);
+  // executerOutilJarvis ne rejette JAMAIS : une panne de base revient en `{ erreur }`
+  // RÉSOLU. Compté comme un succès, le briefing disait « NaN $ », « undefined % » et
+  // « aucune facture impayée 👍 » sans aucun avertissement — le faux « tout va bien ».
+  if (r.status === "fulfilled" && !(r.value as any)?.erreur) return r.value;
+  console.error(`[/api/jarvis/briefing] source « ${nom} » indisponible :`, r.status === "rejected" ? ((r.reason as any)?.message || r.reason) : (r.value as any)?.erreur);
   manquantes.push(nom);
   return repli;
 }
@@ -34,7 +37,9 @@ export async function GET(req: NextRequest) {
     const [rApercu, rFactures, rTaches, rVeh, rFin] = await Promise.allSettled([
       executerOutilJarvis("apercu_entreprise", {}),
       executerOutilJarvis("factures_impayees", {}),
-      executerOutilJarvis("taches", { statut: "a_faire", assigne_a: user }),
+      // Sans filtre de statut : « à faire » du briefing = tout ce qui n'est pas complété
+      // (en_cours compris), comme la page Tâches et l'aperçu.
+      executerOutilJarvis("taches", { assigne_a: user }),
       executerOutilJarvis("vehicules_assurances", {}),
       finances(annee),
     ]);
@@ -44,7 +49,9 @@ export async function GET(req: NextRequest) {
     const veh: any = ou(rVeh, "véhicules", { renouvellements_60j: [] }, manquantes);
     const fin: any = ou(rFin, "finances", { mois: [] }, manquantes);
 
-    const tachesRetard = (taches.taches || []).filter((t: any) => t.en_retard);
+    // « À faire » = tout sauf complété (en_cours compris), comme la page Tâches.
+    const tachesOuvertes = (taches.taches || []).filter((t: any) => t.statut !== "complete");
+    const tachesRetard = tachesOuvertes.filter((t: any) => t.en_retard);
     const lignes: string[] = [`**📋 Briefing du ${new Date().toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Toronto" })}** — salut ${user} !`, ""];
 
     lignes.push(`**💰 Finances** — Marge moyenne des projets actifs : **${apercu.marge_moyenne_projets_actifs_pct}%**. CA ${annee} (avant taxes) : ${cad(apercu.ca_annee_avant_taxes)}, marge nette : ${cad(apercu.marge_nette_annee_avant_taxes)}.`);
@@ -52,10 +59,12 @@ export async function GET(req: NextRequest) {
     if (factures.total_du > 0) lignes.push(`**🔴 À encaisser** — ${factures.nombre} facture(s) impayée(s) pour **${cad(factures.total_du)}**${factures.en_retard_plus_30j?.nombre > 0 ? ` (dont ${cad(factures.en_retard_plus_30j.montant)} en retard +30j)` : ""}.`);
     else lignes.push(`**🟢 À encaisser** — aucune facture impayée. 👍`);
 
-    lignes.push(`**✅ Tes tâches** — ${taches.nombre} à faire${tachesRetard.length ? `, dont **${tachesRetard.length} en retard**` : ""}.${tachesRetard.length ? " À traiter : " + tachesRetard.slice(0, 3).map((t: any) => `« ${t.titre} »`).join(", ") + "." : ""}`);
+    lignes.push(`**✅ Tes tâches** — ${tachesOuvertes.length} à faire${tachesRetard.length ? `, dont **${tachesRetard.length} en retard**` : ""}.${tachesRetard.length ? " À traiter : " + tachesRetard.slice(0, 3).map((t: any) => `« ${t.titre} »`).join(", ") + "." : ""}`);
 
     if (apercu.extras_a_facturer?.nombre > 0) lignes.push(`**💲 Extras** — ${apercu.extras_a_facturer.nombre} extra(s) à facturer (${cad(apercu.extras_a_facturer.montant)}).`);
     if (apercu.projets_par_statut?.actif) lignes.push(`**🏗️ Chantiers** — ${apercu.projets_par_statut.actif} projet(s) actif(s)${apercu.projets_par_statut.a_venir ? `, ${apercu.projets_par_statut.a_venir} à venir` : ""}.`);
+    // Une police EXPIRÉE n'est pas « à renouveler dans 60 jours » : elle est nommée à part.
+    if ((veh.expirees || []).length > 0) lignes.push(`**⚠️ Assurances EXPIRÉES** — ${veh.expirees.map((a: any) => `${a.compagnie || a.type} (échue le ${a.date})`).join(", ")}.`);
     if ((veh.renouvellements_60j || []).length > 0) lignes.push(`**🚚 Assurances** — ${veh.renouvellements_60j.length} renouvellement(s) dans les 60 jours : ${veh.renouvellements_60j.map((a: any) => `${a.compagnie || a.type} (${a.date})`).join(", ")}.`);
     if (manquantes.length) lignes.push(`⚠️ Source(s) indisponible(s) ce matin : ${manquantes.join(", ")} — les chiffres correspondants sont à 0.`);
 

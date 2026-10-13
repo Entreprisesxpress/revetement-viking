@@ -15,11 +15,19 @@ import { pctBudgetApresAjout, resteBudget } from "@/lib/budget-saisie";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; onExtra?: () => void; }
 interface LigneJour {
+  /** Clé React stable : avec l'index, supprimer la ligne 1 faisait glisser l'état des
+   *  champs non contrôlés (fichiers photo) de la ligne 2 dans la ligne 1. */
+  cle: string;
   projet_id: number; heures: string; description: string;
   photos: { data: string; type: string; nom: string; thumb?: string | null }[];
   heure_debut: string; heure_fin: string; dejeuner_retire: boolean;
   /** Date spécifique à cette ligne (override la date globale si renseignée) */
   date?: string;
+}
+
+let compteurLignes = 0;
+function ligneVierge(projet_id: number): LigneJour {
+  return { cle: `l${Date.now()}-${++compteurLignes}`, projet_id, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true };
 }
 
 /** Date d'aujourd'hui en LOCAL (pas UTC) — sinon décale après 20h en EDT/EST */
@@ -96,6 +104,10 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     // Les totaux d'un chantier bougent à chaque saisie : on repart à neuf à l'ouverture.
     fichesEnCours.current = new Map();
     setFiches({});
+    // Date du JOUR à chaque ouverture : la modale est montée dès le tableau de bord, et une
+    // app PWA restée en arrière-plan rouvrait la modale sur la date de la veille (reculée
+    // pour une retouche) — la journée partait dans la mauvaise période de paie.
+    setDate(todayLocal());
     chargerEmployes();
     // On charge TOUS les projets (pas seulement 'actif') puis on garde ceux qui
     // acceptent encore une saisie. On charge aussi les dernières heures pour
@@ -123,7 +135,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
         const dernier = Array.isArray(heures) && heures.length > 0 ? heures[0]?.projet_id : null;
         const dernierEncoreActif = dispo.some((p) => p.id === dernier && estProjetActif(p.statut));
         const defautId = dernierEncoreActif ? dernier : dispo[0].id;
-        setLignes([{ projet_id: defautId, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
+        setLignes([ligneVierge(defautId)]);
       }
     });
   }, [ouvert]);
@@ -160,7 +172,14 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     });
   };
 
+  // Verrou : deux clics sur « Ajouter » créaient deux fiches « Mathieu » (deux id, même nom).
+  const ajoutEmpEnCours = useRef(false);
   const ajouterEmploye = async () => {
+    if (ajoutEmpEnCours.current) return;
+    ajoutEmpEnCours.current = true;
+    try { await ajouterEmployeReel(); } finally { ajoutEmpEnCours.current = false; }
+  };
+  const ajouterEmployeReel = async () => {
     // Virgule décimale : `+"30,50"` donnait NaN → « Nom et taux requis » sur un taux pourtant saisi.
     const taux = nombreSaisi(nouvelEmp.taux_horaire);
     if (!nouvelEmp.nom.trim() || !Number.isFinite(taux) || taux <= 0) { toast("Nom et taux requis (ex. : 30,50)", "warning"); return; }
@@ -173,7 +192,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     if (res.data?.id) setEmpSelectionnes((prev) => new Set([...prev, res.data!.id!]));
   };
 
-  const ajouterLigne = () => setLignes([...lignes, { projet_id: projets[0]?.id || 0, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
+  const ajouterLigne = () => setLignes([...lignes, ligneVierge(projets[0]?.id || 0)]);
   const supprimerLigne = (i: number) => setLignes(lignes.filter((_, idx) => idx !== i));
   const modifier = (i: number, patch: Partial<LigneJour>) => setLignes(lignes.map((l, idx) => idx === i ? { ...l, ...patch } : l));
 
@@ -220,15 +239,18 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
     }
     // Alerte budget dépassé — sur la fiche COMPLÈTE du chantier (lib/budget-saisie.ts :
     // coût HT et budget HT des deux côtés, comme la fiche projet). Sans fiche (réseau
-    // coupé), pas d'alerte plutôt qu'une alerte fausse.
+    // coupé), pas d'alerte plutôt qu'une alerte fausse. Les alertes sont CALCULÉES ici
+    // mais montrées seulement une fois les heures enregistrées : avant, un « budget
+    // DÉPASSÉ » suivi d'un refus du serveur laissait croire que la journée était entrée.
+    const alertesBudget: { texte: string; niveau: "error" | "warning" }[] = [];
     for (const l of valides) {
       const p = await chargerFiche(l.projet_id);
       // heuresEffectives : gère la virgule ET la saisie début/fin. Avant, +l.heures
       // donnait NaN (virgule) ou 0 (heures calculées) → alerte budget jamais montrée.
       const pct = pctBudgetApresAjout(p, heuresEffectives(l) * coutEmployes);
       if (pct === null) continue;
-      if (pct > 100) toast(`⚠️ ${p.nom} : budget DÉPASSÉ (${pct.toFixed(0)}%)`, "error");
-      else if (pct > 90) toast(`⚠️ ${p.nom} : ${pct.toFixed(0)}% du budget`, "warning");
+      if (pct > 100) alertesBudget.push({ texte: `⚠️ ${p.nom} : budget DÉPASSÉ (${pct.toFixed(0)}%)`, niveau: "error" });
+      else if (pct > 90) alertesBudget.push({ texte: `⚠️ ${p.nom} : ${pct.toFixed(0)}% du budget`, niveau: "warning" });
     }
     setLoading(true);
     try {
@@ -254,7 +276,9 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
             description: desc, employe: emp.nom, taux_horaire: Number(emp.taux_horaire) || 0,
             projet_nom: projets.find((p) => p.id === l.projet_id)?.nom,
           });
-          if (!r.ok) { erreurs.push(`${emp.nom} · ${l.heures_effectives}h · ${dateLigne} : ${r.erreur || "inconnu"}`); empsEnErreur.add(emp.id); }
+          // Le MESSAGE du serveur d'abord (« chantier annulé », « doublon à 9 h 02 »…) : le
+          // code HTTP seul ne disait pas quoi corriger.
+          if (!r.ok) { erreurs.push(`${emp.nom} · ${l.heures_effectives}h · ${dateLigne} : ${r.data?.message || r.erreur || "inconnu"}`); empsEnErreur.add(emp.id); }
           else { reussies++; if (r.offline) enFile++; }
         }
       }
@@ -275,7 +299,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
         // Les photos, elles, ne sont PAS gardées hors ligne (trop lourdes pour le stockage
         // local) : on le dit, au lieu de les perdre en silence.
         toast(`📴 Hors ligne — ${enFile} saisie(s) d'heures gardée(s) sur l'appareil, elles partiront au retour du réseau${totalPhotosVoulues > 0 ? `. ${totalPhotosVoulues} photo(s) NON gardée(s) : reprends-les depuis la fiche du projet` : ""}`, "warning");
-        setLignes([{ projet_id: projets[0]?.id || 0, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
+        setLignes([ligneVierge(projets[0]?.id || 0)]);
         onClose();
         return;
       }
@@ -306,10 +330,11 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
       const photosEchouees = totalPhotos - photosOk;
 
       toast(`✓ ${totalHeures} h × ${empsActifs.length} employé(s)${photosOk > 0 ? ` + ${photosOk} photo(s)` : ""} (${formatCAD(totalCout)})`, "success");
+      for (const a of alertesBudget) toast(a.texte, a.niveau);
       if (photosEchouees > 0) {
         toast(`⚠️ ${photosEchouees} photo(s) NON enregistrée(s) — tes heures sont sauvées, reprends les photos depuis la fiche du projet`, "error");
       }
-      setLignes([{ projet_id: projets[0]?.id || 0, heures: "", description: "", photos: [], heure_debut: "07:00", heure_fin: "15:00", dejeuner_retire: true }]);
+      setLignes([ligneVierge(projets[0]?.id || 0)]);
       onSuccess?.();
       onClose();
     } finally { setLoading(false); }
@@ -392,7 +417,7 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
               // Reste de budget HT : seulement quand la fiche complète est chargée.
               const reste = resteBudget(fiches[l.projet_id]);
               return (
-                <div key={i} className="border-2 border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50">
+                <div key={l.cle} className="border-2 border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50">
                   <div className="flex gap-2 items-end">
                     <div className="flex-1">
                       <label className="block text-xs font-medium text-slate-600 mb-1">Projet</label>

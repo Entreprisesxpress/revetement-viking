@@ -39,7 +39,10 @@ export default function ContratsPage() {
 
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
+  // Garde de course : seule la DERNIÈRE demande (dernier filtre cliqué) a le droit d'écrire.
+  const derniereDemande = useRef(0);
   const charger = async () => {
+    const demande = ++derniereDemande.current;
     setChargement(true);
     try {
       // Lectures avec filet : un 500 faisait planter le rendu sur `.map` d'un objet d'erreur.
@@ -47,6 +50,7 @@ export default function ContratsPage() {
         lireListe(filtre ? `/api/contrats?statut=${filtre}` : "/api/contrats"),
         lireListe("/api/clients"),
       ]);
+      if (demande !== derniereDemande.current) return;
       if (!c.ok) { setErreur(c.erreur); return; }
       setErreur(null);
       setContrats(c.data);

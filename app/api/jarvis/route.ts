@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { OUTILS_JARVIS, OUTILS_ACTION, executerOutilJarvis, encadrerDonnees, CONSIGNE_DONNEES } from "@/lib/jarvis";
 import { utilisateurActif } from "@/lib/authUser";
-import { enregistrerCoutIA, coutMoisCourantIA, type UsageIA } from "@/lib/ia-couts";
+import { enregistrerCoutIA, coutMoisCourantIA, type UsageIA, refusSiPlafondIA } from "@/lib/ia-couts";
 import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +40,12 @@ function appliquerCacheMessages(messages: any[]) {
 const sse = (event: string, data: any) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
 export async function POST(req: NextRequest) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante" }, { status: 500 });
+  // 503 (service non configuré), pas 500 : l'écran distingue « IA non branchée » d'un bogue.
+  if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante", message: "L'assistant IA n'est pas configuré sur ce serveur." }, { status: 503 });
   const user = await utilisateurActif(req);
   if (!user) return NextResponse.json({ error: "non authentifié" }, { status: 401 });
 

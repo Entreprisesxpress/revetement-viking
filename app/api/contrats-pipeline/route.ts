@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { creerContratPipeline, listerContratsParClient, marquerContratEnvoye, supprimerContratPipeline, definirAnnexeContrat, genererNumeroContratPipeline, getContratPipelineParId, numeroContratPipelineExiste, projetDuClientParNumero } from "@/lib/db";
+import { creerContratPipeline, creerContratPipelineNumeroAuto, definirPdfBrouillonContrat, listerContratsParClient, marquerContratEnvoye, supprimerContratPipeline, definirAnnexeContrat, getContratPipelineParId, numeroContratPipelineExiste, projetDuClientParNumero } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
 import { journaliser } from "@/lib/audit";
 import { donneesTropLourdes, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
@@ -91,26 +91,30 @@ export async function POST(req: NextRequest) {
       return b.pdf_brouillon;
     }
   };
-  // Numéro séquentiel (MAX+1) puis INSERT : six contrats préparés en même temps
-  // recevaient tous C-2026-001 (la régénération du PDF, ≈ 0,5 s, élargissait la
-  // fenêtre). L'index UNIQUE sur le numéro refuse maintenant le doublon, et on
-  // recommence avec le numéro suivant — comme ajouterProjet.
+  // Numéro séquentiel attribué DANS l'INSERT (atomique, voir creerContratPipelineNumeroAuto),
+  // PUIS le PDF est régénéré avec ce numéro. Avant : MAX+1 → PDF (~0,6 s) → INSERT, et six
+  // contrats préparés en même temps recevaient le même numéro (puis, avec l'index UNIQUE,
+  // le perdant épuisait ses essais et répondait 500).
   let id = 0;
-  for (let essai = 0; essai < 5; essai++) {
-    if (!numeroImpose) numero = await genererNumeroContratPipeline();
+  if (numeroImpose) {
     const pdfBrouillon = await brouillonAvecNumero(numero);
-    try {
-      id = await creerContratPipeline({
-        client_id: clientId, numero, token,
-        data_json: b.data_json, pdf_brouillon: pdfBrouillon,
-        cree_par: user || undefined,
-        annexe_data: annexe?.data || null, annexe_nom: annexe?.nom || null, annexe_type: annexe?.type || null,
-      });
-      break;
-    } catch (e: any) {
-      const unique = /UNIQUE/i.test(String(e?.message || e));
-      if (!unique || numeroImpose || essai === 4) throw e;
-    }
+    id = await creerContratPipeline({
+      client_id: clientId, numero, token,
+      data_json: b.data_json, pdf_brouillon: pdfBrouillon,
+      cree_par: user || undefined,
+      annexe_data: annexe?.data || null, annexe_nom: annexe?.nom || null, annexe_type: annexe?.type || null,
+    });
+  } else {
+    const cree = await creerContratPipelineNumeroAuto({
+      client_id: clientId, token,
+      data_json: b.data_json, pdf_brouillon: b.pdf_brouillon,
+      cree_par: user || undefined,
+      annexe_data: annexe?.data || null, annexe_nom: annexe?.nom || null, annexe_type: annexe?.type || null,
+    });
+    id = cree.id;
+    numero = cree.numero;
+    const pdfBrouillon = await brouillonAvecNumero(numero);
+    if (pdfBrouillon !== b.pdf_brouillon) await definirPdfBrouillonContrat(id, pdfBrouillon);
   }
   after(() => journaliser("contrat_pipeline.cree", { ref_type: "contrat_pipeline", ref_id: id, utilisateur: user || undefined, description: `${numero} · client ${clientId}`, apres: { numero, client_id: clientId, annexe: !!annexe } }));
   return NextResponse.json({ ok: true, id, token, numero });

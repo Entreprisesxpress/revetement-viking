@@ -44,6 +44,7 @@ export default function ModalExtra({ ouvert, onClose, onSuccess, projetIdInitial
       setProjets(dispo);
       setProjetId(projetIdInitial || 0);
     }).catch(() => {});
+    setDate(aujourdhuiMontreal());   // date du jour à chaque ouverture (PWA en arrière-plan)
   }, [ouvert]);
 
   const ajouterPhoto = async (f: File) => {

@@ -25,7 +25,7 @@ export default function EmployesPage() {
   const [erreur, setErreur] = useState<string | null>(null);
   const charger = async () => {
     // Lecture avec filet : un 500 faisait planter le rendu sur `.filter` d'un objet d'erreur.
-    const r = await lireListe("/api/employes");
+    const r = await lireListe("/api/employes?tous=1");   // inactifs inclus (filtre « Inactifs » + réactivation)
     if (!r.ok) { setErreur(r.erreur); return; }
     setErreur(null);
     setEmployes(r.data);
@@ -252,11 +252,17 @@ export default function EmployesPage() {
                   )}
                   <div className="flex-1 text-xs">Spécimen archivé</div>
                   <button type="button" onClick={() => {
-                    const w = window.open();
-                    if (w) {
-                      if (form.specimen_cheque_type?.startsWith("image/")) w.document.write(`<img src="${form.specimen_cheque_data}" style="max-width:100%" />`);
-                      else w.location.href = form.specimen_cheque_data;
-                    }
+                    // Fichier servi comme les autres (route dédiée, type validé) pour une fiche
+                    // enregistrée ; un fichier tout juste joint s'ouvre depuis un Blob — jamais
+                    // de `document.write` d'une chaîne venue de la base.
+                    const data = String(form.specimen_cheque_data || "");
+                    const m = /^data:([^;]+);base64,(.+)$/.exec(data);
+                    if (edit?.id && edit.specimen_cheque_data === data) { window.open(`/api/employes/${edit.id}/specimen`, "_blank"); return; }
+                    if (!m || !/^(image\/|application\/pdf)/.test(m[1])) { toast("Spécimen illisible", "warning"); return; }
+                    const octets = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+                    const url = URL.createObjectURL(new Blob([octets], { type: m[1] }));
+                    window.open(url, "_blank");
+                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   }} className="text-xs text-blue-600 hover:underline">Voir</button>
                   <button type="button" onClick={() => setForm({ ...form, specimen_cheque_data: "", specimen_cheque_type: "" })} className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs">✕</button>
                 </div>

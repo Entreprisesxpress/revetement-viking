@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
-import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { journaliserCoutReponse, refusSiPlafondIA } from "@/lib/ia-couts";
 
 // Délai borné sous maxDuration : un rapport Hover de 40 pages pouvait dépasser les 60 s
 // par défaut de la fonction, et l'écran restait sans réponse.
@@ -71,6 +71,9 @@ RÈGLES IMPORTANTES :
 - AUCUN markdown, AUCUNE explication, SEULEMENT le JSON valide`;
 
 export async function POST(req: NextRequest) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {

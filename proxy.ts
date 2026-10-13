@@ -23,6 +23,9 @@ const CSP = [
   "font-src 'self' data:",
   // OCR : tessdata + CDN ; météo Open-Meteo ; Google APIs (Drive)
   "connect-src 'self' blob: data: https://api.open-meteo.com https://geocoding-api.open-meteo.com https://*.googleapis.com https://www.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://nominatim.openstreetmap.org",
+  // L'aperçu du PDF de contrat (/contrats/nouveau) s'affiche dans une iframe « blob: » :
+  // sans frame-src, la CSP (default-src 'self') laissait l'iframe vide.
+  "frame-src 'self' blob:",
   "frame-ancestors 'self'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -84,6 +87,9 @@ export async function proxy(req: NextRequest) {
   // Routes & assets publics (toujours avec headers de sécurité)
   if (
     path === "/login" ||
+    path === "/reinitialiser" ||                              // nouveau mot de passe par lien (jeton vérifié par la route)
+    (path === "/api/auth/mdp-oublie" && req.method === "POST") ||
+    (path === "/api/auth/reinitialiser") ||                   // GET (validité du jeton) + POST (nouveau mot de passe)
     path === "/hors-ligne" ||                                 // page de repli du service worker (statique, sans données)
     path.startsWith("/_next") ||
     path.startsWith("/api/login") ||

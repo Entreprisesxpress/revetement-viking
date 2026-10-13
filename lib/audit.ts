@@ -92,7 +92,12 @@ export type ActiviteType =
   | "client.fichier_ajoute"
   | "client.fichier_supprime"
   // Une erreur du navigateur reçue par /api/log-erreur : sert au compteur anti-abus.
-  | "client.erreur_log";
+  | "client.erreur_log"
+  // Mots de passe gérés dans l'app (lib/mdp.ts).
+  | "auth.mdp_change"
+  | "auth.mdp_oublie"
+  | "auth.mdp_reinit"
+  | "auth.lien_reinit";
 
 export interface ActiviteOpts {
   ref_type?: string;
@@ -142,6 +147,20 @@ export async function journaliser(type: ActiviteType, opts: ActiviteOpts = {}): 
 }
 
 /** Récupère les N dernières activités, filtrable par type ou ref. */
+/** Types présents dans le journal (DISTINCT) et nombre total d'entrées (filtré par type
+ *  si demandé) — pour le menu de filtre et le bandeau « 200 affichées sur N ». */
+export async function metaActivites(filtres: { type?: string } = {}): Promise<{ types: string[]; total: number }> {
+  await initDb();
+  const c = db();
+  const [t, n] = await Promise.all([
+    c.execute("SELECT DISTINCT type FROM journal_activite ORDER BY type"),
+    filtres.type
+      ? c.execute({ sql: "SELECT COUNT(*) AS n FROM journal_activite WHERE type = ?", args: [filtres.type] })
+      : c.execute("SELECT COUNT(*) AS n FROM journal_activite"),
+  ]);
+  return { types: t.rows.map((r: any) => String(r.type)), total: Number((n.rows[0] as any)?.n) || 0 };
+}
+
 export async function listerActivites(filtres: { type?: string; ref_type?: string; ref_id?: string; limit?: number } = {}): Promise<any[]> {
   await initDb();
   const c = db();

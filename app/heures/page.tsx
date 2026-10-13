@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Navigation from "@/components/Navigation";
 import FAB from "@/components/FAB";
 import { formatCAD } from "@/lib/calculateur";
@@ -65,7 +65,12 @@ export default function HoraireePage() {
   const fin = fmtISO(finD);
   const aujourdhui = aujourdhuiMontreal();
 
+  // Garde de course : « semaine précédente » cliqué deux fois lançait deux lectures ; la
+  // première (plus lente) pouvait répondre en dernier et afficher la mauvaise semaine
+  // sous le bon en-tête. Seule la dernière demande a le droit d'écrire.
+  const derniereDemande = useRef(0);
   const charger = async () => {
+    const demande = ++derniereDemande.current;
     const params = new URLSearchParams();
     if (filtreEmp) params.set("employe", filtreEmp);
     params.set("depuis", debut);
@@ -75,7 +80,7 @@ export default function HoraireePage() {
     // arrivent, sans attendre la liste des projets/employés. Projets en mode "lite"
     // (juste id/nom, sans les coûts/marges lourds) car on n'en a besoin que pour les menus.
     // Lecture avec filet : un échec ressemblait à « aucune heure cette semaine ».
-    lireListe(`/api/heures?${params.toString()}`).then((r) => { if (r.ok) { setErreur(null); setHeures(r.data); } else setErreur(r.erreur); });
+    lireListe(`/api/heures?${params.toString()}`).then((r) => { if (demande !== derniereDemande.current) return; if (r.ok) { setErreur(null); setHeures(r.data); } else setErreur(r.erreur); });
     lireListe("/api/projets?lite=1").then((r) => { if (r.ok) setProjets(r.data); });
     lireListe("/api/employes").then((r) => { if (r.ok) setEmployes(r.data); });
   };

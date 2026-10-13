@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES, lirePrixCache, ecrirePrixCache } from "@/lib/viking-ai";
-import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { journaliserCoutReponse, refusSiPlafondIA } from "@/lib/ia-couts";
 import { validerPrixWeb } from "@/lib/prix-web-validation";
 import { rateLimitDepasse } from "@/lib/rateLimit";
 import { estAppelCron } from "@/lib/cron-auth";
@@ -47,6 +47,9 @@ Si tu ne trouves rien de fiable, retourne {"prix_trouves": [], "note": "explicat
 Pas de markdown, JSON pur.`;
 
 export async function POST(req: NextRequest) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   try {
     const b = await lireCorps(req);
     if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });

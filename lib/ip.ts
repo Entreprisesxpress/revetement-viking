@@ -11,7 +11,11 @@
 
 export function ipClient(req: { headers: { get(n: string): string | null } }): string {
   const h = (n: string) => (req.headers.get(n) || "").trim();
-  const direct = h("x-real-ip") || h("x-vercel-forwarded-for").split(",").pop()?.trim() || "";
+  // `x-real-ip` et `x-vercel-forwarded-for` ne sont de confiance QUE posés par Vercel (qui
+  // les réécrit). Ailleurs (local, autre hébergeur), un client peut les forger — mesuré :
+  // 12 mauvais mots de passe avec un `x-real-ip` différent à chaque essai, jamais de 429.
+  const surVercel = !!process.env.VERCEL;
+  const direct = surVercel ? (h("x-vercel-forwarded-for").split(",").pop()?.trim() || h("x-real-ip")) : "";
   if (direct) return direct;
   const xff = h("x-forwarded-for").split(",").map((s) => s.trim()).filter(Boolean);
   return xff[xff.length - 1] || "inconnue";

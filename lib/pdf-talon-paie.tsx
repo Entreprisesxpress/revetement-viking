@@ -66,6 +66,9 @@ export function lignesGainsTalon(t: Pick<TalonProps, "heures_normales" | "taux_h
     const somme = g.reduce((s, x) => s + x.montant, 0);
     if (Math.abs(somme - t.montant_brut) < 0.005) return g.map((x) => ({ heures: x.heures, taux: x.taux, montant: x.montant }));
   }
+  // Quinzaine qui ne porte QUE l'indemnité de férié (congé des Fêtes) : aucune ligne de
+  // travail à 0,00 h — l'indemnité a sa propre ligne.
+  if (!(t.heures_normales > 0)) return [];
   return [{ heures: t.heures_normales, taux: t.taux_horaire, montant: t.heures_normales * t.taux_horaire }];
 }
 
@@ -144,14 +147,14 @@ export function TalonPaiePDF({ talon }: { talon: TalonProps }) {
         <Text style={s.sectionTitre}>Gains</Text>
         {gains.map((g, i) => (
           <View style={s.row} key={i}>
-            <Text>Heures payées — {g.heures.toFixed(2)} h × {cad(g.taux)}</Text>
+            <Text>Heures payées — {heuresLisibles(g.heures)} × {cad(g.taux)}</Text>
             <Text style={s.val}>{cad(g.montant)}</Text>
           </View>
         ))}
         {heuresFerie > 0 && (
           <View style={s.row}>
             <Text>
-              Indemnité jour férié — {heuresFerie.toFixed(2)} h × {cad(talon.taux_horaire)}
+              Indemnité jour férié — {heuresLisibles(heuresFerie)} × {cad(talon.taux_horaire)}
               {feries.length > 0 ? `\n${feries.map((f) => `${f.nom} (${dateLisible(f.date)})`).join(", ")}` : ""}
             </Text>
             <Text style={s.val}>{cad(brutFerie)}</Text>

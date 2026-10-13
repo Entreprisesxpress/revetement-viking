@@ -11,21 +11,23 @@ describe("CSV — injection de formule neutralisée", () => {
     expect(neutraliserFormule("\rx")).toBe("'\rx");
   });
 
-  it("un texte ordinaire ou un nombre passe tel quel", () => {
+  it("un texte ordinaire passe tel quel ; un nombre prend la virgule décimale d'Excel fr-CA", () => {
     expect(neutraliserFormule("Pose de revêtement")).toBe("Pose de revêtement");
-    expect(celluleCSV(-12.5)).toBe("-12.5");
+    expect(celluleCSV(-12.5)).toBe("-12,5");
+    expect(celluleCSV(230.5)).toBe("230,5");
     expect(celluleCSV(0)).toBe("0");
     expect(celluleCSV(null)).toBe("");
     expect(celluleCSV(undefined)).toBe("");
   });
 
-  it("la neutralisation précède la mise entre guillemets (RFC 4180)", () => {
-    expect(celluleCSV('=1+1,"x"')).toBe('"\'=1+1,""x"""');
-    expect(celluleCSV("a,b")).toBe('"a,b"');
+  it("la neutralisation précède la mise entre guillemets (RFC 4180) ; le séparateur est « ; »", () => {
+    expect(celluleCSV('=1+1;"x"')).toBe('"\'=1+1;""x"""');
+    expect(celluleCSV("a;b")).toBe('"a;b"');
+    expect(celluleCSV("a,b")).toBe("a,b");   // la virgule n'est plus un séparateur
   });
 
-  it("toCSV applique la règle à toutes les cellules, en-tête compris", () => {
-    const csv = toCSV([{ nom: "=cmd", n: 3 }], ["nom", "n"]);
-    expect(csv).toBe("﻿nom,n\r\n'=cmd,3");
+  it("toCSV : BOM + ligne sep=; pour Excel, puis en-tête et lignes séparées par « ; »", () => {
+    const csv = toCSV([{ nom: "=cmd", n: 3.25 }], ["nom", "n"]);
+    expect(csv).toBe("﻿sep=;\r\nnom;n\r\n'=cmd;3,25");
   });
 });

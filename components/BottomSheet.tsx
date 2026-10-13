@@ -18,10 +18,16 @@ export default function BottomSheet({
   children, footer, taille = "auto",
 }: Props) {
   const contenuRef = useRef<HTMLDivElement | null>(null);
+  // `onClose` est presque toujours une flèche recréée à chaque rendu du parent : en
+  // dépendance de l'effet, chaque réponse réseau du tableau de bord relançait l'effet et
+  // remettait le focus sur le premier champ (la date) pendant que Francis tapait sa
+  // description. Même parade que components/Modale.tsx : une ref.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!ouvert) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCloseRef.current(); };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     // Auto-focus du premier champ texte/select visible (après mount)
@@ -38,7 +44,7 @@ export default function BottomSheet({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [ouvert, onClose]);
+  }, [ouvert]);
 
   if (!ouvert) return null;
 

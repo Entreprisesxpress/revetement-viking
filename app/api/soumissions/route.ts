@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { total } = totalServeur(body);
-    const numero = await sauvegarder({ ...body, total });
+    const numero = await sauvegarder({ ...body, total, client_id: clientId ?? (Number.isInteger(body.client_id) ? body.client_id : null) });
     const ip = ipDe(req);
     const user_agent = req.headers.get("user-agent") || undefined;
     after(() => journaliser(nouveau ? "soumission.creee" : "soumission.modifiee", {

@@ -92,10 +92,19 @@ export default function RapportsPage() {
                 <tr key={p.id} className="border-t">
                   <td className="p-2 font-medium"><a href={`/projets/${p.id}`} className="hover:underline">{p.nom}</a></td>
                   <td className="p-2 text-slate-600">{p.client_nom || "—"}</td>
-                  <td className="p-2 text-right">{formatCAD(p.budget_estime || 0)}</td>
+                  <td className="p-2 text-right">{formatCAD(p.prix_contrat || p.budget_estime || 0)}</td>
                   <td className="p-2 text-right text-amber-700">{formatCAD(p.cout_total)}</td>
-                  <td className={`p-2 text-right font-bold ${p.marge < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCAD(p.marge)}</td>
-                  <td className="p-2 text-right">{(p.marge_pct || 0).toFixed(0)}%</td>
+                  {p.statut === "annule" ? (
+                    <>
+                      <td className="p-2 text-right text-slate-400" title="Chantier annulé : le prix ne sera jamais facturé">—</td>
+                      <td className="p-2 text-right text-slate-400">—</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={`p-2 text-right font-bold ${p.marge < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCAD(p.marge)}</td>
+                      <td className="p-2 text-right">{(p.marge_pct || 0).toFixed(0)}%</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>

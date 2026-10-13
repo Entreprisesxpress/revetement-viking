@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/Toasts";
 import { formatCAD } from "@/lib/calculateur";
 import ModalExtra from "@/components/ModalExtra";
@@ -28,12 +28,16 @@ export default function ExtrasVue({ projetId, onChange }: { projetId?: number; o
   const verrou = useVerrou();
   const { toast } = useToast();
 
+  // Garde de course : seule la DERNIÈRE demande (dernier onglet cliqué) a le droit d'écrire.
+  const derniereDemande = useRef(0);
   const charger = async () => {
+    const demande = ++derniereDemande.current;
     setLoading(true);
     try {
       const q = `statut=${onglet}${projetId ? `&projet_id=${projetId}` : ""}`;
       // Lecture avec filet : un échec ressemblait à « aucun extra en attente 🎉 ».
       const r = await lireListe(`/api/extras?${q}`);
+      if (demande !== derniereDemande.current) return;
       if (!r.ok) { setErreur(r.erreur); return; }
       setErreur(null);
       setExtras(r.data);

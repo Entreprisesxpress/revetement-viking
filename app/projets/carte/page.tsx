@@ -32,7 +32,10 @@ async function geocoder(adresse: string): Promise<Coord | null> {
     }
   } catch {}
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresse + ", Québec, Canada")}&format=json&limit=1`);
+    // Biais régional : pays Canada + fenêtre Montérégie/Montréal/Estrie (viewbox, sans
+    // `bounded` pour garder un repli). Avant, « Saint-Hubert » partait dans le
+    // Bas-Saint-Laurent, à 400 km.
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(adresse + ", Québec, Canada")}&format=json&limit=1&countrycodes=ca&viewbox=-74.6,46.2,-72.0,44.9&accept-language=fr`);
     const data = await r.json();
     if (!data?.[0]) return null;
     const v = { lat: +data[0].lat, lng: +data[0].lon };

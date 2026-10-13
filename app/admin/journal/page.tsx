@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
 import { exporterCSV } from "@/lib/csv";
 import { aujourdhuiMontreal } from "@/lib/date";
-import { lireListe } from "@/lib/envoi";
+import { lireJson, lireListe } from "@/lib/envoi";
 import ErreurChargement from "@/components/ErreurChargement";
 
 const ICONES: Record<string, string> = {
@@ -26,16 +26,25 @@ export default function PageJournal() {
   const [loading, setLoading] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
 
+  // Types et total lus À PART (DISTINCT + COUNT côté serveur) : avant, la liste des types
+  // venait des 200 dernières lignes — un type rare (paie, sauvegarde) n'apparaissait pas
+  // dans le menu, et l'écran ne disait pas combien d'entrées il cachait.
+  const [meta, setMeta] = useState<{ types: string[]; total: number }>({ types: [], total: 0 });
+  const [limite, setLimite] = useState(200);
   const charger = () => {
     setLoading(true);
-    const url = filtreType ? `/api/journal?type=${encodeURIComponent(filtreType)}` : "/api/journal";
+    const params = new URLSearchParams();
+    if (filtreType) params.set("type", filtreType);
+    params.set("limit", String(limite));
     // Lecture avec filet : un 500 faisait planter le rendu sur `.map` d'un objet d'erreur.
-    lireListe(url).then((r) => { if (r.ok) { setErreur(null); setActivites(r.data); } else setErreur(r.erreur); }).finally(() => setLoading(false));
+    lireListe(`/api/journal?${params}`).then((r) => { if (r.ok) { setErreur(null); setActivites(r.data); } else setErreur(r.erreur); }).finally(() => setLoading(false));
+    lireJson<{ types: string[]; total: number }>(`/api/journal?meta=1${filtreType ? `&type=${encodeURIComponent(filtreType)}` : ""}`)
+      .then((r) => { if (r.ok && r.data) setMeta({ types: r.data.types || [], total: Number(r.data.total) || 0 }); });
   };
 
-  useEffect(charger, [filtreType]);
+  useEffect(charger, [filtreType, limite]);
 
-  const typesUnique = Array.from(new Set(activites.map((a) => a.type))).sort();
+  const typesUnique = meta.types.length ? meta.types : Array.from(new Set(activites.map((a) => a.type))).sort();
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -110,8 +119,12 @@ export default function PageJournal() {
           </section>
         )}
 
-        <p className="text-xs text-slate-500 text-center">
-          Conservation : 200 dernières entrées. Pour audit complet, exporter régulièrement en CSV.
+        <p className="text-xs text-slate-500 text-center space-x-2">
+          <span>{activites.length} entrée(s) affichée(s){meta.total > activites.length ? ` sur ${meta.total}` : ""}{filtreType ? ` (type ${filtreType})` : ""}.</span>
+          {meta.total > activites.length && limite < 1000 && (
+            <button onClick={() => setLimite(1000)} className="underline text-blue-700">Voir les 1 000 dernières</button>
+          )}
+          <span>Le journal est conservé 12 mois (les gestes d'argent sont gardés). L'export CSV porte sur les entrées affichées.</span>
         </p>
       </main>
     </div>

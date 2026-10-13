@@ -16,16 +16,19 @@ export default function BarreChargementRoute() {
 
   // Détecte aussi les fetchs en cours (heuristique : on s'arme uniquement sur clic d'un <a>)
   useEffect(() => {
+    let securite: ReturnType<typeof setTimeout> | null = null;
     const onClick = (e: MouseEvent) => {
       const a = (e.target as HTMLElement)?.closest("a[href]") as HTMLAnchorElement | null;
       if (a && a.target !== "_blank" && a.host === window.location.host) {
         setActif(true);
-        // sécurité : éteint après 5s max
-        setTimeout(() => setActif(false), 5000);
+        // sécurité : éteint après 5 s max — le minuteur du clic PRÉCÉDENT est annulé,
+        // sinon il éteignait la barre pendant que le lien suivant chargeait encore.
+        if (securite) clearTimeout(securite);
+        securite = setTimeout(() => setActif(false), 5000);
       }
     };
     document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    return () => { document.removeEventListener("click", onClick); if (securite) clearTimeout(securite); };
   }, []);
 
   return (

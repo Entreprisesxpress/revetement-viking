@@ -21,6 +21,9 @@ function purgerStockage(s: Storage | undefined): void {
     for (let i = s.length - 1; i >= 0; i--) {
       const k = s.key(i);
       if (!k) continue;
+      // Le thème (clair/sombre) est un réglage de l'APPAREIL, pas une trace de l'usager :
+      // il survit à la déconnexion (sinon la page de connexion revenait en clair).
+      if (k === "vk-theme") continue;
       if (PREFIXES.some((p) => k.startsWith(p)) || CLES_HISTORIQUES.includes(k)) s.removeItem(k);
     }
   } catch { /* stockage indisponible (mode privé, iframe) */ }

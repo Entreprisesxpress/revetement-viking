@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjet, listerHeuresProjet, listerDepensesProjet, listerPhotosChantier } from "@/lib/db";
-import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { journaliserCoutReponse, refusSiPlafondIA } from "@/lib/ia-couts";
 import { idEntier } from "@/lib/requete";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,9 @@ export const maxDuration = 60;
 /** Résumé IA d'un chantier : agrège heures + dépenses + photos + notes
  *  et appelle Claude (ANTHROPIC_API_KEY) pour produire un récap pro. */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   const pid = idEntier((await ctx.params).id);
   if (!pid) return NextResponse.json({ error: "id invalide" }, { status: 400 });
   if (!process.env.ANTHROPIC_API_KEY) {

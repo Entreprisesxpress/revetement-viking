@@ -379,11 +379,10 @@ export default function ProjetDetail() {
                 <div>
                   <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">⏳ Durée (jours)</label>
                   <input
-                    type="number"
-                    min={0}
-                    step={0.5}
+                    type="text"
+                    inputMode="decimal"
                     value={projet.duree_jours ?? ""}
-                    placeholder="ex: 5"
+                    placeholder="ex: 5 ou 2,5"
                     onChange={async (e) => {
                       const n = e.target.value === "" ? null : +e.target.value;
                       // La durée pilote la fin prévue quand une date de début existe.

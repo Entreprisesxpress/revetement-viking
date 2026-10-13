@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { journaliser } from "@/lib/audit";
 import { rateLimitDepasse, rateLimitDepasseParDescription, timingSafeEqual } from "@/lib/rateLimit";
 import { UTILISATEURS, motDePasse, creerCookie, DUREE_SESSION_MS } from "@/lib/session";
+import { getCompte } from "@/lib/db";
+import { verifierMotDePasse } from "@/lib/mdp";
 
 // Description journalisée à chaque mauvais mot de passe : c'est sur elle (exacte) que
 // compte la limite par utilisateur.
@@ -45,6 +47,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Trop d'essais pour cet utilisateur. Réessaie dans une heure." }, { status: 429, headers: { "Retry-After": String(FENETRE_UTILISATEUR_MIN * 60) } });
   }
 
+  // Mot de passe défini DANS l'app (Paramètres → Mot de passe, ou lien de
+  // réinitialisation) : c'est lui seul qui compte. Sinon, celui de la variable Vercel.
+  const compte = await getCompte(user).catch(() => null);
+  if (compte?.mdp_hash) {
+    if (!verifierMotDePasse(password, compte.mdp_hash)) {
+      await journaliser("auth.login_echec", { description: descMauvaisMdp(user), ip, user_agent: ua });
+      return NextResponse.json({ error: "Mot de passe incorrect" }, { status: 401 });
+    }
+    await journaliser("auth.login_ok", { description: `Connexion réussie — ${user}`, ip, user_agent: ua });
+    const valeur = await creerCookie(user);
+    if (!valeur) return NextResponse.json({ error: "Impossible de créer la session (SESSION_SECRET manquant)." }, { status: 500 });
+    const res = NextResponse.json({ ok: true, user });
+    res.cookies.set("xpress_auth", valeur, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: Math.floor(DUREE_SESSION_MS / 1000), path: "/" });
+    return res;
+  }
   const attendu = motDePasse(user);
   if (!attendu) {
     // Aucun mot de passe configuré. En PRODUCTION : on refuse (fail-closed) au lieu

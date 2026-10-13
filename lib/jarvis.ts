@@ -170,7 +170,9 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         // montant », mais l'outil mentait à sa place — sur une erreur de base il
         // renvoyait `factures_impayees: { nombre: 0, montant: 0 }`, que le modèle
         // restituait comme un fait (« tu n'as aucune facture impayée »).
-        const factImp = await db().execute({ sql: "SELECT COALESCE(SUM(montant),0) t, COUNT(*) n FROM factures_projet WHERE payee=0 OR payee IS NULL", args: [] })
+        // Chantiers ANNULÉS exclus, comme le tableau de bord, la cloche et les rappels :
+        // sinon Jarvis réclamait 3 000 $ sur un chantier annulé (mesuré).
+        const factImp = await db().execute({ sql: "SELECT COALESCE(SUM(fp.montant),0) t, COUNT(*) n FROM factures_projet fp LEFT JOIN projets p ON p.id = fp.projet_id WHERE (fp.payee=0 OR fp.payee IS NULL) AND COALESCE(p.statut,'') != 'annule'", args: [] })
           .catch((e) => { throw new Error(`Impossible de lire les factures impayées : ${e?.message || e}`); });
         const nbTaches = await db().execute({ sql: "SELECT COUNT(*) n FROM taches_client WHERE statut != 'complete'", args: [] })
           .catch((e) => { throw new Error(`Impossible de lire les tâches : ${e?.message || e}`); });
@@ -251,7 +253,7 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         const r = await db().execute({
           sql: `SELECT fp.montant, fp.date, fp.numero, p.nom projet, c.nom client
                 FROM factures_projet fp LEFT JOIN projets p ON p.id=fp.projet_id LEFT JOIN clients c ON c.id=p.client_id
-                WHERE fp.payee=0 OR fp.payee IS NULL ORDER BY fp.date ASC`, args: [],
+                WHERE (fp.payee=0 OR fp.payee IS NULL) AND COALESCE(p.statut,'') != 'annule' ORDER BY fp.date ASC`, args: [],
         });
         const lignes = (r.rows as any[]).map((x) => {
           const jours = Math.max(0, Math.round((auj.getTime() - new Date(x.date).getTime()) / 86400000));
@@ -318,17 +320,26 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         const conds: string[] = []; const args: any[] = [];
         if (input.recherche) { conds.push("(LOWER(nom) LIKE ? OR LOWER(categorie) LIKE ? OR LOWER(emplacement) LIKE ?)"); const l = `%${String(input.recherche).toLowerCase()}%`; args.push(l, l, l); }
         const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
-        const r = await db().execute({ sql: `SELECT nom, categorie, quantite, unite, emplacement, cout_unit FROM inventaire ${where} ORDER BY nom ASC LIMIT 200`, args }).catch(() => ({ rows: [] }));
+        // Pas de repli à [] : une base injoignable doit remonter en `{ erreur }` (voir
+        // executerOutilJarvis), pas en « inventaire vide ».
+        const r = await db().execute({ sql: `SELECT nom, categorie, quantite, unite, emplacement, cout_unit FROM inventaire ${where} ORDER BY nom ASC LIMIT 200`, args })
+          .catch((e) => { throw new Error(`Impossible de lire l'inventaire : ${e?.message || e}`); });
         const items = (r.rows as any[]).map((x) => ({ nom: x.nom, categorie: x.categorie, quantite: num(x.quantite), unite: x.unite, emplacement: x.emplacement, valeur: num((x.quantite || 0) * (x.cout_unit || 0)) }));
         return { nombre: items.length, valeur_totale: num(items.reduce((s, x) => s + x.valeur, 0)), items };
       }
       case "vehicules_assurances": {
-        const [veh, ass] = await Promise.all([listerVehicules().catch(() => []), listerAssurances().catch(() => [])]);
+        // Pas de repli à [] (une panne doit remonter en `{ erreur }`), et une police
+        // EXPIRÉE n'est pas « à renouveler dans 60 jours » : une RC échue depuis 42 jours
+        // passait pour un renouvellement à venir dans le briefing.
+        const [veh, ass] = await Promise.all([listerVehicules(), listerAssurances()]);
+        const auj = aujourdhuiMontreal();
         const dans60j = jourMontreal(new Date(Date.now() + 60 * 86400000).toISOString());
-        const renouv = (ass as any[]).filter((a) => a.date_renouvellement && a.date_renouvellement <= dans60j);
+        const expirees = (ass as any[]).filter((a) => a.date_renouvellement && a.date_renouvellement < auj);
+        const renouv = (ass as any[]).filter((a) => a.date_renouvellement && a.date_renouvellement >= auj && a.date_renouvellement <= dans60j);
         return {
           vehicules: (veh as any[]).map((v: any) => ({ nom: v.nom, marque: v.marque || null, annee: v.annee || null, plaque: v.plaque || null })),
-          assurances: (ass as any[]).map((a) => ({ type: a.type, compagnie: a.compagnie, renouvellement: a.date_renouvellement, prime_annuelle: num(a.prime_annuelle) })),
+          assurances: (ass as any[]).map((a) => ({ type: a.type, compagnie: a.compagnie, renouvellement: a.date_renouvellement, prime_annuelle: num(a.prime_annuelle), expiree: !!(a.date_renouvellement && a.date_renouvellement < auj) })),
+          expirees: expirees.map((a) => ({ type: a.type, compagnie: a.compagnie, date: a.date_renouvellement })),
           renouvellements_60j: renouv.map((a) => ({ type: a.type, compagnie: a.compagnie, date: a.date_renouvellement })),
         };
       }

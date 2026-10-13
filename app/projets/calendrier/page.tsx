@@ -37,6 +37,9 @@ function ajouterJoursStr(iso: string, n: number): string {
 }
 // Fin des travaux (yyyy-mm-dd) : fin prévue, sinon début + durée, sinon +30 j.
 function finStr(p: any): string | null {
+  // Un chantier COMPLÉTÉ s'arrête à sa fin réelle (avant : la fin prévue ou 30 jours par
+  // défaut, et un chantier fini le 13 débordait jusqu'au 8 du mois suivant).
+  if (p.statut === "complete" && p.date_fin_reelle) return String(p.date_fin_reelle).slice(0, 10);
   if (p.date_fin_prevue) return String(p.date_fin_prevue).slice(0, 10);
   if (!p.date_debut) return null;
   const jours = p.duree_jours && p.duree_jours > 0 ? p.duree_jours : 30;

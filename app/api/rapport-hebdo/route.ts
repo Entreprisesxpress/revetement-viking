@@ -71,7 +71,8 @@ export async function GET(req: NextRequest) {
     args: [debut],
   });
 
-  const heuresTxt = (rHeures.rows as any[]).map((h) => `   • ${h.employe} : ${(+h.h).toFixed(1)} h`).join("\n") || "   (aucune)";
+  const hFr = (n: number) => n.toLocaleString("fr-CA", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const heuresTxt = (rHeures.rows as any[]).map((h) => `   • ${h.employe} : ${hFr(+h.h)} h`).join("\n") || "   (aucune)";
   const totalHeures = (rHeures.rows as any[]).reduce((s, h) => s + +h.h, 0);
 
   const corps = `Bonjour,
@@ -84,7 +85,7 @@ Voici le récap de la semaine passée (${debut} → aujourd'hui) :
 📋 SOUMISSIONS
    ${(rSoum.rows[0] as any).n} nouvelle(s) — total : ${cad(+(rSoum.rows[0] as any).t)}
 
-⏱️ HEURES TRAVAILLÉES (total ${totalHeures.toFixed(1)} h)
+⏱️ HEURES TRAVAILLÉES (total ${hFr(totalHeures)} h)
 ${heuresTxt}
 
 💸 DÉPENSES

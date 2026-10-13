@@ -4,15 +4,17 @@ import { estDateISO, jourMontreal } from "./date";
 import { genererTokenSoumission, verifierTokenSoumission } from "./lien-public";
 
 describe("toCSV (export Excel)", () => {
-  it("génère un header + lignes", () => {
+  it("génère un header + lignes, séparées par « ; » (Excel fr-CA)", () => {
     const csv = toCSV([{ a: "1", b: "2" }]);
-    expect(csv).toContain("a,b");
-    expect(csv).toContain("1,2");
+    expect(csv).toContain("a;b");
+    expect(csv).toContain("1;2");
+    expect(csv.startsWith("﻿sep=;")).toBe(true);
   });
-  it("échappe les virgules et guillemets (RFC 4180)", () => {
-    const csv = toCSV([{ nom: "Tremblay, Jean", note: 'dit "allo"' }]);
-    expect(csv).toContain('"Tremblay, Jean"');
+  it("échappe les points-virgules et guillemets (RFC 4180) ; une virgule dans un nom passe telle quelle", () => {
+    const csv = toCSV([{ nom: "Tremblay; Jean", note: 'dit "allo"', ville: "Québec, QC" }]);
+    expect(csv).toContain('"Tremblay; Jean"');
     expect(csv).toContain('"dit ""allo"""');
+    expect(csv).toContain("Québec, QC");
   });
   it("retourne vide si aucune ligne", () => {
     expect(toCSV([])).toBe("");

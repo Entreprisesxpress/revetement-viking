@@ -4,6 +4,7 @@ import { utilisateurActif } from "@/lib/authUser";
 import { sendEmail, emailEstConfigure, type EmailResult } from "@/lib/email";
 import { envoyerPushUtilisateur, pushEstConfigure } from "@/lib/push";
 import { idEntier, lireCorps, texte } from "@/lib/requete";
+import { publicOrigin } from "@/lib/origin";
 
 const COURRIELS: Record<string, string | undefined> = {
   Gabriel: process.env.GABRIEL_EMAIL,
@@ -61,7 +62,7 @@ Client : ${client.nom || "—"}${client.adresse ? ` (${client.adresse})` : ""}
 « ${texteCommentaire} »
 
 Ouvre l'app pour répondre :
-https://app.revetementviking.com/clients
+${publicOrigin(req)}/clients/${clientId}
 
 — Revêtement Viking Inc.`;
         const r: EmailResult = await sendEmail({ to: dest, subject: sujet, text: corps })

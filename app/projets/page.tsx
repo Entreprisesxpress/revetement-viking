@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { formatCAD } from "@/lib/calculateur";
 import { prefetchProjet } from "@/lib/prefetchProjet";
@@ -50,13 +50,19 @@ export default function ProjetsPage() {
   }, [creerOuvert]);
 
   const [erreur, setErreur] = useState<string | null>(null);
+  // Garde de course : deux clics rapides sur les filtres lançaient deux lectures, et la
+  // PREMIÈRE (plus lente) pouvait répondre en dernier — l'écran montrait « Tous » sous le
+  // filtre « En cours ». Seule la dernière demande a le droit d'écrire.
+  const derniereDemande = useRef(0);
   const charger = async () => {
+    const demande = ++derniereDemande.current;
     setLoading(true);
     try {
       const url = filtre ? `/api/projets?statut=${filtre}` : "/api/projets";
       // Lecture avec filet : un 500 faisait planter le rendu sur `.filter` d'un objet
       // d'erreur ; un réseau coupé laissait « Chargement... » pour toujours.
       const r = await lireListe(url);
+      if (demande !== derniereDemande.current) return;
       if (!r.ok) { setErreur(r.erreur); return; }
       setErreur(null);
       setProjets(r.data);
@@ -282,7 +288,8 @@ export default function ProjetsPage() {
                   <div><span className="text-slate-500">Payé :</span> <strong className="text-emerald-700">{formatCAD(p.total_paye)}</strong></div>
                 </div>
 
-                {p.marge !== undefined && valeurContrat(p) > 0 && (() => {
+                {/* Un chantier ANNULÉ n'a pas de profit : son prix ne sera jamais facturé. */}
+                {p.marge !== undefined && valeurContrat(p) > 0 && p.statut !== "annule" && (() => {
                   // Rentabilité AVANT TAXES : les taxes perçues ne sont pas un revenu.
                   // `cout_total` est déjà avant taxes ; on doit donc comparer au revenu
                   // avant taxes (sinon le profit net est surestimé d'environ 13 %).

@@ -10,7 +10,7 @@ import { MATERIAUX } from "@/data/materiaux";
 import { PRESETS } from "@/data/presets-soumission";
 import { jobsSimilaires } from "@/lib/db";
 import { REGLES_METIER_VIKING, MODELES, fewShotExemples, trouverProjetsSimilaires, resumeFeedbackHistorique, reglesMetierDynamiques, documentsReferenceActifs } from "@/lib/viking-ai";
-import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { journaliserCoutReponse, refusSiPlafondIA } from "@/lib/ia-couts";
 import { validerSortieEstimateur } from "@/lib/estimateur-validation";
 import { encadrerDonnees, CONSIGNE_DONNEES } from "@/lib/jarvis";
 import { lireCorps } from "@/lib/requete";
@@ -90,6 +90,9 @@ function presetsResume(): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY manquante" }, { status: 500 });

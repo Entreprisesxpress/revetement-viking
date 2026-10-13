@@ -15,6 +15,22 @@ const CHAMPS_AUDITES = ["taux_horaire", "das_pct", "actif"] as const;
 // complète — NAS et spécimen de chèque compris.
 const SANS_CACHE = { "Cache-Control": "private, no-store" };
 
+// Spécimen de chèque : un VRAI fichier encodé (image ou PDF, data URL base64), sinon
+// refus. Avant, n'importe quelle chaîne entrait en base et l'écran l'injectait dans un
+// `<img src="…">` écrit à la main (script exécutable au clic « Voir »).
+const RX_SPECIMEN = /^data:(image\/(png|jpeg|jpg|webp|gif)|application\/pdf);base64,[A-Za-z0-9+/=]+$/;
+function refusSpecimen(b: any): NextResponse | null {
+  if (b.specimen_cheque_data === undefined || b.specimen_cheque_data === null || b.specimen_cheque_data === "") return null;
+  if (typeof b.specimen_cheque_data !== "string" || !RX_SPECIMEN.test(b.specimen_cheque_data)) {
+    return NextResponse.json({ error: "spécimen invalide", message: "Le spécimen de chèque doit être une image (PNG, JPEG, WebP) ou un PDF." }, { status: 400 });
+  }
+  if (b.specimen_cheque_data.length > 4.2 * 1024 * 1024) {
+    return NextResponse.json({ error: "spécimen trop lourd (max 3 Mo)" }, { status: 413 });
+  }
+  b.specimen_cheque_type = RX_SPECIMEN.exec(b.specimen_cheque_data)![1].toLowerCase();
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   const idBrut = req.nextUrl.searchParams.get("id");
   // Fiche complète (NAS, date de naissance, spécimen) uniquement à l'unité, par `?id=`.
@@ -26,7 +42,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(e, { headers: SANS_CACHE });
   }
   // La liste ne porte jamais les champs sensibles (voir listerEmployesLite).
-  return NextResponse.json(await listerEmployesLite(), { headers: SANS_CACHE });
+  return NextResponse.json(await listerEmployesLite({ tous: req.nextUrl.searchParams.get("tous") === "1" }), { headers: SANS_CACHE });
 }
 
 export async function POST(req: NextRequest) {
@@ -42,6 +58,8 @@ export async function POST(req: NextRequest) {
   if (!Number.isFinite(taux) || taux <= 0 || taux > 500) {
     return NextResponse.json({ error: "taux_horaire invalide (ex. : 30,50)" }, { status: 400 });
   }
+  const specimenRefuse = refusSpecimen(b);
+  if (specimenRefuse) return specimenRefuse;
   // Nom déjà porté par une fiche : active → 409 (pas de doublon) ; désactivée (fin
   // d'emploi) → on RÉEMBAUCHE la même fiche, pour que ses heures, sa banque et son
   // historique de paie restent les siens. Avant : HTTP 500 brut (UNIQUE sur le nom).
@@ -97,6 +115,8 @@ export async function PATCH(req: NextRequest) {
     }
     b.das_pct = das;
   }
+  const specimenRefusePatch = refusSpecimen(b);
+  if (specimenRefusePatch) return specimenRefusePatch;
   const avant = await getEmploye(id);
   if (!avant) return NextResponse.json({ error: "employé introuvable" }, { status: 404 });
   // Renommage : suit les heures et les périodes de paie (voir renommerEmploye). Un autre

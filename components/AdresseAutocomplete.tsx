@@ -27,24 +27,39 @@ export default function AdresseAutocomplete({ value, onChange, placeholder, clas
   const timer = useRef<any>(null);
   const wrap = useRef<HTMLDivElement | null>(null);
 
+  const requete = useRef<AbortController | null>(null);
   useEffect(() => {
     const onDoc = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOuvert(false); };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      if (timer.current) clearTimeout(timer.current);
+      requete.current?.abort();
+    };
   }, []);
 
   const onTape = (v: string) => {
     onChange(v);
     setIdx(0);
     if (timer.current) clearTimeout(timer.current);
-    if (v.trim().length < 4) { setSuggestions([]); return; }
+    // La requête PRÉCÉDENTE est annulée : Nominatim met 1-3 s, et la réponse de « 123 rue »
+    // arrivait après celle de « 123 rue Sainte-Catherine » — Entrée enregistrait alors
+    // une adresse d'une autre ville.
+    requete.current?.abort();
+    if (v.trim().length < 4) { setSuggestions([]); setBusy(false); return; }
     setBusy(true); setOuvert(true);
     timer.current = setTimeout(async () => {
+      const ctrl = new AbortController();
+      requete.current = ctrl;
       try {
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(v)}&format=json&addressdetails=1&limit=5&countrycodes=ca&accept-language=fr`, { headers: { "Accept": "application/json" } });
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(v)}&format=json&addressdetails=1&limit=5&countrycodes=ca&accept-language=fr`, { headers: { "Accept": "application/json" }, signal: ctrl.signal });
         const data = await r.json();
+        if (ctrl.signal.aborted) return;
         setSuggestions(Array.isArray(data) ? data : []);
-      } catch { setSuggestions([]); } finally { setBusy(false); }
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        setSuggestions([]);
+      } finally { if (!ctrl.signal.aborted) setBusy(false); }
     }, 350);
   };
 

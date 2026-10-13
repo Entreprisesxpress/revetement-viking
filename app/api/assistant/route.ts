@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { MODELES } from "@/lib/viking-ai";
 import { MATERIAUX } from "@/data/materiaux";
-import { journaliserCoutReponse } from "@/lib/ia-couts";
+import { journaliserCoutReponse, refusSiPlafondIA } from "@/lib/ia-couts";
 import { lireCorps } from "@/lib/requete";
 
 // Assistant conversationnel : prend l'état actuel de la soumission + une demande en langage naturel
@@ -63,6 +63,9 @@ const catalogueResume = MATERIAUX.map(
 ).join("\n");
 
 export async function POST(req: NextRequest) {
+  // Plafond de dépense IA partagé (lib/ia-couts.ts) : 429 une fois le budget du jour ou du mois atteint.
+  const plafondIA = await refusSiPlafondIA();
+  if (plafondIA) return plafondIA;
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -85,7 +88,7 @@ export async function POST(req: NextRequest) {
     }
     messages.push({
       role: "user",
-      content: `ÉTAT ACTUEL DE LA SOUMISSION :\n${JSON.stringify(etat, null, 2)}\n\nDEMANDE DE FRÉDÉRIC : ${message}`,
+      content: `ÉTAT ACTUEL DE LA SOUMISSION :\n${JSON.stringify(etat, null, 2)}\n\nDEMANDE DE FRANCIS : ${message}`,
     });
 
     const response = await client.messages.create({

@@ -11,8 +11,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 // === VALEURS FIGÉES (2026-10-13) ===
-const VERSION_FIGEE = 29;
-const HACHAGE_FIGE = "0486929574fcd0f8c5792fbc6247b765ed6e9f27e6084d8fcafe43d8010150ac";
+const VERSION_FIGEE = 30;
+const HACHAGE_FIGE = "5ac5e93273f767d7ceddb122f92fe44b8dd3f37421ab1aebf068e2c15743b3fb";
 
 /** Extrait le corps de `migrer()` : de sa signature jusqu'à l'accolade fermante de
  *  premier niveau. Les commentaires (// et --) et les espaces sont retirés pour que seule

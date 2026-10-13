@@ -30,9 +30,13 @@ export async function GET(req: NextRequest) {
   const today = aujourdhuiMontreal();
   const parUser = new Map<string, typeof dus>();
   for (const c of dus) {
-    const u = c.assignee || "Gabriel"; // par défaut : Gabriel
-    if (!parUser.has(u)) parUser.set(u, [] as any);
-    (parUser.get(u) as any).push(c);
+    // Sans assigné : aux DEUX (la cloche la montre déjà aux deux ; avant, le courriel
+    // n'allait qu'à Gabriel et Francis la voyait sans l'avoir reçue).
+    const destinataires = c.assignee ? [c.assignee] : Object.keys(COURRIELS);
+    for (const u of destinataires) {
+      if (!parUser.has(u)) parUser.set(u, [] as any);
+      (parUser.get(u) as any).push(c);
+    }
   }
 
   let envoyes = 0;

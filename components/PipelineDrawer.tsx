@@ -109,14 +109,20 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     fetch("/api/auth/me").then((r) => r.json()).then((d) => setMoiUtilisateur(d.user)).catch(() => {});
   }, [client.id]);
 
+  // Verrous : Entrée + clic du même instant créaient la tâche (ou le commentaire) en double.
+  const tacheEnCours = useRef(false);
+  const commEnCours = useRef(false);
   const ajouterTache = async () => {
     const titre = nouvelleTache.trim();
-    if (!titre) return;
-    if (!(await ecrire("/api/client-taches", "POST", { client_id: client.id, titre, assignee: nouvelleAssignee || null, date_echeance: nouvelleEcheance || null }, "Enregistrement"))) return;
-    setNouvelleTache("");
-    setNouvelleAssignee("");
-    setNouvelleEcheance("");
-    rechargerTaches();
+    if (!titre || tacheEnCours.current) return;
+    tacheEnCours.current = true;
+    try {
+      if (!(await ecrire("/api/client-taches", "POST", { client_id: client.id, titre, assignee: nouvelleAssignee || null, date_echeance: nouvelleEcheance || null }, "Enregistrement"))) return;
+      setNouvelleTache("");
+      setNouvelleAssignee("");
+      setNouvelleEcheance("");
+      rechargerTaches();
+    } finally { tacheEnCours.current = false; }
   };
   const cocherTache = async (t: any) => {
     if (!(await ecrire("/api/client-taches", "PATCH", { id: t.id, complete: !t.complete }, "Enregistrement"))) return;
@@ -129,15 +135,18 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
 
   const posterComm = async () => {
     const texte = nouveauComm.trim();
-    if (!texte) return;
-    // Réponse vérifiée : le champ se vidait même sur un refus — le commentaire tapé
-    // disparaissait sans trace, et sans un mot.
-    const res = await envoyer<{ mentions?: string[] }>("/api/client-commentaires", { corps: { client_id: client.id, texte } });
-    if (!res.ok) { toast(`Commentaire NON enregistré : ${res.erreur}`, "error"); return; }
-    const d = res.data || {};
-    setNouveauComm("");
-    rechargerComm();
-    if (d.mentions && d.mentions.length) toast(`📧 Courriel envoyé à @${d.mentions.join(", @")}`, "success");
+    if (!texte || commEnCours.current) return;
+    commEnCours.current = true;
+    try {
+      // Réponse vérifiée : le champ se vidait même sur un refus — le commentaire tapé
+      // disparaissait sans trace, et sans un mot.
+      const res = await envoyer<{ mentions?: string[] }>("/api/client-commentaires", { corps: { client_id: client.id, texte } });
+      if (!res.ok) { toast(`Commentaire NON enregistré : ${res.erreur}`, "error"); return; }
+      const d = res.data || {};
+      setNouveauComm("");
+      rechargerComm();
+      if (d.mentions && d.mentions.length) toast(`📧 Courriel envoyé à @${d.mentions.join(", @")}`, "success");
+    } finally { commEnCours.current = false; }
   };
   const supprimerComm = async (id: number) => {
     if (!confirm("Supprimer ce commentaire ?")) return;

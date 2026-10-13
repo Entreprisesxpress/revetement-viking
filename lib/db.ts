@@ -37,9 +37,11 @@ let _initPromise: Promise<void> | null = null;
 // 28 (2026-10-12) : index UNIQUE partiel pipeline_contrats.numero (numéros séquentiels à
 //   10 caractères ; les anciens « C-année-idClient » restent libres).
 // 29 (2026-10-13) : contrats.description_travaux.
+// 30 (2026-10-13) : table comptes (mot de passe géré dans l'app, jeton de réinitialisation),
+//   soumissions.client_id, index extras/taches/factures.
 // Le test lib/schema-version.test.ts fige un hachage du bloc de migrations : toute
 // modification du bloc sans incrément de cette constante fait échouer la suite.
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -445,6 +447,25 @@ async function migrer() {
   await tryExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pipe_contrats_numero ON pipeline_contrats(numero) WHERE length(numero) = 10");
   // Contrat interne : description des travaux (saisie à l'écran, jamais stockée avant).
   await tryExec("ALTER TABLE contrats ADD COLUMN description_travaux TEXT");
+  // Soumission → fiche client par ID (l'appariement par le NOM mélangeait les homonymes et
+  // perdait les soumissions d'une fiche renommée).
+  await tryExec("ALTER TABLE soumissions ADD COLUMN client_id INTEGER");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_soumissions_client ON soumissions(client_id)");
+  // Index manquants (balayages complets mesurés) : extras et tâches par projet/client,
+  // numéro de facture.
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_extras_projet ON extras(projet_id)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_taches_projet ON taches_client(projet_id)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_taches_client ON taches_client(client_id)");
+  await tryExec("CREATE INDEX IF NOT EXISTS idx_factures_numero ON factures_projet(numero)");
+  // Mots de passe gérés dans l'app (lib/mdp.ts) : hachage scrypt + jeton de réinitialisation.
+  await tryExec(`CREATE TABLE IF NOT EXISTS comptes (
+    username TEXT PRIMARY KEY,
+    mdp_hash TEXT,
+    mdp_modifie_le TEXT,
+    mdp_modifie_par TEXT,
+    reinit_jeton_hash TEXT,
+    reinit_expire_le TEXT
+  )`);
   // Preuve de transmission style DocuSign : vue + envoi mail
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN date_vue TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN ip_vue TEXT");
@@ -853,7 +874,7 @@ export async function genererNumero(): Promise<string> {
 
 export async function sauvegarder(payload: {
   numero?: string; client: any; total: number;
-  heuresEstimees?: number; data: any;
+  heuresEstimees?: number; data: any; client_id?: number | null;
 }): Promise<string> {
   const numero = payload.numero || await genererNumero();
   const now = new Date().toISOString();
@@ -889,18 +910,35 @@ export async function sauvegarder(payload: {
     courriel = c.courriel ?? null, projet = c.projet ?? payload?.data?.projet ?? null;
   const total = payload.total ?? 0;
 
+  // Lien par ID vers la fiche client (SCHEMA 30) : jamais effacé par une modification
+  // qui ne le connaît pas (COALESCE).
+  const clientId = Number.isInteger(payload.client_id) && (payload.client_id as number) > 0 ? payload.client_id : null;
   if (existing) {
     await run(
-      `UPDATE soumissions SET date_modif=?, client_nom=?, client_adresse=?, client_telephone=?, client_courriel=?, projet=?, total=?, heures_estimees=?, payload_json=? WHERE numero=?`,
-      [now, nom, adresse, tel, courriel, projet, total, heures, json, numero]
+      `UPDATE soumissions SET date_modif=?, client_nom=?, client_adresse=?, client_telephone=?, client_courriel=?, projet=?, total=?, heures_estimees=?, payload_json=?, client_id=COALESCE(?, client_id) WHERE numero=?`,
+      [now, nom, adresse, tel, courriel, projet, total, heures, json, clientId, numero]
     );
   } else {
     await run(
-      `INSERT INTO soumissions (numero, date_creation, date_modif, client_nom, client_adresse, client_telephone, client_courriel, projet, total, heures_estimees, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [numero, now, now, nom, adresse, tel, courriel, projet, total, heures, json]
+      `INSERT INTO soumissions (numero, date_creation, date_modif, client_nom, client_adresse, client_telephone, client_courriel, projet, total, heures_estimees, payload_json, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [numero, now, now, nom, adresse, tel, courriel, projet, total, heures, json, clientId]
     );
   }
   return numero;
+}
+
+/** Soumission acceptée (en ligne ou à l'écran) → la fiche client passe à l'étape
+ *  « Projet accepté » du pipeline, et un prospect devient actif. Avant, le kanban
+ *  laissait le client dans « Soumission à envoyer » après sa signature. Par ID quand la
+ *  soumission est liée, sinon par le nom exact. */
+export async function promouvoirClientSoumissionAcceptee(numero: string): Promise<void> {
+  await run(
+    `UPDATE clients SET pipeline_stage = 'accepte', statut = CASE WHEN statut = 'prospect' THEN 'actif' ELSE statut END
+     WHERE id = (SELECT client_id FROM soumissions WHERE numero = ?)
+        OR ((SELECT client_id FROM soumissions WHERE numero = ?) IS NULL
+            AND LOWER(TRIM(nom)) = (SELECT LOWER(TRIM(client_nom)) FROM soumissions WHERE numero = ?))`,
+    [numero, numero, numero]
+  );
 }
 
 export async function changerStatut(numero: string, statut: Statut) {
@@ -933,6 +971,8 @@ export async function changerStatut(numero: string, statut: Statut) {
     // zéro et une soumission traînante n'était jamais relancée.
     ? await run(`UPDATE soumissions SET statut=?, ${dateCol}=COALESCE(${dateCol}, ?) WHERE numero=?`, [statut, now, numero])
     : await run(`UPDATE soumissions SET statut=? WHERE numero=?`, [statut, numero]);
+  // Acceptée à l'écran (par Francis) : même promotion du client que la signature en ligne.
+  if (r.rowsAffected > 0 && statut === "acceptee") await promouvoirClientSoumissionAcceptee(numero);
   return r.rowsAffected > 0;
 }
 
@@ -948,6 +988,7 @@ export async function signerSoumission(numero: string, nom: string, ip?: string)
     `UPDATE soumissions SET statut='acceptee', date_acceptation=COALESCE(date_acceptation, ?), signature_nom=?, signature_date=?, signature_ip=? WHERE numero=?`,
     [now, nom, now, ip || null, numero]
   );
+  await promouvoirClientSoumissionAcceptee(numero);
 }
 
 /** Le client refuse la soumission en ligne. */
@@ -1033,9 +1074,14 @@ export async function statistiques() {
     totalParStatut[r.statut] = r.total;
     total_soumissions += r.n;
   }
+  // `date_creation` est un horodatage UTC : le mois de Montréal se compare sur des BORNES
+  // UTC (le 30 sept à 22 h 30 au Québec est encore septembre, pas « 2026-10 » en UTC).
+  const [a, m] = moisCourant.split("-").map(Number);
+  const debutMois = new Date(Date.UTC(a, m - 1, 1, 4, 0, 0)).toISOString();     // minuit Montréal ≈ 04:00Z (05:00Z en heure normale : ±1 h)
+  const debutSuivant = new Date(Date.UTC(a, m, 1, 4, 0, 0)).toISOString();
   const moisCeRow = await one<{ n: number; total: number }>(
-    `SELECT COUNT(*) as n, COALESCE(SUM(total), 0) as total FROM soumissions WHERE date_creation LIKE ?`,
-    [`${moisCourant}%`]
+    `SELECT COUNT(*) as n, COALESCE(SUM(total), 0) as total FROM soumissions WHERE date_creation >= ? AND date_creation < ?`,
+    [debutMois, debutSuivant]
   );
   const envoyees = (compteParStatut["envoyee"] || 0) + (compteParStatut["acceptee"] || 0) + (compteParStatut["refusee"] || 0) + (compteParStatut["facturee"] || 0);
   const acceptees = (compteParStatut["acceptee"] || 0) + (compteParStatut["facturee"] || 0);
@@ -1131,8 +1177,13 @@ export async function supprimerClient(id: number): Promise<{ ok: boolean; raison
   // on coupe seulement le lien.
   // UNE transaction : avant, dix `run()` en séquence avec des `.catch(() => {})` — une
   // panne réseau au milieu laissait des orphelins ET la fiche en place, sans rien dire.
-  const t: Enonce[] = ["interactions_client", "client_taches", "client_commentaires", "client_fichiers", "taches_client"]
+  const t: Enonce[] = ["interactions_client", "client_taches", "client_commentaires", "client_fichiers"]
     .map((table) => ({ sql: `DELETE FROM ${table} WHERE client_id = ?`, args: [id] }));
+  // Tâches de CHANTIER rattachées aussi au client : elles survivent avec leur projet (on
+  // coupe le lien) ; seules les tâches sans projet partent avec la fiche. Avant, la
+  // suppression d'une fiche client effaçait « Poser les soffites » du chantier.
+  t.push({ sql: "UPDATE taches_client SET client_id = NULL WHERE client_id = ? AND projet_id IS NOT NULL", args: [id] });
+  t.push({ sql: "DELETE FROM taches_client WHERE client_id = ? AND projet_id IS NULL", args: [id] });
   await runBatch([
     ...t,
     { sql: "DELETE FROM pipeline_contrats WHERE client_id = ? AND statut != 'signe'", args: [id] },
@@ -1473,6 +1524,31 @@ export async function creerContratPipeline(p: {
      p.annexe_data || null, p.annexe_nom || null, p.annexe_type || null]
   );
   return r.lastInsertRowid;
+}
+
+/** Crée un contrat en ligne avec un numéro séquentiel attribué DANS l'INSERT (une seule
+ *  instruction : SQLite sérialise les écritures, donc deux créations simultanées ne
+ *  peuvent pas lire le même MAX). Avant : MAX+1 puis PDF (~0,6 s) puis INSERT, et six
+ *  créations en parallèle laissaient le perdant épuiser ses essais → 500. */
+export async function creerContratPipelineNumeroAuto(p: {
+  client_id: number; token: string; data_json: any; pdf_brouillon: string; cree_par?: string;
+  annexe_data?: string | null; annexe_nom?: string | null; annexe_type?: string | null;
+}): Promise<{ id: number; numero: string }> {
+  const annee = aujourdhuiMontreal().slice(0, 4);
+  const r = await run(
+    `INSERT INTO pipeline_contrats (client_id, numero, token, data_json, pdf_brouillon, cree_par, date_creation, statut, annexe_data, annexe_nom, annexe_type)
+     SELECT ?, 'C-' || ? || '-' || printf('%03d', COALESCE(MAX(CAST(substr(numero, 8) AS INTEGER)), 0) + 1), ?, ?, ?, ?, ?, 'brouillon', ?, ?, ?
+     FROM pipeline_contrats WHERE numero LIKE ?`,
+    [p.client_id, annee, p.token, JSON.stringify(p.data_json), p.pdf_brouillon, p.cree_par || null, new Date().toISOString(),
+     p.annexe_data || null, p.annexe_nom || null, p.annexe_type || null, `C-${annee}-%`]
+  );
+  const id = r.lastInsertRowid;
+  const row = await one<{ numero: string }>("SELECT numero FROM pipeline_contrats WHERE id = ?", [id]);
+  return { id, numero: String(row?.numero || "") };
+}
+/** Remplace le PDF brouillon (régénéré avec le numéro définitif après l'INSERT). */
+export async function definirPdfBrouillonContrat(id: number, pdf: string): Promise<void> {
+  await run("UPDATE pipeline_contrats SET pdf_brouillon = ? WHERE id = ? AND statut != 'signe'", [pdf, id]);
 }
 
 /** Joint (ou remplace) le devis d'un contrat. Refusé une fois le contrat SIGNÉ : le
@@ -1871,6 +1947,48 @@ export async function supprimerCommentaireClient(id: number): Promise<boolean> {
 }
 
 // === PROFIL UTILISATEUR ===
+// === COMPTES (mots de passe gérés dans l'app — lib/mdp.ts) ===
+export interface Compte { username: string; mdp_hash: string | null; mdp_modifie_le: string | null; mdp_modifie_par: string | null; reinit_jeton_hash: string | null; reinit_expire_le: string | null }
+export async function getCompte(username: string): Promise<Compte | null> {
+  await initDb();
+  return await one<Compte>("SELECT * FROM comptes WHERE username = ?", [username]);
+}
+export async function listerComptes(): Promise<Compte[]> {
+  await initDb();
+  return await all<Compte>("SELECT * FROM comptes ORDER BY username");
+}
+/** Pose un mot de passe (haché) et efface tout jeton de réinitialisation en cours. */
+export async function definirMotDePasse(username: string, mdpHash: string, par: string): Promise<void> {
+  await initDb();
+  await run(
+    `INSERT INTO comptes (username, mdp_hash, mdp_modifie_le, mdp_modifie_par, reinit_jeton_hash, reinit_expire_le) VALUES (?, ?, ?, ?, NULL, NULL)
+     ON CONFLICT(username) DO UPDATE SET mdp_hash = excluded.mdp_hash, mdp_modifie_le = excluded.mdp_modifie_le, mdp_modifie_par = excluded.mdp_modifie_par, reinit_jeton_hash = NULL, reinit_expire_le = NULL`,
+    [username, mdpHash, new Date().toISOString(), par]
+  );
+}
+/** Mémorise l'empreinte d'un jeton de réinitialisation (un seul à la fois par compte). */
+export async function definirJetonReinit(username: string, jetonHash: string, expireLe: string): Promise<void> {
+  await initDb();
+  await run(
+    `INSERT INTO comptes (username, reinit_jeton_hash, reinit_expire_le) VALUES (?, ?, ?)
+     ON CONFLICT(username) DO UPDATE SET reinit_jeton_hash = excluded.reinit_jeton_hash, reinit_expire_le = excluded.reinit_expire_le`,
+    [username, jetonHash, expireLe]
+  );
+}
+/** Compte dont le jeton (par empreinte) est encore valide, sinon null. */
+export async function compteParJetonReinit(jetonHash: string): Promise<Compte | null> {
+  await initDb();
+  const c = await one<Compte>("SELECT * FROM comptes WHERE reinit_jeton_hash = ?", [jetonHash]);
+  if (!c || !c.reinit_expire_le || c.reinit_expire_le < new Date().toISOString()) return null;
+  return c;
+}
+/** Courriel d'un usager : celui de son profil, sinon la variable FRANCIS_EMAIL / GABRIEL_EMAIL. */
+export async function courrielUtilisateur(username: string): Promise<string | null> {
+  const p = await getProfilUtilisateur(username).catch(() => null);
+  const c = String(p?.courriel || process.env[`${username.toUpperCase()}_EMAIL`] || "").trim();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c) ? c : null;
+}
+
 export async function getProfilUtilisateur(username: string): Promise<any | null> {
   return await one<any>("SELECT * FROM utilisateur_profil WHERE username = ?", [username]);
 }
@@ -2048,8 +2166,10 @@ export async function listerProjetsAFacturer(): Promise<any[]> {
     `SELECT p.id, p.nom, p.prix_contrat, p.budget_estime, p.date_fin_reelle, c.nom as client_nom
      FROM projets p LEFT JOIN clients c ON c.id = p.client_id
      WHERE p.statut = 'complete' AND p.facturation_confirmee_le IS NULL
-     ORDER BY COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_creation) DESC LIMIT 50`
+     ORDER BY COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_creation) DESC`
   );
+  // Sans LIMIT (six colonnes légères) : avec « LIMIT 50 », le tableau de bord affichait
+  // « Projets à facturer (50) · + 44 autres » pour 150 chantiers complétés jamais confirmés.
 }
 
 /** Confirme (ou annule) « la facture est partie » sur un chantier.
@@ -2203,6 +2323,7 @@ export async function supprimerProjet(id: number): Promise<{ ok: boolean; raison
     { sql: "UPDATE notes_rapides SET projet_id = NULL WHERE projet_id = ?", args: [id] },
     { sql: "UPDATE pipeline_contrats SET projet_id = NULL WHERE projet_id = ?", args: [id] },
     { sql: "UPDATE contrats SET projet_id = NULL WHERE projet_id = ?", args: [id] },
+    { sql: "UPDATE clients SET projet_lien_id = NULL WHERE projet_lien_id = ?", args: [id] },   // le tiroir CRM pointait sur un 404
     { sql: "DELETE FROM projets WHERE id = ?", args: [id] },
   ]);
   return { ok: true };
@@ -2388,10 +2509,18 @@ export async function heuresParProjetDate(projet_id: number): Promise<{ employe:
 export async function soumissionsARelancer(): Promise<any[]> {
   const seuil = new Date(Date.now() - 7 * 86400000).toISOString();
   return await all<any>(
-    `SELECT * FROM soumissions WHERE statut = 'envoyee' AND date_envoi IS NOT NULL AND date_envoi < ?
-     ORDER BY date_envoi ASC LIMIT 20`, [seuil]
+    // Colonnes LÉGÈRES (jamais payload_json : 50-200 Ko par soumission, rechargé par la
+    // cloche toutes les 30 s) et plus de plafond à 20 — l'accueil disait « À relancer (20) »
+    // à côté de « 25 soumissions sans réponse ».
+    `SELECT ${SOUM_COLS_LITES} FROM soumissions WHERE statut = 'envoyee' AND date_envoi IS NOT NULL AND date_envoi < ?
+     ORDER BY date_envoi ASC LIMIT 500`, [seuil]
   );
 }
+/** Minuscules, sans accents ni diacritiques (« Côté » → « cote »), pour comparer en JS. */
+export function sansAccents(s: any): string {
+  return String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
 export async function rechercheGlobale(q: string): Promise<{ type: string; id: number | string; titre: string; sous: string }[]> {
   if (!q.trim()) return [];
   // % et _ saisis sont échappés : chaque LIKE ci-dessous porte `ESCAPE '\'` (voir lib/sql-like.ts).
@@ -2444,9 +2573,38 @@ export async function rechercheGlobale(q: string): Promise<{ type: string; id: n
     ),
   ])).map((r) => (r.status === "fulfilled" ? r.value : vide));
 
+  // Second passage SANS ACCENTS ni ponctuation (clients et projets seulement, listes bornées) :
+  // SQLite compare les octets, donc « cote » ne trouvait pas « Côté », ni « 5145550123 »
+  // le « (514) 555-0123 » de la fiche. Lancé seulement quand le LIKE n'a pas rempli ses 5.
+  const qPlat = sansAccents(q);
+  const qChiffres = q.replace(/\D/g, "");
+  // Ajouts dans des tableaux À PART : `clients`/`projets` peuvent être le même tableau
+  // `vide` partagé (table absente) — y pousser doublerait les résultats.
+  const ajoutsC: any[] = [];
+  const ajoutsP: any[] = [];
+  if (qPlat.length >= 2 && (clients.length < 5 || projets.length < 5)) {
+    const [cl2, pr2] = (await Promise.allSettled([
+      clients.length < 5 ? all<any>("SELECT id, nom, telephone, courriel FROM clients ORDER BY id DESC LIMIT 3000") : Promise.resolve(vide),
+      projets.length < 5 ? all<any>("SELECT id, nom, adresse_chantier FROM projets ORDER BY id DESC LIMIT 3000") : Promise.resolve(vide),
+    ])).map((r) => (r.status === "fulfilled" ? r.value : vide));
+    const dejaC = new Set(clients.map((c: any) => c.id));
+    for (const c of cl2) {
+      if (clients.length + ajoutsC.length >= 5) break;
+      if (dejaC.has(c.id)) continue;
+      const tel = String(c.telephone || "").replace(/\D/g, "");
+      if (sansAccents(c.nom).includes(qPlat) || sansAccents(c.courriel).includes(qPlat) || (qChiffres.length >= 4 && tel.includes(qChiffres))) { ajoutsC.push(c); dejaC.add(c.id); }
+    }
+    const dejaP = new Set(projets.map((p: any) => p.id));
+    for (const p of pr2) {
+      if (projets.length + ajoutsP.length >= 5) break;
+      if (dejaP.has(p.id)) continue;
+      if (sansAccents(p.nom).includes(qPlat) || sansAccents(p.adresse_chantier).includes(qPlat)) { ajoutsP.push(p); dejaP.add(p.id); }
+    }
+  }
+
   const out: any[] = [];
-  for (const c of clients) out.push({ type: "client", id: c.id, titre: c.nom, sous: c.telephone || "" });
-  for (const p of projets) out.push({ type: "projet", id: p.id, titre: p.nom, sous: p.adresse_chantier || "" });
+  for (const c of [...clients, ...ajoutsC]) out.push({ type: "client", id: c.id, titre: c.nom, sous: c.telephone || "" });
+  for (const p of [...projets, ...ajoutsP]) out.push({ type: "projet", id: p.id, titre: p.nom, sous: p.adresse_chantier || "" });
   for (const s of soums) out.push({ type: "soumission", id: s.numero, titre: s.numero, sous: s.client_nom || "" });
   const vus = new Set<number>();
   const ajouterDep = (d: any) => {
@@ -3153,9 +3311,11 @@ export async function listerEmployes(): Promise<Employe[]> {
 // `a_specimen` remplace le blob pour l'affichage. La fiche complète passe par getEmploye().
 const EMPLOYE_COLS_LITES = "id, nom, taux_horaire, das_pct, actif, recoit_talon, telephone, courriel, adresse, date_embauche, poste, contact_urgence_nom, contact_urgence_lien, contact_urgence_tel, notes, date_creation, (specimen_cheque_data IS NOT NULL AND specimen_cheque_data != '') AS a_specimen";
 export type EmployeLite = Omit<Employe, "nas" | "date_naissance" | "specimen_cheque_data" | "specimen_cheque_type"> & { a_specimen: number };
-export async function listerEmployesLite(): Promise<EmployeLite[]> {
+export async function listerEmployesLite(opts: { tous?: boolean } = {}): Promise<EmployeLite[]> {
   await initDb(); await seedEmployes();
-  return await all<EmployeLite>(`SELECT ${EMPLOYE_COLS_LITES} FROM employes WHERE actif = 1 ORDER BY nom ASC`);
+  // `tous` : la page Employés doit pouvoir montrer (et réactiver) les inactifs — le filtre
+  // « Inactifs » de l'écran tombait toujours sur zéro, l'API ne les renvoyant jamais.
+  return await all<EmployeLite>(`SELECT ${EMPLOYE_COLS_LITES} FROM employes ${opts.tous ? "" : "WHERE actif = 1"} ORDER BY actif DESC, nom ASC`);
 }
 export async function ajouterEmploye(e: Employe): Promise<number> {
   const r = await run(
@@ -3664,6 +3824,10 @@ export const TABLES_SAUVEGARDE: { champ: string; table: string; tri?: string; sa
   { champ: "contrats", table: "contrats", tri: "date_emission DESC" },
   { champ: "paies", table: "paies_periodes", tri: "debut DESC" },
   { champ: "biblio", table: "bibliotheque_jobs", tri: "date_ajout DESC" },
+  // Mots de passe de l'app (hachages scrypt, jamais en clair) : une restauration doit
+  // rendre les comptes tels qu'ils étaient, sinon Francis se retrouve avec le mot de
+  // passe d'usine de Vercel après une remise.
+  { champ: "comptes", table: "comptes", tri: "username ASC" },
   // — ajoutées : elles manquaient toutes à la sauvegarde
   // Le PDF SIGNÉ et son empreinte sont conservés (pièce juridique irremplaçable) ; le
   // brouillon est écarté, il se régénère depuis data_json.
@@ -3815,17 +3979,26 @@ export interface ResultatRestaurationTable { inseres: number; ignores: number; t
  *  mesuré : restaurer la base A dans une base B non vide rattachait les plans du
  *  « Chantier D » au projet « Retard B », avec un « ✓ Restauration terminée ». À appeler
  *  AVANT restaurerBackup : un seul conflit doit refuser la restauration. */
+/** Tables « journal » : leurs lignes s'AJOUTENT (sans id) à la restauration — une base
+ *  neuve en possède déjà (la connexion, le refus de restauration lui-même…) et aucun id
+ *  n'y a de sens métier. */
+const TABLES_JOURNAL_RESTAURATION = new Set(["journal_activite", "ia_feedback"]);
+/** Colonnes ignorées dans la comparaison : initDb() sème des lignes (catégories de dépense,
+ *  ids 1-8) avec la date du jour — même id, même contenu, date différente ≠ conflit. */
+const COLONNES_IGNOREES_CONFLIT = new Set(["date_creation", "date_modif", "date_saisie"]);
+
 export async function detecterConflitsRestauration(dump: any): Promise<{ table: string; id: number }[]> {
   await initDb();
   const conflits: { table: string; id: number }[] = [];
   const norme = (v: any) => (v === null || v === undefined ? "" : typeof v === "number" ? String(v) : String(v));
   for (const { champ, table, sansColonnes } of TABLES_SAUVEGARDE) {
+    if (TABLES_JOURNAL_RESTAURATION.has(table)) continue;
     const lignes: any[] = Array.isArray(dump?.[champ]) ? dump[champ] : [];
     if (!lignes.length) continue;
     const info = await exec(`PRAGMA table_info(${table})`);
     const cols = (info.rows as any[]).map((r) => String(r.name));
     if (!cols.includes("id")) continue;
-    const comparables = cols.filter((c) => c !== "id" && !(sansColonnes || []).includes(c));
+    const comparables = cols.filter((c) => c !== "id" && !(sansColonnes || []).includes(c) && !COLONNES_IGNOREES_CONFLIT.has(c));
     const parId = new Map<number, any>();
     for (const l of lignes) {
       const id = Number(l?.id);
@@ -3870,7 +4043,8 @@ export async function restaurerBackup(dump: any): Promise<Record<string, Resulta
       // Pas d'exigence d'`id` : certaines tables ont une autre clé primaire (parametres_app
       // est clé/valeur). On se contente d'exiger un objet ayant au moins une colonne connue.
       if (!ligne || typeof ligne !== "object" || Array.isArray(ligne)) continue;
-      const cols = Object.keys(ligne).filter((k) => colsReelles.has(k));
+      // Journal : ajouté SANS son id (une base neuve en a déjà, voir detecterConflitsRestauration).
+      const cols = Object.keys(ligne).filter((k) => colsReelles.has(k) && !(TABLES_JOURNAL_RESTAURATION.has(table) && k === "id"));
       if (!cols.length) continue;
       const args = cols.map((k) => ligne[k] ?? null);
       for (const c of boucheTrous) if (!cols.includes(c)) { cols.push(c); args.push(""); }
@@ -3941,7 +4115,11 @@ export async function purgerJournaux(maintenant = Date.now()): Promise<void> {
     // Empreintes anti-rejeu (lib/rateLimit.ts) : utiles 24 h seulement.
     { sql: "DELETE FROM journal_activite WHERE type = 'requete.empreinte' AND date < ?", args: [seuilEmpreintes] },
     { sql: "DELETE FROM journal_activite WHERE date < ?", args: [seuilJournal] },
-    { sql: `DELETE FROM journal_activite WHERE id NOT IN (SELECT id FROM journal_activite ORDER BY id DESC LIMIT ${PURGE_JOURNAL_MAX_LIGNES})`, args: [] },
+    // Le plafond en nombre de lignes n'emporte JAMAIS un geste d'argent (paie, facture,
+    // extra, confirmation de facturation, signature) : 10 000 connexions suffisaient à
+    // effacer la trace d'une paie versée cinq jours plus tôt.
+    { sql: `DELETE FROM journal_activite WHERE id NOT IN (SELECT id FROM journal_activite ORDER BY id DESC LIMIT ${PURGE_JOURNAL_MAX_LIGNES})
+            AND type NOT LIKE 'paye.%' AND type NOT LIKE 'facture.%' AND type NOT LIKE 'extra.%' AND type NOT LIKE 'projet.facturation%' AND type NOT LIKE 'contrat%' AND type NOT LIKE 'auth.mdp%'`, args: [] },
     { sql: "DELETE FROM idempotence WHERE cree_le < ?", args: [seuilIdem] },
   ]);
   // Erreurs du navigateur : annoncées « purgées automatiquement » dans les exclusions de
