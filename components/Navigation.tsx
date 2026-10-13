@@ -8,6 +8,7 @@ import { aujourdhuiMontreal } from "@/lib/date";
 import { ecrire } from "@/lib/envoi";
 import { chargerNotifsPartage, chargerProfilPartage } from "@/lib/session-client";
 import { purgerLocal } from "@/lib/purge-locale";
+import { confirmerDeconnexion } from "@/lib/deconnexion";
 import { signaler } from "@/lib/toast-bus";
 import BoutonTheme from "@/components/BoutonTheme";
 
@@ -102,7 +103,7 @@ export default function Navigation({ titre, soustitre, actions, badge }: Props) 
   }, []);
 
   const deconnexion = async () => {
-    if (!confirm("Te déconnecter ?")) return;
+    if (!(await confirmerDeconnexion("Te déconnecter ?"))) return;
     if (!(await ecrire("/api/login", "DELETE", undefined, "Suppression"))) return;
     // Rien de l'usager ne doit rester sur l'appareil (cache, brouillons, file hors-ligne).
     await purgerLocal();

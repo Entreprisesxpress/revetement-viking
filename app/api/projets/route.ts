@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { listerProjets, listerProjetsLite, listerProjetsAFacturer, getProjet, ajouterProjet, modifierProjet, supprimerProjet, trouverOuCreerClient, clientParNom, charger, confirmerFacturationProjet } from "@/lib/db";
+import { listerProjets, listerProjetsLite, listerProjetsAFacturer, getProjet, ajouterProjet, modifierProjet, supprimerProjet, trouverOuCreerClient, clientParNom, charger, confirmerFacturationProjet, marquerCompleteSiOuvert } from "@/lib/db";
 import { envoyerPushUtilisateur } from "@/lib/push";
 import { STATUTS_PROJET, transitionPermise, estReouverture } from "@/lib/statuts-projet";
 import { aujourdhuiMontreal } from "@/lib/date";
@@ -193,6 +193,11 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "transition refusée", message: `Un projet « ${avant.statut || "?"} » ne peut pas passer à « ${body.statut} ».` }, { status: 409 });
     }
     const nouvelleCompletion = body.statut === "complete" && avant.statut !== "complete";
+    // Une seule complétion : l'UPDATE conditionnel est atomique — cinq « compléter »
+    // simultanés envoyaient cinq avis et cinq courriels.
+    if (nouvelleCompletion && !(await marquerCompleteSiOuvert(id))) {
+      return NextResponse.json({ error: "déjà complété", message: "Ce chantier vient d'être marqué complété (par un autre clic ou un autre appareil)." }, { status: 409 });
+    }
     // Pose la date de fin réelle (reconnaissance du CA). Règle : complété = facturé.
     if (nouvelleCompletion) effetsCompletion(body);
     // Réouverture d'un chantier complété : il redevient un chantier à facturer, sans

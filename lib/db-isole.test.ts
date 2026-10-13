@@ -555,3 +555,28 @@ describe("contrats en ligne : numéro repris seulement d'un projet du client, ja
     expect(await db.numeroContratPipelineExiste("2026-777", coid)).toBe(false);
   });
 });
+
+// Course sur la clé d'idempotence : dix requêtes SIMULTANÉES avec la même clé passaient
+// toutes la lecture avant la première écriture → dix lignes (mesuré sur heures, dépenses,
+// extras). La clé est maintenant RÉSERVÉE avant le handler (INSERT OR IGNORE atomique).
+describe("idempotence — requêtes simultanées avec la même clé", () => {
+  const { NextRequest, NextResponse } = require("next/server") as typeof import("next/server");
+  it("dix appels en parallèle : le handler ne s'exécute qu'une fois, les autres rejouent la réponse", async () => {
+    let n = 0;
+    const h = async () => { await new Promise((r) => setTimeout(r, 30)); n++; return NextResponse.json({ ok: true, id: 42 }); };
+    const req = () => new NextRequest("http://localhost/api/heures", { method: "POST", headers: { "X-Idempotence-Cle": "course-dix" } });
+    const reponses = await Promise.all(Array.from({ length: 10 }, () => idem.avecIdempotence(req(), h)));
+    expect(n).toBe(1);
+    const corps = await Promise.all(reponses.map((r) => r.json()));
+    expect(corps.every((c) => c.id === 42)).toBe(true);
+    expect(reponses.filter((r) => r.headers.get("X-Idempotence-Rejouee") === "1")).toHaveLength(9);
+  });
+  it("un refus (409) libère la clé : la saisie corrigée repart avec la même clé", async () => {
+    let appels = 0;
+    const h = async () => { appels++; return appels === 1 ? NextResponse.json({ error: "refus" }, { status: 409 }) : NextResponse.json({ ok: true }); };
+    const req = () => new NextRequest("http://localhost/api/heures", { method: "POST", headers: { "X-Idempotence-Cle": "refus-puis-ok" } });
+    expect((await idem.avecIdempotence(req(), h)).status).toBe(409);
+    expect((await idem.avecIdempotence(req(), h)).status).toBe(200);
+    expect(appels).toBe(2);
+  });
+});

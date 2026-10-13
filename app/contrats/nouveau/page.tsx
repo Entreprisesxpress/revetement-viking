@@ -138,8 +138,12 @@ function NouveauContrat() {
     if (!prixValide) m.push("un prix total valide");
     if (!f.date_debut_travaux.trim()) m.push("la date de début des travaux");
     if (!f.memeAdresse && !f.adresse_travaux.trim()) m.push("l'adresse des travaux");
+    // Un échéancier qui ne fait pas 100 % BLOQUE : avant, l'avertissement laissait créer
+    // le contrat, et le PDF imprimait « Balance (30 %) 4 000 $ » — un pourcentage qui ne
+    // correspondait pas au montant.
+    if (Math.abs(sommePct - 100) > 0.01) m.push(`des versements qui totalisent 100 % (actuellement ${sommePct} %)`);
     return m;
-  }, [f, prixValide]);
+  }, [f, prixValide, sommePct]);
 
   const lireDevis = async (fichiers: File[]) => {
     const file = fichiers[0];
@@ -401,7 +405,11 @@ function NouveauContrat() {
           <Grille>
             <label className="block">
               <Lbl>Soumission liée</Lbl>
-              <select value={f.soumission_numero} onChange={(e) => maj({ soumission_numero: e.target.value, soumission_date: e.target.value ? AUJOURDHUI() : "" })} className="w-full px-3 py-2 border rounded text-sm bg-white min-h-[44px]">
+              <select value={f.soumission_numero} onChange={(e) => {
+                // Date du DEVIS choisi (pas celle du jour), modifiable ensuite.
+                const s = soumissions.find((x) => x.numero === e.target.value);
+                maj({ soumission_numero: e.target.value, soumission_date: e.target.value ? (s?.date_creation ? String(s.date_creation).slice(0, 10) : AUJOURDHUI()) : "" });
+              }} className="w-full px-3 py-2 border rounded text-sm bg-white min-h-[44px]">
                 <option value="">— Aucune —</option>
                 {soumissions.map((s) => <option key={s.numero} value={s.numero}>{s.numero} — {s.client_nom} ({formatCAD(s.total || 0)})</option>)}
               </select>

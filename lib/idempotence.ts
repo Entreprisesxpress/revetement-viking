@@ -10,7 +10,7 @@
 // corrigé puis renvoyé avec la même clé. Les entrées de plus de 7 jours sont purgées
 // à l'occasion (au plus une purge par heure et par instance).
 import { NextRequest, NextResponse } from "next/server";
-import { lireIdempotence, ecrireIdempotence, purgerIdempotence } from "@/lib/db";
+import { lireIdempotence, ecrireIdempotence, purgerIdempotence, reserverIdempotence, libererIdempotence } from "@/lib/db";
 
 export const EN_TETE_IDEMPOTENCE = "X-Idempotence-Cle";
 const LONGUEUR_MAX = 64;
@@ -42,15 +42,43 @@ export async function avecIdempotence(req: NextRequest, handler: () => Promise<N
   }
   if (!cle) return handler();
 
-  const deja = await lireIdempotence(cle);
-  if (deja) {
-    return new NextResponse(deja.corps, {
-      status: deja.statut,
-      headers: { "Content-Type": "application/json; charset=utf-8", "X-Idempotence-Rejouee": "1" },
-    });
+  const rejouer = (deja: { statut: number; corps: string }) => new NextResponse(deja.corps, {
+    status: deja.statut,
+    headers: { "Content-Type": "application/json; charset=utf-8", "X-Idempotence-Rejouee": "1" },
+  });
+
+  // RÉSERVATION ATOMIQUE de la clé avant d'exécuter quoi que ce soit (voir lib/db.ts).
+  // Avant : lecture → handler → écriture ; entre les deux, de vrais `await` (lecture du
+  // corps, session) laissaient passer dix requêtes simultanées avec la même clé → dix
+  // lignes d'heures dans la paie (deux onglets qui rejouent la même file hors-ligne).
+  const premiere = await reserverIdempotence(cle);
+  if (!premiere) {
+    // Une autre requête porte la clé : réponse déjà enregistrée → on la rejoue ; encore en
+    // cours → on lui laisse jusqu'à ~3 s, puis on rejoue ou on refuse (409), jamais deux fois.
+    for (let i = 0; i < 6; i++) {
+      const deja = await lireIdempotence(cle);
+      if (!deja) break;                         // la première a échoué et libéré la clé
+      if (deja.statut > 0) return rejouer(deja);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const deja = await lireIdempotence(cle);
+    if (deja && deja.statut > 0) return rejouer(deja);
+    if (deja) return NextResponse.json({ error: "requête en cours", message: "La même saisie est déjà en train d'être enregistrée. Recharge la liste avant de réessayer." }, { status: 409 });
+    // Clé libérée entre-temps : on retente une fois la réservation.
+    if (!(await reserverIdempotence(cle))) {
+      const d2 = await lireIdempotence(cle);
+      if (d2 && d2.statut > 0) return rejouer(d2);
+      return NextResponse.json({ error: "requête en cours" }, { status: 409 });
+    }
   }
 
-  const res = await handler();
+  let res: NextResponse;
+  try {
+    res = await handler();
+  } catch (e) {
+    await libererIdempotence(cle).catch(() => {});
+    throw e;
+  }
   if (res.status >= 200 && res.status < 300) {
     // Le corps est lu sur un clone : la réponse d'origine repart intacte au client.
     const corps = await res.clone().text();
@@ -59,6 +87,9 @@ export async function avecIdempotence(req: NextRequest, handler: () => Promise<N
       _dernierePurge = Date.now();
       purgerIdempotence().catch(() => {});
     }
+  } else {
+    // Refus (400/409…) : la clé est rendue, pour qu'une saisie corrigée puisse repartir.
+    await libererIdempotence(cle).catch(() => {});
   }
   return res;
 }

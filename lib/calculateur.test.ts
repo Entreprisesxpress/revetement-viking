@@ -1,4 +1,33 @@
 import { describe, it, expect } from "vitest";
+
+// 50 × 1,1 = 55,000000000000001 en flottant : `ceil` commandait 56 pièces au lieu de 55
+// (45 matériaux du catalogue touchés — une boîte de soffite en trop, +395 $ coûtant).
+describe("calculerSoumission — arrondi flottant avant le plafond", () => {
+  it("50 pièces + 10 % de surplus = 55 à commander, pas 56", async () => {
+    const { calculerSoumission } = await import("./calculateur");
+    const { MATERIAUX } = await import("../data/materiaux");
+    const piece = MATERIAUX.find((m) => m.qtyParFormat === 1) || MATERIAUX[0];
+    const r = calculerSoumission({ lignes: [{ materiauCode: piece.code, quantite: 50, surplus: 0.1, margePct: 0.3 }], fraisActifs: [], fraisGestion: 0.15, appliquerTaxes: true });
+    expect(r.lignes[0].quantiteAvecSurplus).toBe(55);
+    expect(r.lignes[0].formatACommander).toBe(Math.ceil(55 / piece.qtyParFormat));
+  });
+  it("2 930 pi² de soffite (boîtes de 293) + 10 % = 11 boîtes, pas 12", async () => {
+    const { calculerSoumission } = await import("./calculateur");
+    const { MATERIAUX } = await import("../data/materiaux");
+    const m = MATERIAUX.find((x) => x.qtyParFormat === 293);
+    if (!m) return; // catalogue sans ce format : rien à vérifier ici
+    const r = calculerSoumission({ lignes: [{ materiauCode: m.code, quantite: 2930, surplus: 0.1, margePct: 0.3 }], fraisActifs: [], fraisGestion: 0.15, appliquerTaxes: true });
+    expect(r.lignes[0].formatACommander).toBe(11);
+  });
+  it("parIndex garde une entrée (nulle) par ligne saisie, même pour un code inconnu", async () => {
+    const { calculerSoumission } = await import("./calculateur");
+    const { MATERIAUX } = await import("../data/materiaux");
+    const r = calculerSoumission({ lignes: [{ materiauCode: "INCONNU-XYZ", quantite: 10, surplus: 0, margePct: 0.3 }, { materiauCode: MATERIAUX[0].code, quantite: 10, surplus: 0, margePct: 0.3 }], fraisActifs: [], fraisGestion: 0.15, appliquerTaxes: true });
+    expect(r.parIndex).toHaveLength(2);
+    expect(r.parIndex[0]).toBeNull();
+    expect(r.parIndex[1]).toBe(r.lignes[0]);
+  });
+});
 import { calculerSoumission, auCent } from "./calculateur";
 import { MATERIAUX } from "../data/materiaux";
 

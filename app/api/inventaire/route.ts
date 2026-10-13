@@ -21,6 +21,7 @@ function normaliserNombres(b: any): string | null {
     const n = nombreSaisi(b[k]);
     if (!Number.isFinite(n)) return `${k} invalide (ex. : 12,50)`;
     if (n < 0) return k === "quantite" ? "quantité invalide (doit être ≥ 0)" : `${k} invalide (doit être ≥ 0)`;
+    if (n > 1_000_000) return `${k} invalide (maximum 1 000 000)`;   // 1e21 entrait tel quel
     b[k] = n;
   }
   return null;

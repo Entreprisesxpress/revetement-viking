@@ -1,7 +1,7 @@
 // Service Worker — Revêtement Viking
 // Cache-first pour les assets, network-first pour les pages, fallback offline
 
-const CACHE_VERSION = "viking-v7";
+const CACHE_VERSION = "viking-v8";
 // Nombre maximal de fichiers gardés dans le cache d'exécution. Sans plafond, chaque
 // déploiement ajoutait son jeu de fichiers hachés et rien n'était jamais retiré.
 const MAX_ENTREES_RUNTIME = 300;
@@ -97,7 +97,7 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(
         fetch(request)
           .then((res) => {
-            if (res && res.status === 200 && res.type === "basic") {
+            if (reponseCachable(res)) {
               const copy = res.clone();
               caches.open(API_CACHE).then((c) => c.put(request, copy));
             }
@@ -148,7 +148,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(request)
       .then((res) => {
-        if (res && res.status === 200 && res.type === "basic") mettreEnCache(RUNTIME_CACHE, request, res.clone(), MAX_ENTREES_RUNTIME);
+        if (reponseCachable(res)) mettreEnCache(RUNTIME_CACHE, request, res.clone(), MAX_ENTREES_RUNTIME);
         return res;
       })
       .catch(() => caches.match(request))

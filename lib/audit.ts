@@ -90,7 +90,9 @@ export type ActiviteType =
   // Essai bloqué par la limite : type à part, pour ne pas être recompté par la limite.
   | "auth.login_bloque"
   | "client.fichier_ajoute"
-  | "client.fichier_supprime";
+  | "client.fichier_supprime"
+  // Une erreur du navigateur reçue par /api/log-erreur : sert au compteur anti-abus.
+  | "client.erreur_log";
 
 export interface ActiviteOpts {
   ref_type?: string;

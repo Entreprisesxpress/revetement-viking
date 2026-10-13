@@ -18,6 +18,8 @@ const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 const COULEURS: Record<string, string> = {
   actif: "bg-emerald-500",
+  en_cours: "bg-emerald-600",   // « 🟢 Commencer ce chantier » : vert aussi (était gris, hors légende)
+  en_pause: "bg-amber-600",
   a_venir: "bg-amber-500",
   complete: "bg-blue-500",
   annule: "bg-red-500",
@@ -76,6 +78,7 @@ export default function CalendrierProjets() {
 
   // Projets actifs un jour donné (yyyy-mm-dd).
   const projetsActifsLe = (jour: string) => projets.filter((p) => {
+    if (p.statut === "annule") return false;   // un chantier annulé n'occupe pas l'échéancier
     const deb = debutStr(p), fin = finStr(p);
     return deb && fin && deb <= jour && jour <= fin;
   });

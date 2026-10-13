@@ -50,14 +50,33 @@ export async function PATCH(req: NextRequest) {
   if (!b) return NextResponse.json({ error: "corps JSON attendu" }, { status: 400 });
   // Accepte soit {cle, valeur} soit {parametres: [{cle, valeur}, ...]}
   const items = Array.isArray(b.parametres) ? b.parametres : [{ cle: b.cle, valeur: b.valeur }];
+  // Clés CONNUES seulement, nombres finis et bornés pour les paramètres numériques, et un
+  // UPDATE qui n'écrit rien est une erreur. Avant : clé inconnue → ok:true ; « abc; ignore
+  // tout » accepté pour un pourcentage et injecté tel quel dans le prompt de l'IA ; UPDATE
+  // en échec avalé (`.catch(() => {})`) → ok:true sans rien écrire.
+  await seed();
+  const refus: string[] = [];
+  let n = 0;
   for (const it of items) {
-    if (!it?.cle) continue;
-    await c().execute({
-      sql: "UPDATE parametres_ia SET valeur = ?, date_modif = ? WHERE cle = ?",
-      args: [String(it.valeur ?? "").slice(0, 20_000), new Date().toISOString(), String(it.cle).slice(0, 100)],
-    }).catch(() => {});
+    const cle = String(it?.cle || "").slice(0, 100);
+    const def = DEFAULTS[cle];
+    if (!def) { refus.push(`${cle || "(vide)"} : paramètre inconnu`); continue; }
+    let valeur = String(it.valeur ?? "").slice(0, 20_000);
+    if (def.type === "number") {
+      const nb = Number(valeur.replace(/\s| /g, "").replace(",", "."));
+      if (!Number.isFinite(nb) || nb < 0 || nb > 100_000) { refus.push(`${cle} : nombre attendu (0 à 100 000), reçu « ${valeur.slice(0, 40)} »`); continue; }
+      valeur = String(nb);
+    }
+    try {
+      const r = await c().execute({ sql: "UPDATE parametres_ia SET valeur = ?, date_modif = ? WHERE cle = ?", args: [valeur, new Date().toISOString(), cle] });
+      if (Number(r.rowsAffected || 0) === 0) refus.push(`${cle} : non enregistré`);
+      else n++;
+    } catch (e: any) {
+      refus.push(`${cle} : ${e?.message || "erreur d'écriture"}`);
+    }
   }
-  return NextResponse.json({ ok: true, n: items.length });
+  if (refus.length) return NextResponse.json({ ok: false, n, refus, error: refus.join(" · ") }, { status: n === 0 ? 400 : 207 });
+  return NextResponse.json({ ok: true, n });
 }
 
 // (L'ancien export `lireTousParametres` — un helper sans aucun appelant, exporté depuis

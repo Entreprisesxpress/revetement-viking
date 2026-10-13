@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
   const c: any = db();
   // Jour de MONTRÉAL : le cron tourne le dimanche 21 h UTC ; en UTC, « il y a 7 jours »
   // désignait déjà le lundi, et le dimanche précédent sortait du récap.
-  const debut = jourMontreal(new Date(Date.now() - 7 * 86400000).toISOString());
+  // Sept jours = aujourd'hui et les SIX précédents. « − 7 j » avec `>=` faisait huit jours :
+  // le dimanche précédent entrait dans deux récaps (dépenses, encaissements, soumissions
+  // d'un dimanche comptés deux fois).
+  const debut = jourMontreal(new Date(Date.now() - 6 * 86400000).toISOString());
 
   // Heures par employé
   const rHeures = await c.execute({

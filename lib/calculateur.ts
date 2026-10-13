@@ -46,6 +46,8 @@ export interface LigneCalculee {
 
 export interface SoumissionCalculee {
   lignes: LigneCalculee[];
+  /** Même ordre que les lignes SAISIES ; `null` pour un code absent du catalogue. */
+  parIndex: (LigneCalculee | null)[];
   totalCoutMateriaux: number;
   totalVenteMateriaux: number;
   totalHeuresInstallation: number;
@@ -71,12 +73,19 @@ export function calculerSoumission(p: ParametresSoumission): SoumissionCalculee 
   let totalVenteMat = 0;
   let totalHeuresInstall = 0;
 
+  // Une entrée par ligne SAISIE (nulle si le code n'est plus au catalogue) : le formulaire
+  // appariait `calcul.lignes[idx]` à `lignes[idx]`, et une ligne inconnue décalait tous
+  // les sous-totaux affichés d'un cran.
+  const parIndex: (LigneCalculee | null)[] = [];
   for (const l of p.lignes) {
     const mat = MATERIAUX.find((m) => m.code === l.materiauCode);
-    if (!mat) continue;
+    if (!mat) { parIndex.push(null); continue; }
 
-    const qtyAvecSurplus = l.quantite * (1 + l.surplus);
-    const formatACommander = Math.ceil(qtyAvecSurplus / mat.qtyParFormat);
+    // Arrondi au millionième AVANT le plafond : en flottant, 50 × 1,1 = 55,000000000000001
+    // et `ceil` commandait 56 pièces au lieu de 55 (45 matériaux du catalogue touchés, une
+    // boîte de soffite de trop = +395 $ coûtant, repris par la vente, le PDF et la liste).
+    const qtyAvecSurplus = Math.round(l.quantite * (1 + l.surplus) * 1e6) / 1e6;
+    const formatACommander = Math.ceil(Math.round((qtyAvecSurplus / mat.qtyParFormat) * 1e6) / 1e6);
 
     // Coût réel = format à commander × prix par format (on commande des boîtes entières)
     const coutMat = formatACommander * mat.prixCoutantParFormat;
@@ -88,7 +97,7 @@ export function calculerSoumission(p: ParametresSoumission): SoumissionCalculee 
 
     const sousTotal = venteMat + coutMO;
 
-    lignesCalc.push({
+    const ligneCalc = {
       materiau: mat,
       quantiteBase: l.quantite,
       quantiteAvecSurplus: qtyAvecSurplus,
@@ -100,7 +109,9 @@ export function calculerSoumission(p: ParametresSoumission): SoumissionCalculee 
       sousTotal,
       couleur: l.couleur,
       note: l.note,
-    } as any);
+    } as any as LigneCalculee;
+    lignesCalc.push(ligneCalc);
+    parIndex.push(ligneCalc);
 
     totalCoutMat += coutMat;
     totalVenteMat += venteMat;
@@ -124,6 +135,7 @@ export function calculerSoumission(p: ParametresSoumission): SoumissionCalculee 
 
   return {
     lignes: lignesCalc,
+    parIndex,
     totalCoutMateriaux: totalCoutMat,
     totalVenteMateriaux: totalVenteMat,
     totalHeuresInstallation: totalHeuresInstall,
@@ -148,4 +160,4 @@ export function formatCAD(n: number): string {
   }).format(n);
 }
 
-export { FRAIS_FORFAITAIRES };
+export { FRAIS_FORFAITAIRES, TAUX_HORAIRE_VENTE };

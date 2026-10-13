@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { listerEmployesLite, ajouterEmploye, modifierEmploye, supprimerEmploye, getEmploye, renommerEmploye, employeParNomMemeInactif } from "@/lib/db";
+import { listerEmployesLite, ajouterEmployeAvecDetails, modifierEmploye, supprimerEmploye, getEmploye, renommerEmploye, employeParNomMemeInactif } from "@/lib/db";
 import { nombreSaisi } from "@/lib/calculs";
 import { journaliser } from "@/lib/audit";
 import { utilisateurActif } from "@/lib/authUser";
@@ -59,16 +59,16 @@ export async function POST(req: NextRequest) {
     }));
     return NextResponse.json({ ok: true, id: homonyme.id, reactive: true });
   }
-  const id = await ajouterEmploye({ nom: b.nom, taux_horaire: taux, das_pct: b.das_pct ?? 0.15 });
-  // ajouterEmploye n'insère que les colonnes de base : sans ce complément, une case
-  // « Reçoit un talon » décochée à la création était ignorée (défaut SQL = 1).
+  // Fiche de base + détails (NAS, contact d'urgence, « reçoit un talon »…) en UNE
+  // transaction : avant, INSERT puis UPDATE séparés — une panne entre les deux laissait
+  // une fiche sans ses détails, et une case « Reçoit un talon » décochée était ignorée.
   const extras: any = {};
   for (const k of ["recoit_talon", "telephone", "courriel", "adresse", "date_naissance", "nas",
                    "date_embauche", "poste", "contact_urgence_nom", "contact_urgence_lien",
                    "contact_urgence_tel", "specimen_cheque_data", "specimen_cheque_type", "notes"]) {
     if (b[k] !== undefined && b[k] !== "") extras[k] = b[k];
   }
-  if (Object.keys(extras).length) await modifierEmploye(id, extras);
+  const id = await ajouterEmployeAvecDetails({ nom: b.nom, taux_horaire: taux, das_pct: b.das_pct ?? 0.15 }, extras);
   return NextResponse.json({ ok: true, id });
 }
 

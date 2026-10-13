@@ -49,8 +49,17 @@ export interface AsanaTask {
 /** Lister les tâches du projet Soumission 2026 */
 export async function listerTachesSoumission(projet_gid = PROJET_SOUMISSION_2026): Promise<AsanaTask[]> {
   const fields = "name,notes,completed,due_on,modified_at,created_at,assignee.name";
-  const data = await asanaFetch(`/projects/${projet_gid}/tasks?opt_fields=${fields}&limit=100`);
-  return data.data as AsanaTask[];
+  // Asana pagine à 100 : sans suivre `next_page.offset`, les tâches au-delà des 100
+  // premières n'étaient jamais synchronisées et l'écran affichait « Total : 100 ».
+  const toutes: AsanaTask[] = [];
+  let offset = "";
+  for (let page = 0; page < 50; page++) {
+    const data = await asanaFetch(`/projects/${projet_gid}/tasks?opt_fields=${fields}&limit=100${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`);
+    toutes.push(...((data.data || []) as AsanaTask[]));
+    offset = data.next_page?.offset || "";
+    if (!offset) break;
+  }
+  return toutes;
 }
 
 /** Créer une tâche dans Asana */

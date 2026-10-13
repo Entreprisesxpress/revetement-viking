@@ -88,7 +88,32 @@ function ValiderBackup() {
         if (cur.length) paquets.push(cur);
         return paquets;
       };
+      // PASSE 1 — vérification des conflits d'identifiant sur TOUS les morceaux, sans rien
+      // écrire : un id déjà pris par une ligne différente dans cette base (ce n'est pas la
+      // base d'origine de la sauvegarde) refuse la restauration entière. Avant, la table en
+      // conflit échouait mais les suivantes (heures, dépenses, documents) s'inséraient
+      // quand même, rattachées aux mauvais chantiers.
+      const conflits: string[] = [];
       for (const champ of champs) {
+        for (const paquet of enPaquets(dump[champ])) {
+          setProgression(`vérification ${champ}…`);
+          const r = await envoyer<any>("/api/restore", { corps: { ...ENVELOPPE_VIDE, verifier_conflits: true, [champ]: paquet } });
+          if (!r.ok) { conflits.push(`${champ} : ${r.erreur || "vérification impossible"}`); continue; }
+          const n = r.data?.conflits?.[champ];
+          if (n) conflits.push(`${champ} : ${n} ligne(s) dont l'identifiant est déjà pris par une ligne différente`);
+        }
+      }
+      if (conflits.length) {
+        setResultat({
+          ok: false, mode: "restauration-refusee", meta: { date_backup: dump.date_backup, version: dump.version },
+          message: `⚠ Restauration refusée, rien n'a été écrit — cette base contient déjà des lignes différentes sous les mêmes identifiants (${conflits.join(" · ")}). Restaure dans une base vide, ou dans la base d'origine de cette sauvegarde.`,
+        });
+        return;
+      }
+      // PASSE 2 — écriture, table par table ; un refus arrête tout (plus de « partielle »).
+      let arret: string | null = null;
+      for (const champ of champs) {
+        if (arret) break;
         const paquets = enPaquets(dump[champ]);
         let inseres = 0, ignores = 0, total = 0, erreur: string | undefined;
         for (let i = 0; i < paquets.length; i++) {
@@ -97,13 +122,14 @@ function ValiderBackup() {
           // envoyer() : ne lève jamais (réseau coupé = message lisible), lit la réponse
           // même si elle n'est pas du JSON (413 sur un paquet trop gros).
           const r = await envoyer<any>("/api/restore", { corps: morceau });
-          if (!r.ok) { erreur = r.erreur || "erreur"; break; }
+          if (!r.ok) { erreur = r.data?.message || r.erreur || "erreur"; if (r.statut === 409) arret = `${champ} : ${erreur}`; break; }
           const res = r.data?.resultat?.[champ];
           if (res) { inseres += res.inseres || 0; ignores += res.ignores || 0; total += res.total || 0; }
         }
         cumul[champ] = { inseres, ignores, total, ...(erreur ? { erreur } : {}) };
         if (erreur) echecs.push(`${champ} : ${erreur}`);
       }
+      if (arret) echecs.push(`restauration ARRÊTÉE à ce refus — les tables suivantes n'ont pas été envoyées`);
       const inseres = Object.values(cumul).reduce((s: number, v: any) => s + (v?.inseres || 0), 0);
       setResultat({
         ok: echecs.length === 0,

@@ -114,11 +114,15 @@ async function creerHeure(req: NextRequest): Promise<NextResponse> {
   if (ctrl.total_jour + heures > 24) {
     return NextResponse.json({ error: "plus de 24 h dans la journée", message: `${emp.nom} a déjà ${ctrl.total_jour} h le ${body.date} : ${heures} h de plus dépasseraient 24 h.` }, { status: 409 });
   }
+  const messageDoublon = `Une entrée identique (${emp.nom}, ${heures} h, ce projet, le ${body.date}) vient d'être enregistrée il y a moins de deux minutes. Recharge la liste avant de ressaisir.`;
   if (ctrl.doublons_recents > 0) {
-    return NextResponse.json({ error: "doublon probable", message: `Une entrée identique (${emp.nom}, ${heures} h, ce projet, le ${body.date}) vient d'être enregistrée il y a moins de deux minutes. Recharge la liste avant de ressaisir.` }, { status: 409 });
+    return NextResponse.json({ error: "doublon probable", message: messageDoublon }, { status: 409 });
   }
   const user = await utilisateurActif(req);
-  const id = await ajouterHeureProjet({ ...body, employe: emp.nom, taux_horaire: tauxFiche, ajoute_par: user || undefined });
+  // Le même contrôle est REJOUÉ dans l'INSERT lui-même (atomique) : dix requêtes
+  // simultanées passaient toutes le contrôle ci-dessus avant la première écriture.
+  const id = await ajouterHeureProjet({ ...body, employe: emp.nom, taux_horaire: tauxFiche, ajoute_par: user || undefined }, { sansDoublonDepuisSecondes: 120 });
+  if (!id) return NextResponse.json({ error: "doublon probable", message: messageDoublon }, { status: 409 });
   const ip = ipDe(req);
   after(() => journaliser("heures.ajoutees", {
     ref_type: "heures", ref_id: id, utilisateur: user || undefined,

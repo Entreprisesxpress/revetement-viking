@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { rateLimitDepasse } from "@/lib/rateLimit";
 import { enregistrerErreurClient } from "@/lib/erreurs-client";
+import { journaliser } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "payload too large" }, { status: 413 });
     }
     const ok = await enregistrerErreurClient({ message: b.message, stack: b.stack, digest: b.digest, path: b.path, userAgent: b.userAgent });
+    // Le compteur anti-abus ci-dessus compte les entrées `client.erreur_log` du journal —
+    // que personne n'écrivait : 25 envois d'affilée passaient (mesuré), plafond fictif.
+    if (ok) journaliser("client.erreur_log", { description: String(b.message || "erreur").slice(0, 120), ip }).catch(() => {});
     return NextResponse.json({ ok });
   } catch {
     return NextResponse.json({ ok: false });

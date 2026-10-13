@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import ZoneDepot from "@/components/ZoneDepot";
 import { useToast } from "@/components/Toasts";
-import { envoyer } from "@/lib/envoi";
+import { envoyer, lireListe } from "@/lib/envoi";
 import { jourMontreal } from "@/lib/date";
 import Modale from "@/components/Modale";
 import { LIMITE_FICHIER_OCTETS, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
@@ -38,9 +38,11 @@ export default function DocumentsProjet({ projetId, onChange }: { projetId: numb
 
   const charger = async () => {
     setChargement(true);
-    const d = await fetch(`/api/projet-fichiers?projet_id=${projetId}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : [])).catch(() => []);
-    setFichiers(Array.isArray(d) ? d : []);
+    // Lecture avec filet : un 401 (session expirée) ou un 500 se déguisait en « Aucun
+    // document sur ce chantier ».
+    const r = await lireListe(`/api/projet-fichiers?projet_id=${projetId}`, { cache: "no-store" });
+    if (!r.ok) toast(`Documents impossibles à charger : ${r.erreur}`, "error");
+    setFichiers(r.ok ? r.data : []);
     setChargement(false);
   };
   useEffect(() => { charger(); }, [projetId]);

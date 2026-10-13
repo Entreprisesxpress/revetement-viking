@@ -56,17 +56,17 @@ export default function CataloguePage() {
   const charger = () => lireListe("/api/catalogue").then((r) => { if (r.ok) { setErreur(null); setItems(r.data); } else setErreur(r.erreur); });
   useEffect(() => { charger(); }, []);
 
-  // Calcul auto du prix de vente quand coutant/majoration changent
-  useEffect(() => {
-    if (!edit) return;
-    // parseFloat("12,50") donne 12 — un prix tronqué en silence. nombreSaisi lit la virgule.
-    const c = nombreSaisi(edit.prix_coutant);
-    const m = nombreSaisi(edit.majoration_pct);
-    if (!isNaN(c) && c > 0 && !isNaN(m)) {
-      const v = (c * (1 + m / 100)).toFixed(2);
-      if (v !== edit.prix_vente) setEdit({ ...edit, prix_vente: v });
-    }
-  }, [edit?.prix_coutant, edit?.majoration_pct]);
+  // Prix de vente recalculé SEULEMENT quand l'usager tape le coûtant ou la majoration —
+  // plus dans un effet sur `edit` : ouvrir une fiche recalculait et ÉCRASAIT le prix de
+  // vente saisi à la main (13,00 $ en base, 12,00 $ affiché, « Sauver » écrivait 12).
+  // parseFloat("12,50") donne 12 — un prix tronqué en silence. nombreSaisi lit la virgule.
+  const avecPrixVente = (patch: Partial<Mat>): Partial<Mat> => {
+    const base = { ...edit, ...patch } as Mat;
+    const c = nombreSaisi(base.prix_coutant);
+    const m = nombreSaisi(base.majoration_pct);
+    if (!isNaN(c) && c > 0 && !isNaN(m)) return { ...patch, prix_vente: (c * (1 + m / 100)).toFixed(2) };
+    return patch;
+  };
 
   // Verrou par ref (lib/verrou.ts) : deux clics du même instant créaient deux matériaux.
   const verrou = useVerrou();
@@ -227,11 +227,11 @@ export default function CataloguePage() {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Prix coûtant $/{edit.unite}</label>
-                <input type="text" inputMode="decimal" value={edit.prix_coutant} onChange={(e) => setEdit({ ...edit, prix_coutant: e.target.value })} placeholder="Ex. : 12,50" className="w-full px-3 py-2 border rounded text-sm" />
+                <input type="text" inputMode="decimal" value={edit.prix_coutant} onChange={(e) => setEdit({ ...edit, ...avecPrixVente({ prix_coutant: e.target.value }) })} placeholder="Ex. : 12,50" className="w-full px-3 py-2 border rounded text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Majoration %</label>
-                <input type="text" inputMode="decimal" value={edit.majoration_pct} onChange={(e) => setEdit({ ...edit, majoration_pct: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" />
+                <input type="text" inputMode="decimal" value={edit.majoration_pct} onChange={(e) => setEdit({ ...edit, ...avecPrixVente({ majoration_pct: e.target.value }) })} className="w-full px-3 py-2 border rounded text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Prix vente $/{edit.unite}</label>

@@ -5,7 +5,7 @@ import {
   listerTaches, listerExtras, listerToutesDepenses,
   getProjet, rechercheGlobale, listerVehicules, listerAssurances, listerFacturesProjet,
 } from "@/lib/db";
-import { aujourdhuiMontreal } from "./date";
+import { aujourdhuiMontreal, jourMontreal } from "./date";
 import { estProjetActif } from "@/lib/statuts-projet";
 
 // === DONNÉES ≠ INSTRUCTIONS ===
@@ -152,7 +152,7 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
   try {
     switch (nom) {
       case "apercu_entreprise": {
-        const annee = new Date().getFullYear();
+        const annee = Number(aujourdhuiMontreal().slice(0, 4)); // année de Montréal, pas UTC
         const [projets, fin, extrasAC] = await Promise.all([
           listerProjets(), finances(annee), listerExtras("a_charger"),
         ]);
@@ -185,7 +185,7 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
         };
       }
       case "finances_mensuelles": {
-        const fin = await finances(+input.annee || new Date().getFullYear());
+        const fin = await finances(+input.annee || Number(aujourdhuiMontreal().slice(0, 4)));
         return { annee: fin.annee, mois: fin.mois.map((m: any) => ({
           mois: m.mois, revenu_avant_taxes: num(m.revenu_avant_taxes), depenses_avant_taxes: num(m.depenses_avant_taxes),
           main_oeuvre: num(m.mo), marge_nette: num(m.marge), encaisse: num(m.paye),
@@ -324,7 +324,7 @@ export async function executerOutilJarvis(nom: string, input: any): Promise<any>
       }
       case "vehicules_assurances": {
         const [veh, ass] = await Promise.all([listerVehicules().catch(() => []), listerAssurances().catch(() => [])]);
-        const dans60j = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+        const dans60j = jourMontreal(new Date(Date.now() + 60 * 86400000).toISOString());
         const renouv = (ass as any[]).filter((a) => a.date_renouvellement && a.date_renouvellement <= dans60j);
         return {
           vehicules: (veh as any[]).map((v: any) => ({ nom: v.nom, marque: v.marque || null, annee: v.annee || null, plaque: v.plaque || null })),

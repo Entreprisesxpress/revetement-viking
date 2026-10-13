@@ -95,8 +95,8 @@ function faireSandbox() {
   return { requete, installer, reseau, precacher, contenu, magasins };
 }
 
-const RUNTIME = "viking-v7-runtime";
-const STATIC = "viking-v7-static";
+const RUNTIME = "viking-v8-runtime";
+const STATIC = "viking-v8-static";
 let sb: ReturnType<typeof faireSandbox>;
 beforeEach(() => { sb = faireSandbox(); });
 
@@ -191,7 +191,7 @@ describe("service worker — quoi mettre en cache, et dans quel ordre", () => {
   });
 
   it("les API de lecture viennent du réseau d'abord ; les autres API ne passent pas par le SW", async () => {
-    await sb.precacher("viking-v7-api", "/api/projets", "liste périmée");
+    await sb.precacher("viking-v8-api", "/api/projets", "liste périmée");
     sb.reseau.reponses.set(ORIGINE + "/api/projets", rep("liste fraîche"));
     const r = await sb.requete("/api/projets");
     expect(r?.corps).toBe("liste fraîche");
@@ -204,7 +204,7 @@ describe("service worker — quoi mettre en cache, et dans quel ordre", () => {
   it("hors ligne, une API de lecture servie du cache porte X-Viking-Cache: stale (V-42)", async () => {
     // Avant : la copie arrivait comme un 200 ordinaire, et lib/cacheClient.ts la
     // réécrivait dans localStorage comme une donnée fraîche.
-    await sb.precacher("viking-v7-api", "/api/dashboard", "chiffres d'hier");
+    await sb.precacher("viking-v8-api", "/api/dashboard", "chiffres d'hier");
     sb.reseau.reponses.set(ORIGINE + "/api/dashboard", new Error("réseau coupé"));
     const r = await sb.requete("/api/dashboard");
     expect(r?.corps).toBe("chiffres d'hier");

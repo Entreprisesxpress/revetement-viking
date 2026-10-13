@@ -1,6 +1,6 @@
 import { Document, Page, Text, View, StyleSheet, pdf, Svg, Path } from "@react-pdf/renderer";
 import type { SoumissionCalculee } from "./calculateur";
-import { formatCAD } from "./calculateur";
+import { formatCAD, TAUX_HORAIRE_VENTE } from "./calculateur";
 import { ENTREPRISE } from "./entreprise";
 
 const styles = StyleSheet.create({
@@ -130,6 +130,21 @@ export function SoumissionPDF({ client, numeroSoumission, date, calcul }: Props)
               </View>
             );
           })}
+          {/* Frais forfaitaires (mobilisation, nettoyage, échafaudage…) : sans cette ligne, la
+              colonne « Sous-total » ne retombait pas sur le récapitulatif (1 170 $ d'écart
+              mesuré = 13 h × 90 $ jamais imprimées). */}
+          {calcul.totalHeuresForfaitaires > 0 && (
+            <View style={styles.row}>
+              <Text style={styles.col1}>
+                Frais forfaitaires (mobilisation, nettoyage, échafaudage…)
+                {"\n"}
+                <Text style={styles.small}>{calcul.totalHeuresForfaitaires.toFixed(1).replace(".", ",")} h de main-d'œuvre</Text>
+              </Text>
+              <Text style={styles.col2}>{calcul.totalHeuresForfaitaires.toFixed(1).replace(".", ",")}</Text>
+              <Text style={styles.col3}>h</Text>
+              <Text style={styles.col4}>{formatCAD(calcul.totalHeuresForfaitaires * TAUX_HORAIRE_VENTE)}</Text>
+            </View>
+          )}
         </View>
 
         {/* Totaux */}

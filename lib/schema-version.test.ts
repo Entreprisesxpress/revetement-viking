@@ -10,9 +10,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-// === VALEURS FIGÉES (2026-10-12) ===
-const VERSION_FIGEE = 28;
-const HACHAGE_FIGE = "8687f403fd3a2cea4b428411f3a9798d792a9599cc5f8943075359d60f1331b5";
+// === VALEURS FIGÉES (2026-10-13) ===
+const VERSION_FIGEE = 29;
+const HACHAGE_FIGE = "0486929574fcd0f8c5792fbc6247b765ed6e9f27e6084d8fcafe43d8010150ac";
 
 /** Extrait le corps de `migrer()` : de sa signature jusqu'à l'accolade fermante de
  *  premier niveau. Les commentaires (// et --) et les espaces sont retirés pour que seule

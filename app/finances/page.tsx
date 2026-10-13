@@ -29,13 +29,15 @@ export default function FinancesPage() {
     if (tab === "depenses" || tab === "extras" || tab === "rentabilite" || tab === "paie" || tab === "doublons") setOnglet(tab);
   }, []);
 
-  // Compteur d'extras à facturer (pour l'onglet + le KPI)
-  useEffect(() => {
+  // Compteurs des onglets (extras à facturer, doublons) — rechargés après chaque écriture
+  // dans ces onglets : avant, lus une seule fois, la pastille gardait l'ancien nombre.
+  const rechargerCompteurs = () => {
     lireJson<{ n?: number; total?: number }>("/api/extras?compteur=1").then((r) => { if (r.ok) setExtrasInfo({ n: r.data?.n || 0, total: r.data?.total || 0 }); });
     // Pastille des factures en double : le décompte seul, pas la liste complète.
     // Lecture avec filet, comme les extras juste au-dessus (lib/envoi.ts).
     lireJson<{ total?: number }>("/api/doublons?compte=1").then((r) => { if (r.ok) setNDoublons(r.data?.total || 0); });
-  }, []);
+  };
+  useEffect(() => { rechargerCompteurs(); }, []);
 
   const [erreur, setErreur] = useState<string | null>(null);
   const chargerApercu = () => {
@@ -97,7 +99,7 @@ export default function FinancesPage() {
       <Navigation titre="💰 Finances" soustitre="Vue d'ensemble · Dépenses · Extras" />
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
         {Tabs}
-        <ExtrasVue />
+        <ExtrasVue onChange={rechargerCompteurs} />
       </main>
     </div>
   );

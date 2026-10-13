@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { listerClients, getClient, ajouterClient, modifierClient, supprimerClient } from "@/lib/db";
+import { listerClients, getClient, ajouterClient, modifierClient, supprimerClient, clientParNom } from "@/lib/db";
 import { asanaEstConfigure, creerTacheAsana, modifierTacheAsana, supprimerTacheAsana, clientVersNotesAsana } from "@/lib/asana";
 import { journaliser } from "@/lib/audit";
 import { STATUTS_CLIENT, CLES_ETAPES_PIPELINE, estStatutClient, estEtapePipeline, courrielValide } from "@/lib/vocabulaire";
@@ -78,6 +78,15 @@ export async function POST(req: NextRequest) {
     const invalide = validerClient(body);
     if (invalide) return NextResponse.json({ error: invalide }, { status: 400 });
     if (!body.nom) return NextResponse.json({ error: "nom requis" }, { status: 400 });
+    // Homonyme exact : refus, sauf `forcer_doublon` (deux clients peuvent porter le même
+    // nom, mais pas par un double clic). Projets et soumissions passent déjà par
+    // trouverOuCreerClient ; ce POST, lui, créait dix fiches pour dix clics.
+    if (body.forcer_doublon !== true) {
+      const existant = await clientParNom(body.nom);
+      if (existant) {
+        return NextResponse.json({ error: "client déjà existant", message: `« ${existant.nom} » existe déjà (fiche #${existant.id}). Ouvre sa fiche, ou précise le nom s'il s'agit d'une autre personne.`, id: existant.id }, { status: 409 });
+      }
+    }
     const id = await ajouterClient(body);
     const ip = ipDe(req);
     after(() => journaliser("client.cree", { ref_type: "client", ref_id: id, description: body.nom, ip }));

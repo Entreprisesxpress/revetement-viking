@@ -32,6 +32,9 @@ export interface ContratData {
   paiement_fin_pct?: number;
   paiement_signature_pct?: number;
   notes_travaux?: string;
+  /** Contrat interne (/contrats) : garantie et conditions particulières, imprimées sous la description. */
+  garantie?: string;
+  conditions?: string;
   signature_entrepreneur?: { nom: string; date: string };
   signature_client?: { nom: string; date: string };
   signature_client_image?: string;                 // dataURL PNG dessinée par le client
@@ -147,7 +150,10 @@ export function ContratPDF({ c }: { c: ContratData }) {
   const depot = c.depot_pct ?? 33.3333;
   const milieu = c.paiement_milieu_pct ?? 33.3333;
   const sig = c.paiement_signature_pct ?? 0;
-  const fin = c.paiement_fin_pct ?? Math.max(0, 100 - depot - milieu - sig);
+  // Le pourcentage du solde est DÉRIVÉ dès que les versements saisis ne font pas 100 % :
+  // sinon le PDF imprimait « Balance (30 %) » devant un montant qui en faisait 40.
+  const finSaisi = c.paiement_fin_pct;
+  const fin = (finSaisi != null && Math.abs(depot + milieu + sig + finSaisi - 100) < 0.01) ? finSaisi : Math.max(0, 100 - depot - milieu - sig);
 
   // Les montants sont arrondis au cent, et le DERNIER versement absorbe le reste : sans
   // ça, trois tiers de 4 929,22 $ donnent 1 643,07 × 3 = 4 929,21 $ — un cent manquant.
@@ -308,6 +314,10 @@ export function ContratPDF({ c }: { c: ContratData }) {
         <Text style={s.para}>Les travaux débuteront le <Text style={{ fontWeight: 700 }}>{c.date_debut_travaux}</Text>.</Text>
         <Text style={s.para}>Le client doit s'assurer d'obtenir les permis de rénovation auprès de sa municipalité.</Text>
         {c.notes_travaux && <Text style={[s.para, { marginTop: 8 }]}>{c.notes_travaux}</Text>}
+        {/* Garantie et conditions particulières du contrat interne (/contrats) : avant, la
+            garantie n'était jamais imprimée et les conditions passaient pour la description. */}
+        {c.garantie && <Text style={[s.para, { marginTop: 8 }]}><Text style={{ fontWeight: 700 }}>Garantie : </Text>{c.garantie}</Text>}
+        {c.conditions && <Text style={[s.para, { marginTop: 4 }]}><Text style={{ fontWeight: 700 }}>Conditions particulières : </Text>{c.conditions}</Text>}
 
         <Text style={s.h1}>3. Modalité de paiement</Text>
         <Text style={[s.para, { fontStyle: "italic", color: "#475569", marginBottom: 8 }]}>
@@ -458,7 +468,9 @@ export async function genererContratBlob(brut: any): Promise<Blob> {
     paiement_milieu_pct: brut.paiement_milieu_pct,
     paiement_fin_pct: brut.paiement_fin_pct,
     paiement_signature_pct: brut.paiement_signature_pct,
-    notes_travaux: brut.notes_travaux || brut.description_travaux || brut.conditions,
+    notes_travaux: brut.notes_travaux || brut.description_travaux || "",
+    garantie: brut.garantie || undefined,
+    conditions: brut.conditions || undefined,
     signature_entrepreneur: brut.signature_entrepreneur,
     signature_client: brut.signature_client,
     signature_client_image: brut.signature_client_image,

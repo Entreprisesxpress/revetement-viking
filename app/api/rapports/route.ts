@@ -17,9 +17,10 @@ export async function GET(req: NextRequest) {
     if (!projet_id) return NextResponse.json({ error: "projet_id invalide" }, { status: 400 });
     const lignes = await heuresParProjetDate(projet_id);
     if (format === "csv") {
-      const csv = [ligne(["Employé", "Date", "Heures", "Taux $/h", "Coût", "Description"])]
+      // BOM + CRLF : sans le BOM, Excel Windows ouvre « CoÃ»t » et « EmployÃ© ».
+      const csv = "﻿" + [ligne(["Employé", "Date", "Heures", "Taux $/h", "Coût", "Description"])]
         .concat(lignes.map((l) => ligne([l.employe, l.date, l.heures, l.taux_horaire, +(l.heures * l.taux_horaire).toFixed(2), l.description || ""])))
-        .join("\n");
+        .join("\r\n");
       return new NextResponse(csv, {
         headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="heures-projet-${projet_id}.csv"` },
       });
@@ -30,12 +31,12 @@ export async function GET(req: NextRequest) {
   // Sinon : tous les projets résumés
   const projets = await listerProjets();
   if (format === "csv") {
-    const csv = [ligne(["Projet", "Client", "Statut", "Budget", "Coût total", "Marge", "Marge %", "Heures", "Facturé", "Payé"])]
+    const csv = "﻿" + [ligne(["Projet", "Client", "Statut", "Budget", "Coût total", "Marge", "Marge %", "Heures", "Facturé", "Payé"])]
       .concat(projets.map((p) => ligne([
         p.nom, p.client_nom || "", p.statut, p.budget_estime || 0, +p.cout_total.toFixed(2), +p.marge.toFixed(2),
         +p.marge_pct.toFixed(1), +p.total_heures.toFixed(1), p.total_facture, p.total_paye,
       ])))
-      .join("\n");
+      .join("\r\n");
     return new NextResponse(csv, {
       headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="rapport-projets.csv"` },
     });

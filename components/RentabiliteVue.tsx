@@ -6,6 +6,7 @@ import { exporterCSV } from "@/lib/csv";
 import { useToast } from "@/components/Toasts";
 import { estProjetActif } from "@/lib/statuts-projet";
 import { aujourdhuiMontreal } from "@/lib/date";
+import { lireListe } from "@/lib/envoi";
 
 // Tableur de rentabilité : décompose EXACTEMENT le calcul de la marge du tableau de bord.
 // revenu = (prix_contrat | budget) + extras facturés  →  ÷ 1,14975 = avant taxes
@@ -29,14 +30,18 @@ export default function RentabiliteVue() {
   };
   const ind = (col: typeof triCol) => (triCol === col ? (triSens === "asc" ? " ▲" : " ▼") : "");
 
+  const [erreur, setErreur] = useState<string | null>(null);
   useEffect(() => {
-    fetch("/api/projets").then((r) => r.json()).then((d) => {
-      const arr = Array.isArray(d) ? d : [];
+    // Lecture avec filet : un 401 (session expirée) affichait « Aucun projet enregistré.
+    // Crée un projet… » comme si la base était vide.
+    lireListe<any>("/api/projets").then((r) => {
+      const arr = r.ok ? r.data : [];
+      setErreur(r.ok ? null : r.erreur);
       setProjets(arr);
       setChargement(false);
       // Si aucun projet ACTIF mais qu'il y a des projets, montre « Tous » (sinon la vue paraît vide).
       if (arr.length > 0 && !arr.some((p: any) => estProjetActif(p.statut))) setFiltre("tous");
-    }).catch(() => setChargement(false));
+    });
   }, []);
 
   const lignes = useMemo(() => {
@@ -156,7 +161,7 @@ export default function RentabiliteVue() {
         ) : lignes.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">
             {projets.length === 0
-              ? "Aucun projet enregistré. Crée un projet (ou convertis une soumission) pour voir sa rentabilité ici."
+              ? (erreur ? `Impossible de charger les projets : ${erreur}` : "Aucun projet enregistré. Crée un projet (ou convertis une soumission) pour voir sa rentabilité ici.")
               : <>Aucun projet {filtre === "actif" ? "actif" : filtre === "complete" ? "complété" : ""} — mais tu as {projets.length} projet(s). Essaie le filtre <button onClick={() => setFiltre("tous")} className="underline text-blue-600 font-semibold">Tous</button>.</>}
           </div>
         ) : (

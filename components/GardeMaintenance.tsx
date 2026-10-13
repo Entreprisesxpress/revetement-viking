@@ -18,10 +18,12 @@ export default function GardeMaintenance() {
     if (
       p.startsWith("/maintenance") ||
       p.startsWith("/login") ||
-      p.startsWith("/parametres") ||
-      p.startsWith("/soumission") ||
-      p.startsWith("/contrat") ||
-      p.startsWith("/projet/")
+      // Exacts : « /parametres » couvrait aussi /parametres-ia, et « /soumission » tout le
+      // module interne /soumissions — ouverts à l'autre usager pendant la maintenance.
+      p === "/parametres" ||
+      /^\/soumission\//.test(p) ||       // page PUBLIQUE de signature (/soumission/<numéro>)
+      /^\/contrat\//.test(p) ||          // page PUBLIQUE du contrat (/contrat/<jeton>)
+      p.startsWith("/projet/")           // mode présentation client
     ) return;
 
     fetch("/api/maintenance")

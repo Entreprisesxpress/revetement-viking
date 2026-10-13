@@ -4,7 +4,7 @@
 // configuré — RESEND_FROM absent en production, par exemple).
 import { NextRequest, NextResponse, after } from "next/server";
 import { getProjet } from "@/lib/db";
-import { sendEmail, emailEstConfigure } from "@/lib/email";
+import { sendEmail, emailEstConfigure, masquerCourriel } from "@/lib/email";
 import { journaliser } from "@/lib/audit";
 import { messageDemandeAvis, SUJET_DEMANDE_AVIS, VIKING_EMAIL } from "@/lib/demande-avis";
 import { idEntier, lireCorps } from "@/lib/requete";
@@ -36,9 +36,10 @@ export async function POST(req: NextRequest) {
       replyTo: VIKING_EMAIL,
     });
     if (r.ok) {
-      after(() => journaliser("soumission.statut_change", {
+      // Adresse MASQUÉE dans le journal (comme lib/email.ts), et le bon type d'activité.
+      after(() => journaliser("courriel.envoye", {
         ref_type: "projet", ref_id: projet_id,
-        description: `✉️ Courriel d'avis Google envoyé à ${courriel}`,
+        description: `✉️ Courriel d'avis Google envoyé à ${masquerCourriel(courriel)}`,
       }));
       return NextResponse.json({ ok: true, to: courriel });
     }

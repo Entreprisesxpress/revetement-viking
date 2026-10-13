@@ -9,6 +9,7 @@ import { compresserImage, genererVignette } from "@/lib/img";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { nombreSaisi } from "@/lib/envoi";
 import { postOuFile } from "@/lib/fileOffline";
+import { accepteSaisieTardive, trierProjetsPourSaisie } from "@/lib/statuts-projet";
 
 interface Props { ouvert: boolean; onClose: () => void; onSuccess?: () => void; projetIdInitial?: number; }
 
@@ -35,9 +36,13 @@ export default function ModalExtra({ ouvert, onClose, onSuccess, projetIdInitial
   useEffect(() => {
     if (!ouvert) return;
     fetch("/api/projets?lite=1").then((r) => r.json()).then((tous: any[]) => {
-      const dispo = (Array.isArray(tous) ? tous : []).filter((p) => p.statut !== "annule");
+      // Mêmes chantiers et même ordre que la saisie d'heures (en cours d'abord, fermés
+      // depuis > 14 j exclus). Avant : liste brute triée par date de création, et le
+      // DERNIER CHANTIER CRÉÉ présélectionné — un extra atterrissait sur un chantier
+      // complété depuis 15 mois ; et le choix collait d'une ouverture à l'autre.
+      const dispo = trierProjetsPourSaisie((Array.isArray(tous) ? tous : []).filter((p) => accepteSaisieTardive(p)));
       setProjets(dispo);
-      if (!projet_id && dispo.length > 0) setProjetId(projetIdInitial || dispo[0].id);
+      setProjetId(projetIdInitial || 0);
     }).catch(() => {});
   }, [ouvert]);
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listerTaches, ajouterTache, modifierTache, supprimerTache, terminerTache } from "@/lib/db";
 import { aujourdhuiMontreal } from "@/lib/date";
 import { idEntier, lireCorps, texte } from "@/lib/requete";
+import { validerDate } from "@/lib/validation-argent";
 
 function fail(e: any, status = 500) { console.error("[/api/taches]", e); return NextResponse.json({ error: e?.message || "erreur" }, { status }); }
 
@@ -30,6 +31,11 @@ function valider(b: any): string | null {
     return `recurrence inconnue « ${b.recurrence} » (attendu : ${[...RECURRENCES].join(", ")})`;
   }
   if (b.recurrence === "") b.recurrence = null;
+  // Date d'échéance RÉELLE (« 2026-02-30 » entrait tel quel et sortait de tous les filtres).
+  if (b.date_due !== undefined && b.date_due !== null && b.date_due !== "") {
+    const e = validerDate(b.date_due, "date_due");
+    if (e) return e;
+  }
   for (const k of ["client_id", "projet_id"]) {
     if (b[k] === undefined || b[k] === null || b[k] === "") continue;
     const id = idEntier(b[k]);

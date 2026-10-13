@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { executerOutilJarvis } from "@/lib/jarvis";
 import { finances } from "@/lib/db";
 import { utilisateurActif } from "@/lib/authUser";
+import { aujourdhuiMontreal } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,11 @@ export async function GET(req: NextRequest) {
   try {
     const user = await utilisateurActif(req);
     if (!user) return NextResponse.json({ error: "non authentifié" }, { status: 401 });
-    const annee = new Date().getFullYear();
-    const moisCourant = new Date().getMonth() + 1;
+    // Jour de MONTRÉAL : en UTC (Vercel), dès 20 h le briefing passait au lendemain, le
+    // 31 octobre au soir au mois suivant, et le 31 décembre à 19 h « CA de l'année » = 0 $.
+    const aujourdhui = aujourdhuiMontreal();
+    const annee = Number(aujourdhui.slice(0, 4));
+    const moisCourant = Number(aujourdhui.slice(5, 7));
 
     // allSettled : une source en panne (ex. véhicules) ne doit pas tuer tout le briefing ;
     // elle est remplacée par un repli vide et nommée dans `sources_manquantes`.
@@ -41,7 +45,7 @@ export async function GET(req: NextRequest) {
     const fin: any = ou(rFin, "finances", { mois: [] }, manquantes);
 
     const tachesRetard = (taches.taches || []).filter((t: any) => t.en_retard);
-    const lignes: string[] = [`**📋 Briefing du ${new Date().toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" })}** — salut ${user} !`, ""];
+    const lignes: string[] = [`**📋 Briefing du ${new Date().toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Toronto" })}** — salut ${user} !`, ""];
 
     lignes.push(`**💰 Finances** — Marge moyenne des projets actifs : **${apercu.marge_moyenne_projets_actifs_pct}%**. CA ${annee} (avant taxes) : ${cad(apercu.ca_annee_avant_taxes)}, marge nette : ${cad(apercu.marge_nette_annee_avant_taxes)}.`);
 

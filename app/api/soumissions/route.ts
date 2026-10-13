@@ -25,6 +25,9 @@ function totalServeur(body: any): { total: number; recalcule: boolean } {
         fraisGestion: Number.isFinite(Number(d.fraisGestion)) ? Number(d.fraisGestion) : 0,
         appliquerTaxes: !!d.appliquerTaxes,
       });
+      // Les heures estimées suivent le même recalcul que le total : un écran périmé
+      // envoyait 1 h pour 1 000 pi² et les rendements « H. est. / réel. » étaient faussés.
+      body.heuresEstimees = c.totalHeures;
       return { total: c.total, recalcule: true };
     } catch (e) {
       console.warn("[/api/soumissions] total non recalculable, total reçu conservé :", (e as Error)?.message);

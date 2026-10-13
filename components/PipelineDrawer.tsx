@@ -9,7 +9,7 @@ import { PIPELINE_STAGES } from "@/components/PipelineCRM";
 import AdresseAutocomplete from "@/components/AdresseAutocomplete";
 import MicVocal from "@/components/MicVocal";
 import ZoneDepot from "@/components/ZoneDepot";
-import { aujourdhuiMontreal } from "@/lib/date";
+import { aujourdhuiMontreal, jourMontreal } from "@/lib/date";
 import { ecrire, envoyer, nombreSaisi } from "@/lib/envoi";
 import { fichierTropLourd } from "@/lib/limites-fichiers";
 import { estEmailNonConfigure, urlGmailContrat, urlMailtoContrat } from "@/lib/courriel-contrat";
@@ -81,7 +81,9 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     }, 1200);
     return () => { if (autoSaveT.current) clearTimeout(autoSaveT.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.nom, form.adresse, form.telephone, form.courriel, form.assignee, form.date_relance, form.projet_lien_id, form.tags, form.notes, form.instructions_speciales]);
+    // `pipeline_stage` manquait : changer l'étape puis fermer le tiroir la perdait (elle ne
+    // partait qu'avec la prochaine frappe dans un autre champ).
+  }, [form.nom, form.adresse, form.telephone, form.courriel, form.assignee, form.date_relance, form.projet_lien_id, form.tags, form.notes, form.instructions_speciales, form.pipeline_stage]);
 
   const rechargerTaches = () => fetch(`/api/client-taches?client_id=${client.id}`).then((r) => r.json()).then((t) => Array.isArray(t) && setTaches(t)).catch(() => {});
   const rechargerComm = () => fetch(`/api/client-commentaires?client_id=${client.id}`).then((r) => r.json()).then((c) => Array.isArray(c) && setCommentaires(c)).catch(() => {});
@@ -185,7 +187,17 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
     if (depotStr === null) return;
     const depot = depotStr.trim() ? nombreSaisi(depotStr) : 25;
     if (!Number.isFinite(depot) || depot < 0 || depot > 100) { toast(`Dépôt illisible : « ${depotStr} » — un pourcentage entre 0 et 100`, "warning"); return; }
-    const soumNum = prompt("N° de devis/soumission lié (laisser vide si aucun) :", "") || "";
+    const soumNum = (prompt("N° de devis/soumission lié (laisser vide si aucun) :", "") || "").trim();
+    // Date du DEVIS (pas celle du jour) : le contrat imprimait « Se référer au devis XP-…
+    // du 2026-10-13 » même pour un devis de septembre.
+    let soumDate: string | undefined;
+    if (soumNum) {
+      try {
+        const s = await fetch(`/api/soumissions?numero=${encodeURIComponent(soumNum)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+        soumDate = s?.date_creation ? jourMontreal(s.date_creation) : undefined;
+        if (!s) toast(`Devis ${soumNum} introuvable : vérifie le numéro (le contrat le citera tel quel)`, "warning");
+      } catch { /* la date reste vide, le numéro est cité tel quel */ }
+    }
     // Description des travaux TELLE QU'ELLE APPARAÎTRA AU CONTRAT. Avant, les notes de la
     // fiche CRM partaient telles quelles (« FOURCHETTE BUDGÉTAIRE DU CLIENT… ») : imprimées
     // sur le PDF signé, scellées par l'empreinte, et lisibles par le client.
@@ -213,7 +225,7 @@ export default function PipelineDrawer({ client, projets, onClose, onUpdate }: P
         client_courriel: form.courriel,
         proprietaire: form.nom,
         soumission_numero: soumNum || undefined,
-        soumission_date: soumNum ? new Date().toLocaleDateString("fr-CA") : undefined,
+        soumission_date: soumNum ? soumDate : undefined,
         date_debut_travaux: dateStr,
         prix_total: prix,
         depot_pct: depot,

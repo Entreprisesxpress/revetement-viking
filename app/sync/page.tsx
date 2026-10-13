@@ -61,14 +61,17 @@ function SyncContent() {
       // « en cours » sans un mot ; `r.ok` est vérifié au niveau HTTP ET du corps.
       // La route traite 10 photos par appel et renvoie `reste` : on rappelle tant qu'il en
       // reste (borne : 20 tours = 200 photos), en cumulant les compteurs.
-      let res = await envoyer<any>("/api/drive/resync");
+      // Curseur `apres_id` : chaque tour reprend APRÈS la dernière photo tentée, donc une
+      // photo irrécupérable n'est tentée qu'une fois et le compteur « encore en échec »
+      // compte des photos distinctes.
+      let res = await envoyer<any>("/api/drive/resync", { corps: { apres_id: 0 } });
       const cumul = { synced: 0, ignores: 0, restants: 0, dernierErreur: "" };
       for (let tour = 0; res.ok && tour < 20; tour++) {
         const d = res.data || {};
         cumul.synced += d.synced || 0; cumul.ignores += d.ignores || 0; cumul.restants += d.restants || 0;
         if (d.dernierErreur) cumul.dernierErreur = d.dernierErreur;
         if (!d.reste) break;
-        res = await envoyer<any>("/api/drive/resync");
+        res = await envoyer<any>("/api/drive/resync", { corps: { apres_id: d.dernier_id || 0 } });
       }
       if (res.ok) {
         const r = cumul;

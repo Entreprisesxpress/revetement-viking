@@ -57,6 +57,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (b.confirmer !== true) {
+      // Vérification des conflits SANS écrire : l'écran de restauration envoie le fichier
+      // table par table ; il doit savoir AVANT la première écriture si un seul morceau
+      // sera refusé, sinon les tables précédentes seraient déjà insérées.
+      if (b.verifier_conflits === true) {
+        const conflits = await detecterConflitsRestauration(b);
+        const parTable: Record<string, number> = {};
+        for (const c of conflits) parTable[c.table] = (parTable[c.table] || 0) + 1;
+        return NextResponse.json({ ok: conflits.length === 0, mode: "verification-conflits", meta, compte, total, conflits: parTable, exemples: conflits.slice(0, 50) });
+      }
       // Dry-run : structure valide, mais on ne touche PAS la DB tant que confirmer:true
       // n'est pas explicitement envoyé (protège contre un restore déclenché par erreur).
       return NextResponse.json({

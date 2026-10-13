@@ -36,9 +36,10 @@ let _initPromise: Promise<void> | null = null;
 //   table doublons_ignores (paires de factures écartées à la main).
 // 28 (2026-10-12) : index UNIQUE partiel pipeline_contrats.numero (numéros séquentiels à
 //   10 caractères ; les anciens « C-année-idClient » restent libres).
+// 29 (2026-10-13) : contrats.description_travaux.
 // Le test lib/schema-version.test.ts fige un hachage du bloc de migrations : toute
 // modification du bloc sans incrément de cette constante fait échouer la suite.
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 function getLibsqlClient(): LibsqlClient {
   if (_client) return _client;
@@ -442,6 +443,8 @@ async function migrer() {
   // Numéro de contrat en ligne UNIQUE (C-AAAA-NNN, 10 caractères). Partiel : les anciens
   // numéros « C-année-idClient » (8-9 caractères) pouvaient se répéter et doivent rester.
   await tryExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pipe_contrats_numero ON pipeline_contrats(numero) WHERE length(numero) = 10");
+  // Contrat interne : description des travaux (saisie à l'écran, jamais stockée avant).
+  await tryExec("ALTER TABLE contrats ADD COLUMN description_travaux TEXT");
   // Preuve de transmission style DocuSign : vue + envoi mail
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN date_vue TEXT");
   await tryExec("ALTER TABLE pipeline_contrats ADD COLUMN ip_vue TEXT");
@@ -1350,19 +1353,21 @@ export async function getContrat(id: number): Promise<any> {
 export async function ajouterContrat(c: Contrat): Promise<{ id: number; numero: string }> {
   const numero = c.numero || await genererNumeroContrat();
   const r = await run(
-    `INSERT INTO contrats (numero, client_id, projet_id, soumission_numero, titre, date_emission, date_debut_travaux, date_fin_prevue, montant_avant_taxes, taxes_pct, montant_total, depot_pct, depot_montant, conditions, garantie, statut, payload_json, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    // `description_travaux` : la colonne manquait à l'INSERT et à l'UPDATE — la description
+    // saisie était perdue et le PDF imprimait les conditions à sa place.
+    `INSERT INTO contrats (numero, client_id, projet_id, soumission_numero, titre, date_emission, date_debut_travaux, date_fin_prevue, montant_avant_taxes, taxes_pct, montant_total, depot_pct, depot_montant, conditions, garantie, description_travaux, statut, payload_json, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [numero, c.client_id || null, c.projet_id || null, c.soumission_numero || null,
      c.titre, c.date_emission, c.date_debut_travaux || null, c.date_fin_prevue || null,
      c.montant_avant_taxes || null, c.taxes_pct ?? 14.975, c.montant_total || null,
      c.depot_pct ?? 30, c.depot_montant || null, c.conditions || null,
-     c.garantie || null, c.statut || 'brouillon', c.payload_json || null, new Date().toISOString()]
+     c.garantie || null, (c as any).description_travaux || null, c.statut || 'brouillon', c.payload_json || null, new Date().toISOString()]
   );
   return { id: r.lastInsertRowid, numero };
 }
 export async function modifierContrat(id: number, c: Partial<Contrat>): Promise<boolean> {
   const champs = ['titre', 'date_emission', 'date_debut_travaux', 'date_fin_prevue',
                   'montant_avant_taxes', 'taxes_pct', 'montant_total', 'depot_pct',
-                  'depot_montant', 'conditions', 'garantie', 'statut',
+                  'depot_montant', 'conditions', 'garantie', 'description_travaux', 'statut',
                   'signe_par_client', 'date_signature', 'payload_json'];
   const definis = champs.filter(k => (c as any)[k] !== undefined);
   if (!definis.length) return true;
@@ -2120,12 +2125,15 @@ export async function ajouterProjet(p: Projet): Promise<number> {
       // Avant, ces deux colonnes n'étaient pas écrites à l'insertion : le projet était
       // complété sans date de fin (hors du CA reconnu) et non facturé.
       const r = await run(
-        `INSERT INTO projets (numero, client_id, nom, adresse_chantier, description, statut, date_debut, date_fin_prevue, date_fin_reelle, facturee, soumission_numero, budget_estime, heures_estimees, prix_contrat, cree_par, contrat_pipeline_id, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        // `reno_assistance` et `duree_jours` manquaient à l'INSERT : la case cochée à la
+        // création était perdue en silence (le PATCH, lui, la connaissait).
+        `INSERT INTO projets (numero, client_id, nom, adresse_chantier, description, statut, date_debut, date_fin_prevue, date_fin_reelle, facturee, soumission_numero, budget_estime, heures_estimees, prix_contrat, cree_par, contrat_pipeline_id, reno_assistance, duree_jours, date_creation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [numero, p.client_id || null, p.nom, p.adresse_chantier || null, p.description || null,
          p.statut || 'actif', p.date_debut || null, p.date_fin_prevue || null,
          p.date_fin_reelle || null, (p as any).facturee ? 1 : 0,
          p.soumission_numero || null, p.budget_estime || null, p.heures_estimees || null,
          (p as any).prix_contrat || null, (p as any).cree_par || null, p.contrat_pipeline_id || null,
+         (p as any).reno_assistance ? 1 : 0, Number.isFinite(Number(p.duree_jours)) && p.duree_jours ? Number(p.duree_jours) : null,
          new Date().toISOString()]
       );
       return r.lastInsertRowid;
@@ -2208,7 +2216,7 @@ export interface HeureProjet {
 export async function listerHeuresProjet(projet_id: number) {
   return await all<HeureProjet>("SELECT * FROM heures_projet WHERE projet_id = ? ORDER BY date DESC, id DESC", [projet_id]);
 }
-export async function ajouterHeureProjet(h: HeureProjet & { ajoute_par?: string }): Promise<number> {
+export async function ajouterHeureProjet(h: HeureProjet & { ajoute_par?: string }, opts: { sansDoublonDepuisSecondes?: number } = {}): Promise<number> {
   // Le taux est EXIGÉ : le repli silencieux à 90 $/h entrait dans le coût de main-d'œuvre
   // et dans la paie sans que personne ne l'ait choisi. La route le prend dans la fiche
   // de l'employé ; tout autre appelant doit le fournir.
@@ -2216,11 +2224,55 @@ export async function ajouterHeureProjet(h: HeureProjet & { ajoute_par?: string 
   if (!Number.isFinite(taux) || taux <= 0) {
     throw Object.assign(new Error("taux_horaire requis pour enregistrer des heures (aucun défaut)"), { code: "TAUX_REQUIS" });
   }
+  const maintenant = new Date().toISOString();
+  const args = [h.projet_id, h.date, h.heures, h.description || null, h.employe || null, taux, h.ajoute_par || null, maintenant];
+  if (opts.sansDoublonDepuisSecondes) {
+    // Contrôle de doublon DANS l'INSERT (une seule instruction, donc atomique) : dix saisies
+    // identiques envoyées en même temps passaient toutes le contrôle séparé « doublon
+    // < 2 min » avant la première écriture. Renvoie 0 si la ligne existe déjà.
+    const seuil = new Date(Date.now() - opts.sansDoublonDepuisSecondes * 1000).toISOString();
+    const r = await run(
+      `INSERT INTO heures_projet (projet_id, date, heures, description, employe, taux_horaire, ajoute_par, date_saisie)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM heures_projet WHERE employe = ? AND date = ? AND projet_id = ? AND ABS(heures - ?) < 0.0001 AND date_saisie > ?)`,
+      [...args, h.employe || null, h.date, h.projet_id, h.heures, seuil]
+    );
+    return Number(r.rowsAffected || 0) > 0 ? r.lastInsertRowid : 0;
+  }
   const r = await run(
     `INSERT INTO heures_projet (projet_id, date, heures, description, employe, taux_horaire, ajoute_par, date_saisie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [h.projet_id, h.date, h.heures, h.description || null, h.employe || null, taux, h.ajoute_par || null, new Date().toISOString()]
+    args
   );
   return r.lastInsertRowid;
+}
+
+/** Passe un chantier à « complété » SEULEMENT s'il ne l'est pas déjà (une instruction,
+ *  donc atomique) : cinq « compléter » simultanés envoyaient cinq avis et cinq courriels. */
+export async function marquerCompleteSiOuvert(id: number): Promise<boolean> {
+  const r = await run("UPDATE projets SET statut = 'complete' WHERE id = ? AND statut != 'complete'", [id]);
+  return Number(r.rowsAffected || 0) > 0;
+}
+
+/** Crée un employé avec ses détails en UNE transaction : avant, l'INSERT de base puis un
+ *  UPDATE séparé — une panne entre les deux laissait une fiche sans NAS, sans contact
+ *  d'urgence ni case « reçoit un talon ». */
+export async function ajouterEmployeAvecDetails(e: Employe, extras: Record<string, any>): Promise<number> {
+  await initDb();
+  const champs = ['recoit_talon', 'telephone', 'courriel', 'adresse', 'date_naissance', 'nas',
+    'date_embauche', 'poste', 'contact_urgence_nom', 'contact_urgence_lien',
+    'contact_urgence_tel', 'specimen_cheque_data', 'specimen_cheque_type', 'notes'].filter((k) => extras[k] !== undefined);
+  const stmts: Enonce[] = [{
+    sql: "INSERT INTO employes (nom, taux_horaire, das_pct, actif, date_creation) VALUES (?, ?, ?, 1, ?)",
+    args: [e.nom, e.taux_horaire, e.das_pct ?? 0.15, new Date().toISOString()],
+  }];
+  if (champs.length) {
+    stmts.push({
+      sql: `UPDATE employes SET ${champs.map((k) => `${k} = ?`).join(", ")} WHERE id = last_insert_rowid()`,
+      args: champs.map((k) => (k === 'recoit_talon' ? bool01(extras[k]) : extras[k])),
+    });
+  }
+  const res = await getLibsqlClient().batch(stmts, "write");
+  return Number(res[0]?.lastInsertRowid || 0);
 }
 /** Vrai si une entrée d'heures (employé, date) est GELÉE par une paie déjà versée :
  *  - elle tombe dans une quinzaine payée ; ou
@@ -2441,8 +2493,10 @@ export async function finances(annee: number): Promise<any> {
               WHERE p.statut = 'complete' AND ${moisCompl} LIKE ? GROUP BY ym`, [prefixe]),
     // Revenu reconnu à la complétion : contrat (sinon estimé) + EXTRAS FACTURÉS
     // (même règle qu'au niveau projet — un extra chargé est un revenu réel).
+    // `prix_contrat = 0` vaut « pas de prix » (comme `prix_contrat || budget_estime` partout
+    // ailleurs) : COALESCE le gardait et le CA du mois tombait à 0 pour ce chantier.
     all<any>(`SELECT ${moisCompl} ym, COALESCE(SUM(
-                COALESCE(p.prix_contrat, p.budget_estime, 0)
+                CASE WHEN COALESCE(p.prix_contrat, 0) > 0 THEN p.prix_contrat ELSE COALESCE(p.budget_estime, 0) END
                 + COALESCE((SELECT SUM(e.montant) FROM extras e
                             WHERE e.projet_id = p.id AND e.statut = 'charge'), 0)
               ), 0) v
@@ -2484,6 +2538,20 @@ export async function heuresParEmploye(depuis: string): Promise<{ employe: strin
      FROM heures_projet WHERE date >= ? AND employe IS NOT NULL
      GROUP BY employe ORDER BY total_heures DESC`,
     [depuis]
+  );
+}
+/** Main-d'œuvre par employé des chantiers COMPLÉTÉS dans l'année, au mois de complétion —
+ *  EXACTEMENT le périmètre du « Total main-d'œuvre » de finances(). Le détail du tableau
+ *  de bord lisait toutes les heures de l'année (chantiers en cours compris) sous un total
+ *  qui n'en comptait qu'une partie : des lignes qui ne s'additionnaient pas au total. */
+export async function heuresParEmployeProjetsCompletes(annee: number): Promise<{ employe: string; total_heures: number; cout_total: number; n_jours: number }[]> {
+  const moisCompl = `substr(COALESCE(p.date_fin_reelle, p.date_fin_prevue, p.date_debut, p.date_creation), 1, 7)`;
+  return await all<any>(
+    `SELECT hp.employe, SUM(hp.heures) as total_heures, SUM(hp.heures * hp.taux_horaire) as cout_total, COUNT(DISTINCT hp.date) as n_jours
+     FROM heures_projet hp JOIN projets p ON p.id = hp.projet_id
+     WHERE p.statut = 'complete' AND ${moisCompl} LIKE ? AND hp.employe IS NOT NULL
+     GROUP BY hp.employe ORDER BY total_heures DESC`,
+    [`${annee}-%`]
   );
 }
 
@@ -2959,11 +3027,15 @@ export async function compterPhotosErreursDrive(): Promise<number> {
   return r?.n || 0;
 }
 /** Photos dont la synchro Drive a échoué (pour réessayer). */
-export async function listerPhotosErreursDrive(): Promise<any[]> {
+/** Photos à reprendre sur Drive, par id croissant, APRÈS `apresId` : la resynchro avance
+ *  dans la liste au lieu de reprendre vingt fois les dix mêmes photos irrécupérables
+ *  (sans ORDER BY ni curseur, une photo qui échouait revenait en tête du lot suivant et
+ *  les autres n'étaient jamais tentées). */
+export async function listerPhotosErreursDrive(apresId = 0): Promise<any[]> {
   return await all<any>(
     `SELECT id, projet_id, date, photo_data, photo_type, description, drive_sync_error
-     FROM photos_chantier WHERE ${OU_DRIVE_A_REPRENDRE} LIMIT 50`,
-    [DRIVE_EN_ATTENTE, seuilAttenteDrive()]
+     FROM photos_chantier WHERE ${OU_DRIVE_A_REPRENDRE} AND id > ? ORDER BY id ASC LIMIT 50`,
+    [DRIVE_EN_ATTENTE, seuilAttenteDrive(), apresId]
   );
 }
 
@@ -3827,10 +3899,27 @@ export async function lireIdempotence(cle: string): Promise<{ statut: number; co
   const r = await one<{ statut: number; corps: string }>("SELECT statut, corps FROM idempotence WHERE cle = ?", [cle]);
   return r ? { statut: Number(r.statut), corps: String(r.corps) } : null;
 }
-/** Enregistre la réponse d'une requête réussie. OR IGNORE : deux requêtes simultanées
- *  avec la même clé ne se font pas échouer l'une l'autre, la première écrite gagne. */
+/** RÉSERVE la clé AVANT d'exécuter la requête (statut 0 = en cours). Vrai si cette requête
+ *  est la première à la prendre. Avant, la clé n'était écrite qu'APRÈS le handler : dix
+ *  requêtes simultanées avec la même clé passaient toutes la lecture avant la première
+ *  écriture et créaient dix lignes (mesuré : heures, dépenses, extras). L'INSERT OR IGNORE
+ *  sur la clé primaire est atomique : une seule gagne. */
+export async function reserverIdempotence(cle: string): Promise<boolean> {
+  const r = await run("INSERT OR IGNORE INTO idempotence (cle, statut, corps, cree_le) VALUES (?, 0, '', ?)", [cle, new Date().toISOString()]);
+  return Number(r.rowsAffected || 0) > 0;
+}
+/** Enregistre la réponse d'une requête réussie sur la clé réservée (UPSERT : une clé non
+ *  réservée — appelant direct, test — est créée telle quelle). */
 export async function ecrireIdempotence(cle: string, statut: number, corps: string): Promise<void> {
-  await run("INSERT OR IGNORE INTO idempotence (cle, statut, corps, cree_le) VALUES (?, ?, ?, ?)", [cle, statut, corps, new Date().toISOString()]);
+  await run(
+    "INSERT INTO idempotence (cle, statut, corps, cree_le) VALUES (?, ?, ?, ?) ON CONFLICT(cle) DO UPDATE SET statut = excluded.statut, corps = excluded.corps",
+    [cle, statut, corps, new Date().toISOString()]
+  );
+}
+/** Libère une réservation dont la requête a échoué (refus 4xx, panne) : la même clé
+ *  pourra être renvoyée corrigée. */
+export async function libererIdempotence(cle: string): Promise<void> {
+  await run("DELETE FROM idempotence WHERE cle = ? AND statut = 0", [cle]);
 }
 export async function purgerIdempotence(joursConservation = 7): Promise<number> {
   const seuil = new Date(Date.now() - joursConservation * 86400000).toISOString();
@@ -3855,6 +3944,11 @@ export async function purgerJournaux(maintenant = Date.now()): Promise<void> {
     { sql: `DELETE FROM journal_activite WHERE id NOT IN (SELECT id FROM journal_activite ORDER BY id DESC LIMIT ${PURGE_JOURNAL_MAX_LIGNES})`, args: [] },
     { sql: "DELETE FROM idempotence WHERE cree_le < ?", args: [seuilIdem] },
   ]);
+  // Erreurs du navigateur : annoncées « purgées automatiquement » dans les exclusions de
+  // sauvegarde, mais aucune purge ne les touchait — la table grossissait sans fin. La
+  // table est créée à la première erreur (lib/erreurs-client.ts) : absente, on ignore.
+  await run("DELETE FROM erreurs_client WHERE date < ?", [seuilJournal]).catch(() => {});
+  await run("DELETE FROM erreurs_client WHERE id NOT IN (SELECT id FROM erreurs_client ORDER BY id DESC LIMIT 2000)", []).catch(() => {});
 }
 
 /** Employé ACTIF par son nom exact (insensible à la casse et aux espaces de bord). Sert à

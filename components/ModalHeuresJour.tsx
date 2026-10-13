@@ -238,6 +238,8 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
       // MÊME clé (le serveur ne crée jamais la ligne deux fois). Le bandeau hors-ligne
       // promettait cette sauvegarde différée depuis longtemps : ici elle existe.
       const erreurs: string[] = [];
+      const empsEnErreur = new Set<number>();
+      let reussies = 0;
       let enFile = 0;
       for (const emp of empsActifs) {
         for (const l of valides) {
@@ -252,12 +254,19 @@ export default function ModalHeuresJour({ ouvert, onClose, onSuccess, onExtra }:
             description: desc, employe: emp.nom, taux_horaire: Number(emp.taux_horaire) || 0,
             projet_nom: projets.find((p) => p.id === l.projet_id)?.nom,
           });
-          if (!r.ok) erreurs.push(`${emp.nom} · ${l.heures_effectives}h · ${dateLigne} : ${r.erreur || "inconnu"}`);
-          else if (r.offline) enFile++;
+          if (!r.ok) { erreurs.push(`${emp.nom} · ${l.heures_effectives}h · ${dateLigne} : ${r.erreur || "inconnu"}`); empsEnErreur.add(emp.id); }
+          else { reussies++; if (r.offline) enFile++; }
         }
       }
       if (erreurs.length > 0) {
-        toast(`❌ ${erreurs.length} erreur(s) à la saisie :\n${erreurs.slice(0, 3).join("\n")}${erreurs.length > 3 ? `\n+${erreurs.length - 3} autres` : ""}`, "error");
+        // Les employés dont TOUTES les lignes sont passées sont décochés : un nouvel essai
+        // ne renvoie que ceux en erreur. Avant, tout était renvoyé — et comme chaque envoi
+        // porte une clé d'idempotence neuve, les autres recevaient leur journée en double
+        // (le serveur refuse maintenant le doublon, mais l'écran ne doit pas le provoquer).
+        const dejaEnregistres = empsActifs.filter((e) => !empsEnErreur.has(e.id));
+        if (dejaEnregistres.length) setEmpSelectionnes(new Set(empsActifs.filter((e) => empsEnErreur.has(e.id)).map((e) => e.id)));
+        toast(`❌ ${erreurs.length} erreur(s) à la saisie :\n${erreurs.slice(0, 3).join("\n")}${erreurs.length > 3 ? `\n+${erreurs.length - 3} autres` : ""}${reussies > 0 ? `\n✓ ${reussies} entrée(s) enregistrée(s) — ${dejaEnregistres.map((e) => e.nom).join(", ") || "voir la liste"} décoché(s) : corrige puis réessaie pour les autres.` : ""}`, "error");
+        if (reussies > 0) onSuccess?.();
         setLoading(false);
         return;
       }

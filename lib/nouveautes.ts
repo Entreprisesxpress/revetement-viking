@@ -24,6 +24,17 @@ export const MAX_BLOCS = 3;
 
 export const NOUVEAUTES: Nouveaute[] = [
   {
+    version: "2026-10-13",
+    titre: "Deuxième chasse aux bogues : 45 constats de plus",
+    points: [
+      "Soumissions : le nombre de boîtes à commander était parfois une de trop à cause d'un arrondi informatique (50 pièces + 10 % donnait 56 au lieu de 55) — corrigé pour tout le catalogue, le PDF et la page de signature. Le PDF et la page de signature montrent maintenant les frais forfaitaires et de gestion : la somme des lignes retombe sur le sous-total. Une ligne au code retiré du catalogue ne décale plus les sous-totaux des suivantes.",
+      "Contrats : la « Description des travaux » du contrat interne est enregistrée et imprimée (elle était perdue, et les conditions prenaient sa place) ; la garantie s'imprime ; des versements qui ne font pas 100 % bloquent la création ; la date du devis cité est celle du devis, pas celle du jour. Fiche client : changer l'étape du pipeline est sauvegardé tout seul comme les autres champs.",
+      "Saisie d'heures : dix envois simultanés de la même saisie (deux onglets, file hors ligne rejouée) ne créent plus qu'une ligne. Une saisie en erreur pour un employé décoche ceux qui ont réussi : réessayer n'envoie que les autres. Se déconnecter prévient si des saisies hors ligne n'ont pas encore été envoyées, au lieu de les effacer.",
+      "Tableau de bord : le détail de main-d'œuvre par employé s'additionne maintenant au total de Finances (même périmètre : chantiers complétés dans l'année) ; « Facturé » sur un extra ou un projet rafraîchit les tuiles ; la case « Reno assistance » cochée à la création est conservée ; « % du budget » dépasse 100 % quand c'est le cas ; l'extra se propose sur un chantier en cours, plus sur le dernier créé.",
+      "Divers : la resynchronisation Drive avance dans la liste au lieu de reprendre vingt fois les mêmes photos ; Asana synchronise au-delà de 100 tâches ; Jarvis et Finances comptent l'année et le mois de Montréal (plus de saut au lendemain après 20 h) ; le rapport hebdo couvre sept jours au lieu de huit ; l'export CSV s'ouvre avec les accents dans Excel ; changer le mot de passe n'invalide plus les liens de soumission déjà envoyés.",
+    ],
+  },
+  {
     version: "2026-10-12",
     titre: "Paie : les heures de chaque journée, et où va chaque heure",
     points: [

@@ -105,8 +105,11 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < 10; i++) {
       const f = formData.get(`photo_${i}`) as File | null;
       if (!f) continue;
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(f.type || "")) {
+        return NextResponse.json({ error: "format d'image non pris en charge", message: `« ${f.type || "type inconnu"} » : envoie des photos JPEG, PNG ou WebP (un HEIC d'iPhone doit être converti).` }, { status: 400 });
+      }
       const buffer = Buffer.from(await f.arrayBuffer());
-      photos.push({ buffer, mediaType: f.type || "image/jpeg" });
+      photos.push({ buffer, mediaType: f.type.toLowerCase() });
     }
 
     if (photos.length === 0) {

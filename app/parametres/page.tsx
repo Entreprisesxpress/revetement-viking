@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toasts";
 import { compresserImage, genererVignette } from "@/lib/img";
 import { ecrire, envoyer, lireJson } from "@/lib/envoi";
 import { purgerLocal } from "@/lib/purge-locale";
+import { confirmerDeconnexion } from "@/lib/deconnexion";
 import ErreurChargement from "@/components/ErreurChargement";
 
 export default function ParametresPage() {
@@ -53,7 +54,7 @@ export default function ParametresPage() {
   };
 
   const deconnexion = async () => {
-    if (!confirm("Te déconnecter de l'application ?")) return;
+    if (!(await confirmerDeconnexion("Te déconnecter de l'application ?"))) return;
     if (!(await ecrire("/api/login", "DELETE", undefined, "Suppression"))) return;
     // Rien de l'usager ne doit rester sur l'appareil (cache, brouillons, file hors-ligne).
     await purgerLocal();

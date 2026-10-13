@@ -60,7 +60,11 @@ const STATUTS_LABEL: Record<string, string> = {
 
 async function telechargerFeuilleTemps(projet: any) {
   const r = await fetch(`/api/rapports?projet_id=${projet.id}`);
+  // Un 401/500 renvoyait `{error}` à la place des lignes et la génération du PDF plantait
+  // dans une promesse non gérée, sans un mot à l'écran.
+  if (!r.ok) throw new Error(r.status === 401 ? "Session expirée — reconnecte-toi." : `Heures du chantier illisibles (HTTP ${r.status}).`);
   const lignes = await r.json();
+  if (!Array.isArray(lignes)) throw new Error("Heures du chantier illisibles.");
   const { genererFeuilleTempsBlob } = await import("@/lib/pdf-feuille-temps");
   const blob = await genererFeuilleTempsBlob({ projet, lignes });
   const url = URL.createObjectURL(blob);
@@ -507,7 +511,7 @@ export default function ProjetDetail() {
               className="text-xs px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded font-semibold"
               title="Supprimer le projet définitivement"
             >🗑 Supprimer</button>
-            <button onClick={() => telechargerFeuilleTemps(projet)} className="text-xs px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded font-semibold">⏱️ Feuille de temps PDF</button>
+            <button onClick={() => telechargerFeuilleTemps(projet).catch((e: any) => toast(`Feuille de temps : ${e?.message || "échec"}`, "error"))} className="text-xs px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded font-semibold">⏱️ Feuille de temps PDF</button>
             <a href={`/api/rapports?projet_id=${id}&format=csv`} className="inline-flex items-center min-h-10 text-sm px-3 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded font-semibold">📊 Export CSV</a>
             {projet.reno_assistance ? (
               <span className="text-xs px-3 py-1 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-2" title="Dossier subvention / aide à la rénovation">
@@ -582,7 +586,11 @@ export default function ProjetDetail() {
             L'écran Finances → Rentabilité, lui, montre la <strong className="text-slate-300">marge de chantier</strong> sans ces frais : elle y sera donc plus élevée.
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Stat label={projet.prix_contrat ? "Prix contrat" : "Budget initial"} value={formatCAD(revenuAffiche)} sub={`Avant taxes : ${formatCAD(revenu)}`} />
+            <Stat
+              label={(projet.extras_factures || 0) > 0 ? "Revenu (contrat + extras)" : projet.prix_contrat ? "Prix contrat" : "Budget initial"}
+              value={formatCAD(revenuAffiche)}
+              sub={`Avant taxes : ${formatCAD(revenu)}${(projet.extras_factures || 0) > 0 ? ` · dont extras ${formatCAD(projet.extras_factures)}` : ""}`}
+            />
             <Stat label="Coût total" value={formatCAD(coutTotalAvecFixes)} couleur={coutTotalAvecFixes > revenu ? "text-red-300" : "text-amber-200"} sub={`Direct ${formatCAD(projet.cout_total)} + Fixes ${formatCAD(fraisFixes)}`} />
             <Stat label="Profit net" value={formatCAD(margeReelle)} couleur={margeReelle < 0 ? "text-red-300" : "text-emerald-300"} sub={`${margeReellePct.toFixed(0)}% net`} />
             <Stat label="Restant" value={formatCAD(revenu - coutTotalAvecFixes)} couleur={revenu - coutTotalAvecFixes < 0 ? "text-red-300" : "text-slate-200"} />

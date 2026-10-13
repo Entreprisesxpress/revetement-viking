@@ -14,6 +14,8 @@ interface Coord { lat: number; lng: number }
 
 const COULEURS: Record<string, string> = {
   actif: "#10b981",
+  en_cours: "#059669",   // « Commencer ce chantier » : vert aussi (était gris)
+  en_pause: "#d97706",
   a_venir: "#f59e0b",
   complete: "#3b82f6",
   annule: "#ef4444",

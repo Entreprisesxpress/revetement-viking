@@ -93,7 +93,10 @@ export default function Home() {
     setMoBusy(true);
     try {
       const an = anneeCourante();
-      const d = await fetch(`/api/heures-sommaire?depuis=${an}-01-01`).then((r) => r.json());
+      // Même périmètre que le total juste dessous (finances : chantiers COMPLÉTÉS dans
+      // l'année, au mois de complétion). Avant : toutes les heures de l'année, chantiers
+      // en cours compris → des lignes plus grosses que leur total, l'écart masqué.
+      const d = await fetch(`/api/heures-sommaire?completes_annee=${an}`).then((r) => r.json());
       setMoDetail(Array.isArray(d) ? d : []);
     } catch { setMoDetail([]); } finally { setMoBusy(false); }
   };
@@ -216,6 +219,7 @@ export default function Home() {
                         if (!(await ecrire("/api/projets", "PATCH", { id: p.id, facturation_confirmee: true }, "Enregistrement"))) return;
                         toast("✓ Projet marqué facturé", "success");
                         setAFacturer((arr) => arr.filter((x) => x.id !== p.id));
+                        charger();   // tuiles (revenu, marge) et cartes de projets à jour
                       }}
                       className="flex-shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold whitespace-nowrap"
                     >✓ Facturé</button>
@@ -253,6 +257,7 @@ export default function Home() {
                       if (!(await ecrire("/api/extras", "PATCH", { id: e.id, statut: "charge" }, "Enregistrement"))) return;
                       toast("✓ Extra marqué facturé", "success");
                       setExtras((arr) => arr.filter((x) => x.id !== e.id));
+                      charger();   // la marge des projets et le revenu du mois incluent les extras facturés
                     }}
                     className="flex-shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold whitespace-nowrap"
                   >
@@ -599,8 +604,8 @@ export default function Home() {
                           <span className="text-slate-600 whitespace-nowrap">{(e.total_heures || 0).toFixed(1)} h · <strong className="text-amber-800">{formatCAD(e.cout_total || 0)}</strong></span>
                         </div>
                       ))}
-                      {(() => { const somme = moDetail.reduce((s, e) => s + (e.cout_total || 0), 0); const autres = mo - somme; return autres > 1 ? (
-                        <div className="flex justify-between text-[10px] text-slate-400"><span>Autres (heures sans employé)</span><span>{formatCAD(autres)}</span></div>
+                      {(() => { const somme = moDetail.reduce((s, e) => s + (e.cout_total || 0), 0); const autres = mo - somme; return Math.abs(autres) > 1 ? (
+                        <div className="flex justify-between text-[10px] text-slate-400"><span>{autres > 0 ? "Autres (heures sans employé)" : "Écart (recharge la page)"}</span><span>{formatCAD(autres)}</span></div>
                       ) : null; })()}
                       <div className="flex justify-between text-[11px] font-bold border-t border-amber-200 pt-1"><span>Total main-d'œuvre</span><span className="text-amber-800">{formatCAD(mo)}</span></div>
                     </>)}

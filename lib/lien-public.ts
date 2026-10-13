@@ -11,18 +11,41 @@ async function hmac(secret: string, message: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
 }
 
+/** Clé de signature des liens : un secret DÉDIÉ, jamais un mot de passe. Avant,
+ *  `APP_PASSWORD` (mot de passe de connexion de repli) passait AVANT le secret dédié :
+ *  changer le mot de passe invalidait tous les liens de soumission déjà envoyés aux
+ *  clients, et un LIEN_PUBLIC_SECRET configuré était ignoré. */
 function secret(): string {
-  const s = process.env.APP_PASSWORD || process.env.LIEN_PUBLIC_SECRET;
+  const s = process.env.LIEN_PUBLIC_SECRET || process.env.SESSION_SECRET;
   if (s) return s;
   // En production, refuser le fallback constant (sinon tokens devinables).
   if (process.env.NODE_ENV === "production") {
-    throw new Error("Secret manquant : configurer APP_PASSWORD ou LIEN_PUBLIC_SECRET pour signer les liens publics.");
+    throw new Error("Secret manquant : configurer LIEN_PUBLIC_SECRET pour signer les liens publics.");
   }
   return SECRET_FALLBACK; // dev local uniquement
+}
+/** Anciennes clés encore acceptées à la VÉRIFICATION seulement : les liens déjà remis aux
+ *  clients (signés avec APP_PASSWORD quand il primait) restent valides. */
+function secretsAnciens(): string[] {
+  return [process.env.APP_PASSWORD].filter((s): s is string => !!s && s !== secretSansLever());
+}
+function secretSansLever(): string | null {
+  try { return secret(); } catch { return null; }
 }
 
 export async function genererTokenSoumission(numero: string): Promise<string> {
   return await hmac(secret(), `soumission:${numero}`);
+}
+
+/** Vrai si `token` correspond au message signé avec la clé courante OU une ancienne clé. */
+async function jetonValide(message: string, token: string): Promise<boolean> {
+  let courant: string;
+  try { courant = await hmac(secret(), message); } catch { return false; }
+  if (memeJeton(courant, token)) return true;
+  for (const s of secretsAnciens()) {
+    if (memeJeton(await hmac(s, message), token)) return true;
+  }
+  return false;
 }
 
 /** Compare deux jetons à temps constant. */
@@ -39,10 +62,8 @@ export async function verifierTokenSoumission(numero: string, token: string): Pr
   // public — un défaut de configuration déguisé en panne serveur. Refuser est à la fois
   // plus sûr (fail-closed) et plus lisible. La GÉNÉRATION, elle, continue de lever :
   // c'est là que Francis doit voir la vraie cause quand il crée un lien.
-  let attendu: string;
-  try { attendu = await genererTokenSoumission(numero); }
-  catch { return false; }
-  return memeJeton(attendu, token);
+  if (typeof token !== "string" || !token) return false;
+  return await jetonValide(`soumission:${numero}`, token);
 }
 
 // === Liens publics PROJET (mode présentation client) ===
@@ -50,8 +71,6 @@ export async function genererTokenProjet(id: number): Promise<string> {
   return await hmac(secret(), `projet:${id}`);
 }
 export async function verifierTokenProjet(id: number, token: string): Promise<boolean> {
-  let attendu: string;
-  try { attendu = await genererTokenProjet(id); }
-  catch { return false; }   // même raison que ci-dessus : refuser, pas planter
-  return memeJeton(attendu, token);
+  if (typeof token !== "string" || !token) return false;
+  return await jetonValide(`projet:${id}`, token);   // même raison : refuser, pas planter
 }

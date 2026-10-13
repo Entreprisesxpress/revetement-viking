@@ -5,6 +5,7 @@ import { journaliser } from "@/lib/audit";
 import { donneesTropLourdes, LIMITE_FICHIER_TEXTE } from "@/lib/limites-fichiers";
 import { idEntier, lireCorps } from "@/lib/requete";
 import { nombreSaisi } from "@/lib/calculs";
+import { MONTANT_MAX } from "@/lib/validation-argent";
 
 // Le contenu du contrat (data_json) est un objet de quelques Ko ; au-delà de 200 000
 // caractères sérialisés, c'est un payload aberrant (413), pas un contrat.
@@ -37,8 +38,8 @@ export async function POST(req: NextRequest) {
   // Le prix est un NOMBRE > 0 (virgule québécoise acceptée) : « 12 500,00 » en chaîne
   // donnait « Total du contrat NaN $ » sur le PDF signé et un projet sans prix.
   const prix = nombreSaisi(b.data_json.prix_total);
-  if (!Number.isFinite(prix) || prix <= 0) {
-    return NextResponse.json({ error: "prix_total invalide", message: `Prix du contrat illisible ou nul : « ${b.data_json.prix_total ?? ""} » — écris par exemple 12 500,00` }, { status: 400 });
+  if (!Number.isFinite(prix) || prix <= 0 || prix > MONTANT_MAX) {
+    return NextResponse.json({ error: "prix_total invalide", message: `Prix du contrat illisible, nul ou aberrant : « ${b.data_json.prix_total ?? ""} » — écris par exemple 12 500,00 (maximum ${MONTANT_MAX.toLocaleString("fr-CA")} $)` }, { status: 400 });
   }
   b.data_json.prix_total = prix;
   // Devis joint (facultatif). 4 Mo de fichier ≈ 5,5 Mo encodés : au-delà, la requête est

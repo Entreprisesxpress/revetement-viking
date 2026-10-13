@@ -950,7 +950,9 @@ ${ENTREPRISE.courriel}`;
                 {lignes.map((l, idx) => {
                   const mat = MATERIAUX.find((m) => m.code === l.materiauCode);
                   if (!mat) return null;
-                  const calc = calcul.lignes[idx];
+                  // Apparié par INDEX DE SAISIE (une ligne au code inconnu ne décale plus
+                  // les sous-totaux des lignes suivantes).
+                  const calc = calcul.parIndex[idx] ?? calcul.lignes[idx];
                   return (
                     <div key={idx} className="border rounded p-2 bg-slate-50">
                       <div className="flex justify-between items-start mb-1">

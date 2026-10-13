@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
     // Numéro : généré (F-NNN, MAX+1) s'il est absent ; refusé s'il est déjà pris — deux
     // factures « F-012 » dans deux projets, c'est un recouvrement impossible à suivre.
-    const numero = String(body.numero || "").trim();
+    const numero = texte(body.numero, 40) || "";   // borné : 100 000 caractères entraient en base
     if (numero && await numeroFactureExiste(numero)) {
       return NextResponse.json({ error: "numéro déjà pris", message: `Le numéro de facture ${numero} existe déjà. Laisse le champ vide pour un numéro automatique.` }, { status: 409 });
     }

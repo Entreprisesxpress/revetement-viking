@@ -94,7 +94,12 @@ export async function POST(req: NextRequest) {
         source: { type: "base64", media_type: "application/pdf", data: base64 },
       });
     } else {
-      const mediaType = (file.type || "image/jpeg") as any;
+      // Types que l'API Vision accepte : un HEIC d'iPhone ou un type vide d'Android donnait
+      // un 400 Anthropic rendu en 500 brut, sans dire de convertir en JPEG.
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(file.type || "")) {
+        return NextResponse.json({ error: "format d'image non pris en charge", message: `« ${file.type || "type inconnu"} » : envoie une photo JPEG, PNG ou WebP (un HEIC d'iPhone doit être converti).` }, { status: 400 });
+      }
+      const mediaType = file.type.toLowerCase() as any;
       content.push({
         type: "image",
         source: { type: "base64", media_type: mediaType, data: base64 },

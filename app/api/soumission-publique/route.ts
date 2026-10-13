@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { charger, marquerSoumissionVue, signerSoumission, refuserSoumission } from "@/lib/db";
 import { verifierTokenSoumission } from "@/lib/lien-public";
-import { calculerSoumission, auCent } from "@/lib/calculateur";
+import { calculerSoumission, auCent, FRAIS_FORFAITAIRES, TAUX_HORAIRE_VENTE } from "@/lib/calculateur";
 import { journaliser } from "@/lib/audit";
 import { avertirSoumissionReponse, destinataireNotifications } from "@/lib/notif-projet";
 import { envoyerPushUtilisateur } from "@/lib/push";
@@ -86,10 +86,22 @@ export async function GET(req: NextRequest) {
         lignesClient = calc.lignes.map((l) => ({
           nom: l.materiau?.nom || "Matériau",
           couleur: (payload.lignes.find((x: any) => x?.materiauCode === l.materiau?.code) || {}).couleur || undefined,
-          quantite: l.quantiteAvecSurplus,
-          unite: (l.materiau as any)?.unite || undefined,
+          quantite: Math.round(l.quantiteAvecSurplus * 10) / 10,
+          unite: (l.materiau as any)?.uniteCalcul || undefined,
           montant: auCent(l.sousTotal),
         }));
+        // Frais forfaitaires (mobilisation, nettoyage, échafaudage…) et frais de gestion :
+        // sans ces lignes, les lignes affichées ne retombaient pas sur le sous-total
+        // (1 457 $ d'écart inexpliqué sur une soumission mesurée).
+        for (const f of (Array.isArray(payload.fraisActifs) ? payload.fraisActifs : []) as { id: string; heures: number }[]) {
+          const def = FRAIS_FORFAITAIRES.find((x: any) => x.id === f.id);
+          const heures = Number(f.heures) || 0;
+          if (heures <= 0) continue;
+          lignesClient.push({ nom: (def as any)?.libelle || f.id, quantite: heures, unite: "h", montant: auCent(heures * TAUX_HORAIRE_VENTE) });
+        }
+        if (calc.fraisGestionMontant > 0) {
+          lignesClient.push({ nom: `Frais de gestion (${Math.round((Number(payload.fraisGestion) || 0) * 100)} %)`, montant: calc.fraisGestionMontant });
+        }
         detailTaxes = { sous_total: calc.sousTotalAvantTaxes, tps: calc.tps, tvq: calc.tvq };
       }
     } catch (e: any) {

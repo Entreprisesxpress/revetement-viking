@@ -77,7 +77,9 @@ export function calculerMargeProjet(input: {
   // le compare au revenu HORS TAXES. Avec le revenu taxes incluses, le ratio était minoré
   // d'environ 13 % : un projet à 100 % de son budget s'affichait à ~87 %, sous le seuil
   // d'alerte de 90 % — le dépassement était signalé trop tard.
-  const pct_budget_consomme = revenu_avant_taxes ? Math.min(100, (cout_total / revenu_avant_taxes) * 100) : 0;
+  // PAS de plafond à 100 : les écrans affichent « 200 % » et passent au rouge au-delà de
+  // 100 (leurs branches `> 100` étaient mortes, et la barre se borne elle-même en CSS).
+  const pct_budget_consomme = revenu_avant_taxes ? (cout_total / revenu_avant_taxes) * 100 : 0;
   return { revenu, revenu_avant_taxes, cout_total, marge, marge_pct, pct_budget_consomme };
 }
 
